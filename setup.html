@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Commissioner Setup — Blind Draft 🏐</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div class="container">
+  <h1>🎬 COMMISSIONER SETUP</h1>
+  <p class="tagline">Configure the league, then create the draft room.</p>
+
+  <div class="card">
+    <h2>Step 1 — The 3 Captains</h2>
+    <div class="grid-3" id="captains-grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>Step 2 — The Player Pool</h2>
+    <div class="info-box">
+      🔥 <strong>Cutthroat mode:</strong> 29 players fight for only 15 spots (5 per team). <strong>14 people won't make any team.</strong>
+    </div>
+    <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:14px;">
+      During the draft, captains see only the <strong>nickname + stats</strong>. Real names are revealed at the end.
+    </p>
+    <div class="player-row" style="font-weight:600; color:#94a3b8; font-size:0.8rem;">
+      <div>#</div><div>Real name</div><div>Nickname</div><div>Attack</div><div>Serve</div><div>Defense</div><div>Setting</div><div>Athletic</div>
+    </div>
+    <div id="players-grid"></div>
+    <div class="row-btns" style="justify-content:flex-start; margin-top:14px;">
+      <button class="secondary" onclick="addPlayerRow()">+ Add player</button>
+      <button class="secondary" onclick="removeLastPlayer()">− Remove last</button>
+    </div>
+  </div>
+
+  <div class="row-btns">
+    <button class="secondary" onclick="resetDefaults()">↺ Reset to defaults</button>
+    <button onclick="createRoom()">Create draft room →</button>
+  </div>
+
+  <div id="room-created" class="card hidden" style="margin-top: 24px;">
+    <div class="success-box">
+      ✅ <strong>Draft room created!</strong> Share the codes below with your captains. When everyone joins, click "Open draft" below.
+    </div>
+    <h3>Room ID</h3>
+    <div class="codes-box">
+      <div class="code-row">
+        <span>Room</span>
+        <span class="code-value" id="out-room"></span>
+      </div>
+    </div>
+    <h3>Captain codes (send each one privately)</h3>
+    <div class="codes-box" id="out-captain-codes"></div>
+    <div class="row-btns">
+      <button class="secondary" onclick="copyInvites()">📋 Copy all invites</button>
+      <button onclick="openDraftAsCommissioner()">Open draft (as spectator) →</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/setup.js"></script>
+</body>
+</html>
