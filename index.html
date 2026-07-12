@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Blind Draft 🏐</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div class="container">
+  <h1>🏐 THE BLIND DRAFT</h1>
+  <p class="tagline">3 captains. 29 players. 15 spots. One league.</p>
+
+  <div class="landing-choice">
+    <a href="./setup.html">
+      <div class="emoji">🎬</div>
+      <h3>Commissioner Setup</h3>
+      <p>Create a new draft room, enter captains & players, get invite codes for the 3 captains.</p>
+    </a>
+    <a href="#" onclick="showJoin(); return false;">
+      <div class="emoji">🎯</div>
+      <h3>Join as Captain</h3>
+      <p>Enter your room ID + captain code to join a draft that a commissioner already created.</p>
+    </a>
+  </div>
+
+  <div id="join-card" class="card hidden" style="margin-top: 24px;">
+    <h2>Join a draft</h2>
+    <label>Room ID</label>
+    <input type="text" id="join-room" placeholder="e.g. ABC123" style="text-transform:uppercase;" maxlength="6">
+    <label style="margin-top: 12px;">Captain code</label>
+    <input type="text" id="join-code" placeholder="e.g. XY7Q" style="text-transform:uppercase;" maxlength="4">
+    <div class="row-btns">
+      <button onclick="joinDraft()">Enter draft →</button>
+      <button class="secondary" onclick="joinAsSpectator()">👀 Spectator only</button>
+    </div>
+    <p style="color:#94a3b8; font-size:0.85rem; margin-top: 12px;">
+      Spectator mode lets you watch the draft live without picking. Leave the captain code blank.
+    </p>
+  </div>
+</div>
+
+<script>
+function showJoin() {
+  document.getElementById('join-card').classList.remove('hidden');
+  document.getElementById('join-room').focus();
+}
+function joinDraft() {
+  const room = document.getElementById('join-room').value.trim().toUpperCase();
+  const code = document.getElementById('join-code').value.trim().toUpperCase();
+  if (!room) { alert('Enter a room ID'); return; }
+  if (!code) { alert('Enter your captain code (or use spectator mode)'); return; }
+  location.href = `./draft.html?room=${encodeURIComponent(room)}&code=${encodeURIComponent(code)}`;
+}
+function joinAsSpectator() {
+  const room = document.getElementById('join-room').value.trim().toUpperCase();
+  if (!room) { alert('Enter a room ID'); return; }
+  location.href = `./draft.html?room=${encodeURIComponent(room)}&spectate=1`;
+}
+</script>
+</body>
+</html>

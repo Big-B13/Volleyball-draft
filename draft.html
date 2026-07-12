@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Draft 🏐</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div id="conn" class="connection-indicator offline">connecting…</div>
+<div class="container">
+
+  <div id="loading" class="card">
+    <h2>🔄 Connecting to draft…</h2>
+    <p style="color:#94a3b8;">Room: <span id="loading-room"></span></p>
+  </div>
+
+  <div id="error" class="card hidden">
+    <div class="warning" id="error-msg"></div>
+    <a href="./index.html"><button>← Back to home</button></a>
+  </div>
+
+  <div id="waiting" class="card hidden" style="text-align:center; padding:60px 20px;">
+    <div id="who-am-i" style="margin-bottom: 16px;"></div>
+    <div class="on-clock">On the clock</div>
+    <div class="team-name-big" id="wait-team-name"></div>
+    <div class="round-info" id="wait-round-info"></div>
+    <p style="color:#94a3b8; margin-top:24px;">Waiting for their pick…</p>
+  </div>
+
+  <div id="my-turn" class="card hidden">
+    <div id="who-am-i-2" style="margin-bottom: 16px;"></div>
+    <div class="draft-header your-turn-glow">
+      <div class="on-clock" style="color:#22c55e;">🟢 IT'S YOUR TURN</div>
+      <div class="team-name-big" id="my-team-name"></div>
+      <div class="round-info" id="my-round-info"></div>
+    </div>
+
+    <h3>Pick a player (<span id="available-count"></span> available)</h3>
+    <div class="available-players" id="available-list"></div>
+  </div>
+
+  <div id="teams-panel" class="teams-panel"></div>
+
+  <div id="pick-history-card" class="card hidden" style="margin-top: 20px;">
+    <h3>Pick history</h3>
+    <div id="pick-history" style="max-height: 240px; overflow-y: auto;"></div>
+  </div>
+
+  <div class="row-btns">
+    <a href="./index.html"><button class="secondary">← Leave draft</button></a>
+  </div>
+</div>
+
+<script type="module" src="./js/draft.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Big Reveal 🏐</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div id="conn" class="connection-indicator offline">connecting…</div>
+<div class="container">
+  <h1>🎬 THE BIG REVEAL</h1>
+  <p class="tagline">Time to see who each captain actually drafted.</p>
+
+  <div id="loading" class="card">
+    <h2>Loading final results…</h2>
+  </div>
+
+  <div id="reveal-teams"></div>
+
+  <div class="row-btns">
+    <a href="./index.html"><button class="secondary">← Home</button></a>
+    <button onclick="exportResults()">📤 Export results (text)</button>
+    <button onclick="window.print()">🖨️ Print / Save PDF</button>
+  </div>
+</div>
+
+<script type="module" src="./js/reveal.js"></script>
+</body>
+</html>

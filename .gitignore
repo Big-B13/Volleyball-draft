@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+.vscode/
+*.log
+.env
+# Uncomment if you want to keep your Firebase config out of git
+# js/firebase-config.js
