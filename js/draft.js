@@ -98,9 +98,24 @@ function subscribe() {
       const idx = state.captains.findIndex(c => (c.code || '').toUpperCase() === codeGiven);
       if (idx < 0) { showError('Invalid captain code for this room.'); return; }
       myCaptainIdx = idx;
-    } else if (!__isSpectate && __authProfile && __authProfile.role === 'captain' && __authProfile.captainId) {
-      // Auto-link: match user's linked captainId to a captain in this room
-      const idx = state.captains.findIndex(c => c.id === __authProfile.captainId);
+    } else if (!__isSpectate && __authProfile && __authProfile.role === 'captain') {
+      // Auto-link: try multiple strategies to find the captain slot for this user
+      const norm = s => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const myName = norm(__authProfile.displayName || __authProfile.username);
+      const myCaptainId = __authProfile.captainId;
+
+      // 1) Match by captainId (works when the league used the same c1/c2/c3 slot ids)
+      let idx = myCaptainId ? state.captains.findIndex(c => c.id === myCaptainId) : -1;
+      // 2) Match by captain.name (fuzzy) — works for any league that used the same person's name
+      if (idx < 0) idx = state.captains.findIndex(c => norm(c.name) === myName);
+      // 3) Match by captain.linkedPlayerId matching the normalized user name
+      if (idx < 0) idx = state.captains.findIndex(c => norm(c.linkedPlayerId) === myName);
+      // 4) Partial-name match (e.g. "big-b" matches "Big-B")
+      if (idx < 0) idx = state.captains.findIndex(c => {
+        const cName = norm(c.name);
+        return cName && (cName.includes(myName) || myName.includes(cName));
+      });
+
       if (idx >= 0) myCaptainIdx = idx;
       else myCaptainIdx = null; // captain not in this room, fall back to spectator
     } else {
@@ -217,9 +232,17 @@ function renderLobby() {
 
   const totalCaptains = state.captains.length;
   const presentCount = Object.keys(presence).length;
-  const meLabel = myCaptainIdx !== null
-    ? `You are <strong style="color:${state.captains[myCaptainIdx].color}">${escapeHtml(state.captains[myCaptainIdx].name)}</strong>. You're checked in ✓`
-    : `You are a spectator waiting for the draft to begin.`;
+  let meLabel;
+  if (myCaptainIdx !== null) {
+    meLabel = `You are <strong style="color:${state.captains[myCaptainIdx].color}">${escapeHtml(state.captains[myCaptainIdx].name)}</strong>. You're checked in ✓`;
+  } else if (__authProfile && __authProfile.role === 'captain') {
+    // A captain-role user who didn't auto-link — probably not in this league's captain list
+    meLabel = `⚠️ You're logged in as <strong>${escapeHtml(__authProfile.displayName || __authProfile.username)}</strong>, but you're not a captain in this specific league. Watching as spectator.`;
+  } else if (spectate) {
+    meLabel = `You are watching as spectator.`;
+  } else {
+    meLabel = `You are a spectator waiting for the draft to begin.`;
+  }
 
   lobby.innerHTML = `
     <div style="text-align:center; padding: 20px 0;">
