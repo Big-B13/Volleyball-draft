@@ -1,6 +1,26 @@
 import { db, ref, onValue, runTransaction } from "./firebase-init.js";
-import { LOGO_URLS, STAT_KEYS, STAT_LABELS } from "./data.js";
+import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./data.js";
 import { escapeHtml } from "./util.js";
+
+// Async photo existence check with cache
+function photoExists(url) {
+  return new Promise(r => {
+    const img = new Image();
+    img.onload = () => r(true);
+    img.onerror = () => r(false);
+    img.src = url;
+  });
+}
+const photoCache = new Map();
+async function getPhotoUrl(id) {
+  if (!id) return null;
+  if (photoCache.has(id)) return photoCache.get(id);
+  const url = photoPathFor(id);
+  const exists = await photoExists(url);
+  const result = exists ? url : null;
+  photoCache.set(id, result);
+  return result;
+}
 
 const params = new URLSearchParams(location.search);
 const roomId    = (params.get('room')  || '').toUpperCase();
@@ -107,7 +127,7 @@ function renderWaiting(onClock, whoHtml) {
     `Round ${round} of ${state.picksPerTeam} · Captain: ${onClock.name} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * 3}`;
 }
 
-function renderMyTurn(onClock, whoHtml) {
+async function renderMyTurn(onClock, whoHtml) {
   document.getElementById('waiting').classList.add('hidden');
   const m = document.getElementById('my-turn');
   m.classList.remove('hidden');
@@ -124,16 +144,32 @@ function renderMyTurn(onClock, whoHtml) {
     .filter(p => p && !pickedIds.has(p.id));
 
   document.getElementById('available-count').textContent = available.length;
-  document.getElementById('available-list').innerHTML = available.map(p => `
-    <div class="player-card" data-pid="${p.id}">
-      <div class="codename">${escapeHtml(p.nickname || p.name)}</div>
-      <div class="overall">OVR <span class="val">${p.overall}</span></div>
-      ${STAT_KEYS.map(s => `
-        <div class="stat-row"><span>${STAT_LABELS[s]}</span><span>${p[s]}</span></div>
-        <div class="stat-bar"><div class="stat-fill" style="width:${p[s] * 10}%"></div></div>
-      `).join('')}
-    </div>
-  `).join('');
+
+  // Load all photos in parallel
+  const photos = await Promise.all(available.map(p => getPhotoUrl(p.id)));
+
+  document.getElementById('available-list').innerHTML = available.map((p, i) => {
+    const photoUrl = photos[i];
+    const silhouetteImg = photoUrl
+      ? `<div style="width:120px; height:120px; margin:0 auto 10px; display:flex; align-items:flex-end; justify-content:center; overflow:hidden; position:relative;">
+           <img src="${photoUrl}" style="max-width:100%; max-height:100%; object-fit:contain; object-position:bottom; filter:brightness(0) contrast(1) drop-shadow(0 0 8px rgba(251,191,36,0.4));" crossorigin="anonymous">
+           <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:44px; font-weight:900; color:rgba(255,255,255,0.85); text-shadow:0 0 8px rgba(0,0,0,0.6);">?</div>
+         </div>`
+      : `<div style="width:120px; height:120px; margin:0 auto 10px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); border-radius:8px;">
+           <div style="font-size:56px; font-weight:900; color:#fbbf24;">?</div>
+         </div>`;
+    return `
+      <div class="player-card" data-pid="${p.id}">
+        ${silhouetteImg}
+        <div class="codename">${escapeHtml(p.nickname || p.name)}</div>
+        <div class="overall">OVR <span class="val">${p.overall}</span></div>
+        ${STAT_KEYS.map(s => `
+          <div class="stat-row"><span>${STAT_LABELS[s]}</span><span>${p[s]}</span></div>
+          <div class="stat-bar"><div class="stat-fill" style="width:${p[s] * 10}%"></div></div>
+        `).join('')}
+      </div>
+    `;
+  }).join('');
   document.querySelectorAll('.player-card[data-pid]').forEach(el => {
     el.addEventListener('click', () => draftPlayer(el.dataset.pid));
   });

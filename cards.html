@@ -170,6 +170,27 @@
     object-fit: contain;
     object-position: bottom;
   }
+  /* Silhouette mode — turns any photo into a pure black outline */
+  .photo-container.silhouette img {
+    filter: brightness(0) contrast(1);
+  }
+  .photo-container.silhouette {
+    filter: drop-shadow(0 12px 32px rgba(0,0,0,0.9)) drop-shadow(0 0 20px rgba(255,255,255,0.15));
+  }
+  /* Optional: add a question mark overlay for extra mystery */
+  .photo-container.silhouette::after {
+    content: '?';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 240px;
+    font-weight: 900;
+    color: rgba(255, 255, 255, 0.9);
+    text-shadow: 0 0 30px rgba(0,0,0,0.8);
+    z-index: 2;
+    pointer-events: none;
+  }
   .photo-placeholder {
     width: 100%; height: 100%;
     display: flex; flex-direction: column;
@@ -370,8 +391,8 @@
   <p class="tagline">Player cards for hype. Click any card to download it as a 1080×1080 PNG for Instagram/Discord/WhatsApp.</p>
 
   <div class="mode-toggle">
-    <button class="mode-btn active" data-mode="blind">👁️ Pre-draft (blind — hides real names)</button>
-    <button class="mode-btn" data-mode="full">🎬 Full reveal (shows real names)</button>
+    <button class="mode-btn active" data-mode="blind">🖤 Pre-draft (silhouette + hidden names)</button>
+    <button class="mode-btn" data-mode="full">🎬 Full reveal (real names + photos)</button>
     <button class="mode-btn" data-mode="rosters">🏆 Team roster cards</button>
   </div>
 
@@ -442,11 +463,12 @@
       ? `<div class="realname-hidden">Identity classified · pick to reveal</div>`
       : `<div class="realname">${(p.name || '').toUpperCase()}</div>`;
     const photoUrl = await getPhotoUrl(p.id);
+    const silhouetteClass = mode === 'blind' ? ' silhouette' : '';
     const photoHtml = photoUrl
       ? `<img src="${photoUrl}" alt="${p.name}" crossorigin="anonymous">`
       : `<div class="photo-placeholder">
-           <div class="initials">${getInitials(p.name)}</div>
-           <div class="placeholder-label">Awaiting photo</div>
+           <div class="initials">${mode === 'blind' ? '?' : getInitials(p.name)}</div>
+           <div class="placeholder-label">${mode === 'blind' ? 'Classified' : 'Awaiting photo'}</div>
          </div>`;
     const colorA = teamColor || '#fbbf24';
     const colorB = teamColor ? '#000000' : '#dc2626';
@@ -465,7 +487,7 @@
           </div>
           <div class="type-badge">Gomi Cup ${mode === 'blind' ? '· Classified' : '· 2026'}</div>
         </div>
-        <div class="photo-container">${photoHtml}</div>
+        <div class="photo-container${silhouetteClass}">${photoHtml}</div>
         <div class="nickname-block">
           <span class="quote-mark">"</span>
           <div class="nickname">${displayName}</div>
@@ -564,7 +586,7 @@
     grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;">Rendering cards…</div>';
 
     if (currentMode === 'blind') {
-      info.innerHTML = '👁️ <strong>Pre-draft cards</strong> — real names hidden, perfect for Instagram teasers before draft night. Every card shows the nickname + stats. Captains excluded from blind set (identities already known).';
+      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. Captains excluded from blind set (identities already known).';
       grid.innerHTML = '';
       for (const p of players) {
         const wrap = await makeCardWrap(p, 'blind', playerCardHtml, `blind-${p.id}`, false);
