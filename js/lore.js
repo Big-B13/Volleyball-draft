@@ -94,6 +94,12 @@ export const CLUBS = {
 
 // Mini bios per player, keyed by player id (matches ids in data.js).
 export const PLAYER_BIOS = {
+  // Captain bios (short scouting-report style, references the nickname)
+  'big-b':        "You jump, you get blocked, the lights go out. That's why they call him Blackout — reads the setter before the ball leaves the hand.",
+  'burla':        "The Trickster runs the offense like a magic show. Half the play is misdirection — smile, fake, dump. You never see it coming.",
+  'stratus':      "The Mirror. Doesn't fight the ball, just reflects it back at you. Never celebrates. Just resets and waits for the next one.",
+
+
   'ayaz':         "The most natural athlete on the court who somehow made it here without ever playing volleyball seriously. Reads plays like a defender in another sport — because that's exactly what he is.",
   'steven':       "Doesn't jump the highest, doesn't hit the hardest — somehow still ends every rally on the scoreboard. Small frame, giant timing.",
   'pato':         "Named after the anime libero for a reason. Pancakes balls that should have hit the floor two seconds ago. Lives on the wood.",

@@ -5,6 +5,22 @@ import { escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge } from "./auth.js";
 import { photoOffsetY } from "./photo-config.js";
 import { playReveal, injectMuteButton } from "./sounds.js";
+import { getAllPlayers } from "./players.js";
+
+// Load latest merged player data (with admin overrides) so bios/nicknames from the
+// admin panel show up on the reveal page. Falls back to PLAYER_BIOS map if not found.
+let __bioById = { ...PLAYER_BIOS };
+let __nickById = {};
+(async () => {
+  try {
+    const list = await getAllPlayers();
+    for (const p of list) {
+      if (p.bio) __bioById[p.id] = p.bio;
+      if (p.nickname) __nickById[p.id] = p.nickname;
+    }
+  } catch (e) { console.warn('Could not merge admin player data on reveal', e); }
+})();
+function bioFor(id) { return __bioById[id] || PLAYER_BIOS[id] || ''; }
 
 injectMuteButton();
 // Play the dramatic reveal sting once on page load (after any user gesture)
@@ -185,16 +201,16 @@ async function render() {
       return miniCardHtml({ player: withPhoto, teamColor: cap.color, pickNum: idx + 1 });
     }).join('');
 
-    // Bios listed below the lineup (optional flavor)
-    const biosBlock = teamPlayers.some(p => PLAYER_BIOS[p.id]) ? `
-      <div style="margin-top:20px; padding:14px 18px; background:rgba(0,0,0,0.3); border-radius:8px;">
-        <h4 style="color:${cap.color}; font-size:0.8rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:10px;">Scouting Report</h4>
+    // Bios listed below the lineup (optional flavor) — smaller text, uses admin-edited bios if present
+    const biosBlock = teamPlayers.some(p => bioFor(p.id)) ? `
+      <div style="margin-top:16px; padding:10px 14px; background:rgba(0,0,0,0.3); border-radius:8px;">
+        <h4 style="color:${cap.color}; font-size:0.7rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">Scouting Report</h4>
         ${teamPlayers.map((p, idx) => {
-          const bio = PLAYER_BIOS[p.id];
+          const bio = bioFor(p.id);
           if (!bio) return '';
-          return `<div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.85rem;">
-            <strong style="color:${cap.color};">${idx+1}. ${escapeHtml(p.nickname || p.name)}</strong>
-            <span style="color:#cbd5e1; margin-left:6px;">— ${escapeHtml(bio)}</span>
+          return `<div style="padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.72rem; line-height:1.4;">
+            <strong style="color:${cap.color}; font-size:0.75rem;">${idx+1}. ${escapeHtml(__nickById[p.id] || p.nickname || p.name)}</strong>
+            <span style="color:#cbd5e1; margin-left:4px;">— ${escapeHtml(bio)}</span>
           </div>`;
         }).join('')}
       </div>

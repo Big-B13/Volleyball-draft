@@ -44,10 +44,13 @@
   }
   .tcg-card * { box-sizing: border-box; }
 
-  /* Scale wrapper — shrinks the 1080 card to a preview thumb */
+  /* Scale wrapper — shrinks the 1080 card to a preview thumb.
+     --thumb-scale is a unitless number set dynamically via JS ResizeObserver.
+     CSS calc() can't divide by pixel values, so we compute the scale in JS. */
   .card-thumb {
     width: 300px;
     height: 300px;
+    --thumb-scale: 0.278;   /* fallback: 300 / 1080 */
     position: relative;
     border-radius: 16px;
     overflow: hidden;
@@ -57,11 +60,16 @@
     transition: transform 0.2s;
   }
   .card-thumb:hover { transform: scale(1.03); }
-  .card-thumb .tcg-card { transform: scale(0.2778); }  /* 300/1080 */
+  .card-thumb .tcg-card {
+    transform: scale(var(--thumb-scale, 0.278));
+  }
 
   /* Roster cards are also 1080x1080 */
-  .roster-thumb { width: 340px; height: 340px; }
-  .roster-thumb .tcg-card { transform: scale(0.315); }  /* 340/1080 */
+  .roster-thumb {
+    width: 340px;
+    height: 340px;
+    --thumb-scale: 0.315;
+  }
 
   .download-btn {
     padding: 8px 16px;
@@ -374,9 +382,16 @@
   }
 
   @media (max-width: 720px) {
-    .card-grid { grid-template-columns: 1fr 1fr; }
-    .card-thumb, .roster-thumb { width: 100%; aspect-ratio: 1; height: auto; }
-    .card-thumb .tcg-card, .roster-thumb .tcg-card { transform: scale(0.14); }
+    .card-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card-thumb, .roster-thumb {
+      width: 100%;
+      aspect-ratio: 1;
+      height: auto;
+      /* --thumb-size is set dynamically via JS ResizeObserver below */
+    }
+  }
+  @media (max-width: 380px) {
+    .card-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -518,7 +533,7 @@
             OVR
             <span class="num">${p.overall}</span>
           </div>
-          <div class="type-badge">Gomi Cup ${mode === 'blind' ? '· Classified' : '· 2026'}</div>
+          <div class="type-badge">${teamColor && mode !== 'blind' ? '🎖️ Captain · Gomi Cup' : 'Gomi Cup ' + (mode === 'blind' ? '· Classified' : '· 2026')}</div>
         </div>
         <div class="photo-container${silhouetteClass}">${photoHtml}</div>
         <div class="nickname-block">
@@ -655,14 +670,20 @@
       }
     } else if (currentMode === 'full') {
       if (!isLoggedIn) { showLoginGate('Full reveal'); return; }
-      info.innerHTML = '🎬 <strong>Full reveal cards</strong> — nickname + real name + photo + stats. Includes the 3 captains at the top.';
+      info.innerHTML = '🎬 <strong>Full reveal cards</strong> — nickname + real name + photo + stats. Captains appear in their team colors.';
       grid.innerHTML = '';
-      for (const c of captainsAsPlayers) {
-        const wrap = await makeCardWrap(c, 'full', (p, m) => playerCardHtml(p, m, c.teamColor), `captain-${c.id}`, false);
-        grid.appendChild(wrap);
-      }
-      for (const p of players) {
-        const wrap = await makeCardWrap(p, 'full', playerCardHtml, `full-${p.id}`, false);
+      // Single unified list — captains render in team colors, regular players in default Gomi orange.
+      // Captains are auto-detected via their id (big-b, burla, stratus).
+      const captainColors = { 'big-b': '#dc2626', 'burla': '#16a34a', 'stratus': '#2563eb' };
+      const captainOrder = ['big-b', 'burla', 'stratus'];
+      // Sort captains to the top of the list
+      const sortedPlayers = [
+        ...captainOrder.map(id => players.find(p => p.id === id)).filter(Boolean),
+        ...players.filter(p => !captainColors[p.id])
+      ];
+      for (const p of sortedPlayers) {
+        const teamColor = captainColors[p.id]; // undefined for non-captains → default orange/red gradient
+        const wrap = await makeCardWrap(p, 'full', (pp, m) => playerCardHtml(pp, m, teamColor), `full-${p.id}`, false);
         grid.appendChild(wrap);
       }
     } else if (currentMode === 'rosters') {
@@ -724,7 +745,25 @@
     btn.dataset.filename = filename;
     btn.addEventListener('click', () => downloadCard(thumb.querySelector('.tcg-card'), filename));
     wrap.appendChild(btn);
+    // Observe the thumb's size and keep the CSS --thumb-size variable up to date
+    // so the inner .tcg-card always scales properly (including on mobile / resize).
+    observeThumbSize(thumb);
     return wrap;
+  }
+
+  const _thumbObserver = new ResizeObserver(entries => {
+    for (const e of entries) {
+      const w = e.contentRect.width;
+      if (w > 0) e.target.style.setProperty('--thumb-scale', (w / 1080).toString());
+    }
+  });
+  function observeThumbSize(thumb) {
+    // Also set an initial value in case ResizeObserver hasn't fired yet
+    requestAnimationFrame(() => {
+      const w = thumb.getBoundingClientRect().width;
+      if (w > 0) thumb.style.setProperty('--thumb-scale', (w / 1080).toString());
+    });
+    _thumbObserver.observe(thumb);
   }
 
   async function downloadCard(cardEl, filename) {
