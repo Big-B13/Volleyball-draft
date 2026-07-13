@@ -87,6 +87,7 @@ export async function addCustomPlayer(player) {
     id,
     name: (player.name || '').trim(),
     nickname: (player.nickname || '').trim(),
+    position: (player.position || 'OH').trim().toUpperCase().replace(/[^A-Z/]/g, '').split('/').filter(Boolean).slice(0,2).join('/'),
     attack: parseFloat(player.attack) || 5,
     serve: parseFloat(player.serve) || 5,
     defense: parseFloat(player.defense) || 5,
@@ -113,6 +114,6 @@ export function isPlayerEdited(playerFromMerged) {
   if (playerFromMerged.isCustom) return true;
   const def = DEFAULT_PLAYERS.find(p => p.id === playerFromMerged.id);
   if (!def) return true;
-  const fields = ['name', 'nickname', 'attack', 'serve', 'defense', 'setting', 'athletic'];
-  return fields.some(f => playerFromMerged[f] !== def[f]);
+  const fields = ['name', 'nickname', 'position', 'attack', 'serve', 'defense', 'setting', 'athletic'];
+  return fields.some(f => (playerFromMerged[f] || '') !== (def[f] || ''));
 }

@@ -112,15 +112,17 @@
 
   .kanji-vertical {
     position: absolute;
-    top: 60px; right: 48px;
+    top: 130px; right: 48px;
     writing-mode: vertical-rl;
     text-orientation: mixed;
-    font-size: 96px;
+    font-size: 84px;
     font-weight: 900;
     color: rgba(255,255,255,0.85);
-    letter-spacing: 12px;
+    letter-spacing: 8px;
     text-shadow: 0 4px 20px rgba(0,0,0,0.8);
     z-index: 3;
+    max-height: 700px;
+    overflow: hidden;
   }
 
   .card-topbar {
@@ -382,16 +384,19 @@
   }
 
   @media (max-width: 720px) {
-    .card-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card-grid {
+      /* Use auto-fill with a max width so cards never exceed ~220px on phones */
+      grid-template-columns: repeat(auto-fill, minmax(160px, 220px));
+      justify-content: center;
+      gap: 10px;
+    }
     .card-thumb, .roster-thumb {
       width: 100%;
       aspect-ratio: 1;
       height: auto;
-      /* --thumb-size is set dynamically via JS ResizeObserver below */
+      max-width: 220px;
+      /* --thumb-scale set dynamically via JS ResizeObserver */
     }
-  }
-  @media (max-width: 380px) {
-    .card-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -505,7 +510,9 @@
   let currentMode = 'blind';
 
   async function playerCardHtml(p, mode, teamColor) {
-    const kanji = (p.nickname || p.name || '').slice(0,2).toUpperCase() || 'V';
+    // Vertical strip on the right side shows their POSITION (e.g. "MB", "OH/OP"),
+    // fallback to first 2 letters of nickname if no position is set.
+    const kanji = (p.position || (p.nickname || p.name || '').slice(0,2) || 'V').toUpperCase();
     const displayName = (p.nickname || p.name || '').toUpperCase();
     const realNameLine = mode === 'blind'
       ? `<div class="realname-hidden">Identity classified · pick to reveal</div>`
