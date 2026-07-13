@@ -2,19 +2,70 @@ import { db, ref, onValue } from "./firebase-init.js";
 import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./data.js";
 import { CLUBS, PLAYER_BIOS } from "./lore.js";
 import { escapeHtml } from "./util.js";
+import { guardPage, renderAuthBadge } from "./auth.js";
+import { photoOffsetY } from "./photo-config.js";
+import { playReveal, injectMuteButton } from "./sounds.js";
+import { getAllPlayers } from "./players.js";
+
+// Load latest merged player data (with admin overrides) so bios/nicknames from the
+// admin panel show up on the reveal page. Falls back to PLAYER_BIOS map if not found.
+let __bioById = { ...PLAYER_BIOS };
+let __nickById = {};
+(async () => {
+  try {
+    const list = await getAllPlayers();
+    for (const p of list) {
+      if (p.bio) __bioById[p.id] = p.bio;
+      if (p.nickname) __nickById[p.id] = p.nickname;
+    }
+  } catch (e) { console.warn('Could not merge admin player data on reveal', e); }
+})();
+function bioFor(id) { return __bioById[id] || PLAYER_BIOS[id] || ''; }
+
+injectMuteButton();
+// Play the dramatic reveal sting once on page load (after any user gesture)
+let __revealSoundPlayed = false;
+function tryPlayReveal() {
+  if (__revealSoundPlayed) return;
+  __revealSoundPlayed = true;
+  playReveal();
+  document.removeEventListener('click', tryPlayReveal);
+  document.removeEventListener('keydown', tryPlayReveal);
+  document.removeEventListener('touchstart', tryPlayReveal);
+}
+setTimeout(() => { tryPlayReveal(); }, 400); // try immediately (may need gesture)
+document.addEventListener('click', tryPlayReveal);
+document.addEventListener('keydown', tryPlayReveal);
+document.addEventListener('touchstart', tryPlayReveal);
+
+// Require at least a viewer login before showing the reveal
+const { profile: __authProfile } = await guardPage({ requireRole: 'viewer' });
+// Render badge after the page's DOM is ready
+setTimeout(() => {
+  const container = document.querySelector('.container');
+  if (container && !document.getElementById('auth-badge-el')) {
+    const b = document.createElement('div');
+    b.id = 'auth-badge-el';
+    b.style.cssText = 'text-align:right; margin-bottom:12px;';
+    container.insertBefore(b, container.firstChild);
+    renderAuthBadge(b, __authProfile);
+  }
+}, 0);
 
 // Mini trading card renderer — used on reveal + optional other pages
-function miniCardHtml({ player, teamColor, pickNum, isCut, initialsColor }) {
+function miniCardHtml({ player, teamColor, pickNum, badgeText, isCut, isCaptain }) {
   const kanji = (player.nickname || player.name || '').slice(0, 1).toUpperCase() || 'V';
   const photoUrl = player._photoUrl;
   const photoHtml = photoUrl
     ? `<img src="${photoUrl}" alt="${escapeHtml(player.name)}" crossorigin="anonymous">`
     : `<div class="mini-placeholder">${getInitials(player.name)}</div>`;
-  const pickBadge = pickNum ? `<div class="mini-pick-num">${pickNum}</div>` : '';
+  const badge = badgeText || pickNum;
+  const pickBadge = badge != null ? `<div class="mini-pick-num">${badge}</div>` : '';
   const cutClass = isCut ? ' cut' : '';
+  const capClass = isCaptain ? ' captain-card' : '';
   const teamC = teamColor || '#64748b';
   return `
-    <div class="mini-tcg${cutClass}" style="--team-c:${teamC};">
+    <div class="mini-tcg${cutClass}${capClass}" style="--team-c:${teamC};">
       ${pickBadge}
       <div class="mini-halftone"></div>
       <div class="mini-slash"></div>
@@ -39,6 +90,15 @@ function miniCardHtml({ player, teamColor, pickNum, isCut, initialsColor }) {
   `;
 }
 
+// Get captain's ID for photo lookup (matches how photos are named)
+function captainIdForCaptain(cap) {
+  const n = (cap.name || '').toLowerCase().trim();
+  if (n === 'big-b' || n === 'bigb' || n === 'big b') return 'big-b';
+  if (n === 'burla') return 'burla';
+  if (n === 'stratus') return 'stratus';
+  return n.replace(/\s+/g, '-');
+}
+
 // Async check if a photo file exists at the expected path
 function photoExists(url) {
   return new Promise(resolve => {
@@ -58,13 +118,7 @@ async function getPhotoUrl(id) {
   photoCache.set(id, result);
   return result;
 }
-function captainIdForName(name) {
-  const n = (name || '').toLowerCase().trim();
-  if (n === 'big-b' || n === 'bigb' || n === 'big b') return 'big-b';
-  if (n === 'burla') return 'burla';
-  if (n === 'stratus') return 'stratus';
-  return n.replace(/\s+/g, '-');
-}
+
 
 // Match a captain to their club record by team name (case-insensitive contains match)
 function clubFor(cap) {
@@ -119,46 +173,51 @@ async function render() {
     const teamPlayers = teamPicks.map(pk => state.players.find(pp => pp.id === pk.playerId)).filter(Boolean);
     const teamOvr = teamPlayers.length ? (teamPlayers.reduce((s, p) => s + p.overall, 0) / teamPlayers.length).toFixed(2) : '—';
     const logo = cap.logo && LOGO_URLS[cap.logo]
-      ? `<img src="${LOGO_URLS[cap.logo]}" style="height:110px; filter: drop-shadow(0 0 16px ${cap.color}aa);">`
+      ? `<img src="${LOGO_URLS[cap.logo]}" style="height:110px; float:right; margin-left:16px; filter: drop-shadow(0 0 16px ${cap.color}aa);">`
       : '';
     const club = clubFor(cap);
 
-    // Captain photo (circular)
-    const capPhotoUrl = await getPhotoUrl(captainIdForName(cap.name));
-    const capPhotoHtml = capPhotoUrl
-      ? `<img src="${capPhotoUrl}" style="width:110px; height:110px; border-radius:50%; object-fit:cover; object-position:top; border:4px solid ${cap.color}; box-shadow:0 0 20px ${cap.color}88; background:rgba(0,0,0,0.5);" crossorigin="anonymous">`
-      : `<div style="width:110px; height:110px; border-radius:50%; border:4px solid ${cap.color}; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; font-size:44px; font-weight:900; color:${cap.color};">${getInitials(cap.name)}</div>`;
+    // Build captain "player" object so it can render as a mini card
+    const capId = captainIdForCaptain(cap);
+    const capPhotoUrl = await getPhotoUrl(capId);
+    const capAsPlayer = {
+      id: capId,
+      name: cap.name,
+      nickname: club ? club.captain.title : (cap.role || 'Captain'),
+      attack: 8, serve: 8, defense: 8, setting: 8, athletic: 8, overall: 8.5,
+      _photoUrl: capPhotoUrl
+    };
+    const captainCard = miniCardHtml({
+      player: capAsPlayer,
+      teamColor: cap.color,
+      badgeText: 'C',
+      isCaptain: true
+    });
 
-    const headerVisuals = `
-      <div style="display:flex; gap:16px; align-items:center; float:right; margin-left:16px;">
-        ${capPhotoHtml}
-        ${logo}
-      </div>
-    `;
-
-    // Player mini trading cards (portrait grid)
+    // Player mini cards (5 drafted)
     const playerPhotos = await Promise.all(teamPlayers.map(p => getPhotoUrl(p.id)));
-    const miniCards = teamPlayers.map((p, idx) => {
+    const draftedCards = teamPlayers.map((p, idx) => {
       const withPhoto = { ...p, _photoUrl: playerPhotos[idx] };
-      return miniCardHtml({ player: withPhoto, teamColor: cap.color, pickNum: idx + 1, isCut: false });
+      return miniCardHtml({ player: withPhoto, teamColor: cap.color, pickNum: idx + 1 });
     }).join('');
 
-    // Bios listed below the mini cards (optional flavor)
-    const biosBlock = teamPlayers.some(p => PLAYER_BIOS[p.id]) ? `
-      <div style="margin-top:16px; padding:14px 18px; background:rgba(0,0,0,0.3); border-radius:8px;">
-        <h4 style="color:${cap.color}; font-size:0.8rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:10px;">Scouting Report</h4>
+    // Bios listed below the lineup (optional flavor) — smaller text, uses admin-edited bios if present
+    const biosBlock = teamPlayers.some(p => bioFor(p.id)) ? `
+      <div style="margin-top:16px; padding:10px 14px; background:rgba(0,0,0,0.3); border-radius:8px;">
+        <h4 style="color:${cap.color}; font-size:0.7rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">Scouting Report</h4>
         ${teamPlayers.map((p, idx) => {
-          const bio = PLAYER_BIOS[p.id];
+          const bio = bioFor(p.id);
           if (!bio) return '';
-          return `<div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.85rem;">
-            <strong style="color:${cap.color};">${idx+1}. ${escapeHtml(p.nickname || p.name)}</strong>
-            <span style="color:#cbd5e1; margin-left:6px;">— ${escapeHtml(bio)}</span>
+          return `<div style="padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.72rem; line-height:1.4;">
+            <strong style="color:${cap.color}; font-size:0.75rem;">${idx+1}. ${escapeHtml(__nickById[p.id] || p.nickname || p.name)}</strong>
+            <span style="color:#cbd5e1; margin-left:4px;">— ${escapeHtml(bio)}</span>
           </div>`;
         }).join('')}
       </div>
     ` : '';
 
-    const rosterRows = `<div class="roster-mini-grid">${miniCards}</div>${biosBlock}`;
+    // Captain + 5 players = 6 cards in one horizontal row
+    const rosterRows = `<div class="roster-mini-grid lineup">${captainCard}${draftedCards}</div>${biosBlock}`;
 
     const loreHtml = club ? `
       <div style="clear:both;"></div>
@@ -172,11 +231,11 @@ async function render() {
 
     return `
       <div class="reveal-team" style="border-top-color:${cap.color}; background:linear-gradient(135deg, ${cap.color}22, #1e293b);">
-        ${headerVisuals}
+        ${logo}
         <h2 style="color:${cap.color}">${escapeHtml(cap.team)}</h2>
         <div class="captain-line">Captain: ${escapeHtml(cap.name)}${club ? ` · <em>${club.captain.role} · "${club.captain.title}"</em>` : ''} · Avg OVR: ${teamOvr}</div>
         ${loreHtml}
-        <h3 style="color:${cap.color}; margin:16px 0 10px; letter-spacing:2px; font-size:0.9rem; text-transform:uppercase;">The Roster</h3>
+        <h3 style="color:${cap.color}; margin:20px 0 10px; letter-spacing:2px; font-size:0.9rem; text-transform:uppercase;">The Lineup</h3>
         ${rosterRows}
       </div>
     `;
@@ -193,7 +252,7 @@ async function render() {
     <div class="reveal-team" style="border-top-color:#64748b; background:linear-gradient(135deg, #64748b22, #0f172a);">
       <h2 style="color:#94a3b8">💔 Didn't make a team (${undrafted.length})</h2>
       <div class="captain-line">These players were left on the board when the draft ended.</div>
-      <div class="roster-mini-grid">${undraftedCards}</div>
+      <div class="roster-mini-grid wrap">${undraftedCards}</div>
     </div>
   ` : '';
 
@@ -204,10 +263,15 @@ async function render() {
   cardsCta.style.textAlign = 'center';
   cardsCta.style.margin = '30px 0';
   cardsCta.innerHTML = `
-    <a href="./cards.html?room=${roomId}" style="display:inline-block; padding:14px 28px; background:linear-gradient(90deg,#fbbf24,#f97316); color:#0f172a; font-weight:800; border-radius:8px; text-decoration:none; letter-spacing:1px;">
-      🃏 Get shareable roster cards →
-    </a>
-    <div style="color:#94a3b8; font-size:0.85rem; margin-top:8px;">Download 1080×1080 PNGs of each team's roster for Instagram/WhatsApp</div>
+    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+      <a href="./cards.html?room=${roomId}" style="display:inline-block; padding:14px 28px; background:linear-gradient(90deg,#fbbf24,#f97316); color:#0f172a; font-weight:800; border-radius:8px; text-decoration:none; letter-spacing:1px;">
+        🃏 Get shareable roster cards →
+      </a>
+      <a href="./predictions-results.html?room=${roomId}" style="display:inline-block; padding:14px 28px; background:rgba(124, 58, 237, 0.9); color:#fff; font-weight:800; border-radius:8px; text-decoration:none; letter-spacing:1px;">
+        🏆 Prediction leaderboard →
+      </a>
+    </div>
+    <div style="color:#94a3b8; font-size:0.85rem; margin-top:12px;">Download 1080×1080 PNGs · See who guessed the draft right</div>
   `;
   container.appendChild(cardsCta);
 }

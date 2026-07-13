@@ -13,6 +13,8 @@
   .mode-toggle { display:flex; gap:8px; justify-content:center; margin: 24px 0; flex-wrap:wrap; }
   .mode-btn { padding: 10px 18px; background:#334155; border:none; color:#cbd5e1; border-radius:8px; cursor:pointer; font-weight:600; }
   .mode-btn.active { background:linear-gradient(90deg,#f97316,#ef4444); color:#fff; }
+  .lock-icon { font-size: 0.75rem; opacity: 0.7; }
+  body.logged-in .lock-icon { display: none; }
 
   .card-grid {
     display: grid;
@@ -42,10 +44,13 @@
   }
   .tcg-card * { box-sizing: border-box; }
 
-  /* Scale wrapper — shrinks the 1080 card to a preview thumb */
+  /* Scale wrapper — shrinks the 1080 card to a preview thumb.
+     --thumb-scale is a unitless number set dynamically via JS ResizeObserver.
+     CSS calc() can't divide by pixel values, so we compute the scale in JS. */
   .card-thumb {
     width: 300px;
     height: 300px;
+    --thumb-scale: 0.278;   /* fallback: 300 / 1080 */
     position: relative;
     border-radius: 16px;
     overflow: hidden;
@@ -55,11 +60,16 @@
     transition: transform 0.2s;
   }
   .card-thumb:hover { transform: scale(1.03); }
-  .card-thumb .tcg-card { transform: scale(0.2778); }  /* 300/1080 */
+  .card-thumb .tcg-card {
+    transform: scale(var(--thumb-scale, 0.278));
+  }
 
   /* Roster cards are also 1080x1080 */
-  .roster-thumb { width: 340px; height: 340px; }
-  .roster-thumb .tcg-card { transform: scale(0.315); }  /* 340/1080 */
+  .roster-thumb {
+    width: 340px;
+    height: 340px;
+    --thumb-scale: 0.315;
+  }
 
   .download-btn {
     padding: 8px 16px;
@@ -102,15 +112,17 @@
 
   .kanji-vertical {
     position: absolute;
-    top: 60px; right: 48px;
+    top: 130px; right: 48px;
     writing-mode: vertical-rl;
     text-orientation: mixed;
-    font-size: 96px;
+    font-size: 84px;
     font-weight: 900;
     color: rgba(255,255,255,0.85);
-    letter-spacing: 12px;
+    letter-spacing: 8px;
     text-shadow: 0 4px 20px rgba(0,0,0,0.8);
     z-index: 3;
+    max-height: 700px;
+    overflow: hidden;
   }
 
   .card-topbar {
@@ -372,14 +384,26 @@
   }
 
   @media (max-width: 720px) {
-    .card-grid { grid-template-columns: 1fr 1fr; }
-    .card-thumb, .roster-thumb { width: 100%; aspect-ratio: 1; height: auto; }
-    .card-thumb .tcg-card, .roster-thumb .tcg-card { transform: scale(0.14); }
+    .card-grid {
+      /* Use auto-fill with a max width so cards never exceed ~220px on phones */
+      grid-template-columns: repeat(auto-fill, minmax(160px, 220px));
+      justify-content: center;
+      gap: 10px;
+    }
+    .card-thumb, .roster-thumb {
+      width: 100%;
+      aspect-ratio: 1;
+      height: auto;
+      max-width: 220px;
+      /* --thumb-scale set dynamically via JS ResizeObserver */
+    }
   }
 </style>
 </head>
 <body>
 <div class="container">
+  <div id="auth-badge-top" style="text-align:right; margin-bottom: 12px; min-height: 34px;"></div>
+
   <nav class="topnav">
     <a href="./index.html">🏠 Home</a>
     <a href="./league.html">🏆 League</a>
@@ -387,33 +411,60 @@
     <a href="./cards.html" class="active">🃏 Cards</a>
   </nav>
 
-  <h1>🃏 TRADING CARDS</h1>
+  <h1><span class="emoji">🃏</span> TRADING CARDS</h1>
   <p class="tagline">Player cards for hype. Click any card to download it as a 1080×1080 PNG for Instagram/Discord/WhatsApp.</p>
 
   <div class="mode-toggle">
-    <button class="mode-btn active" data-mode="blind">🖤 Pre-draft (silhouette + hidden names)</button>
-    <button class="mode-btn" data-mode="full">🎬 Full reveal (real names + photos)</button>
-    <button class="mode-btn" data-mode="rosters">🏆 Team roster cards</button>
+    <button class="mode-btn active" data-mode="blind">🖤 Pre-draft (public)</button>
+    <button class="mode-btn" data-mode="full"><span class="lock-icon">🔒</span> 🎬 Full reveal</button>
+    <button class="mode-btn" data-mode="rosters"><span class="lock-icon">🔒</span> 🏆 Team rosters</button>
   </div>
 
   <div class="info-box" id="mode-info"></div>
 
-  <div style="text-align:center; margin: 20px 0;">
+  <div id="dl-all-wrap" style="text-align:center; margin: 20px 0;">
     <button class="download-btn all" onclick="downloadAll()">📥 Download all visible cards as ZIP</button>
   </div>
 
   <div class="card-grid" id="grid"></div>
 </div>
 
-<!-- html2canvas for PNG export -->
+<!-- html-to-image handles object-fit correctly (unlike html2canvas) -->
+<script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
+<!-- html2canvas kept as fallback -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <!-- JSZip for bulk download -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <script type="module">
+  import { watchAuth, renderAuthBadge } from "./js/auth.js";
+  // Cards page: public for blind mode, login required for full reveal & rosters
+  window.__cardsSession = null;
+  watchAuth((session) => {
+    window.__cardsSession = session;
+    // Toggle body class for CSS state
+    document.body.classList.toggle('logged-in', !!(session && session.profile));
+    // If user just logged in and they're on a locked mode, refresh
+    if (session && session.profile && document.getElementById('login-gate')) {
+      if (typeof window.__renderCards === 'function') window.__renderCards();
+    }
+    // Render auth badge or "Log in" link
+    const badge = document.getElementById('auth-badge-top');
+    if (badge) {
+      if (session && session.profile) {
+        renderAuthBadge(badge, session.profile);
+      } else {
+        badge.innerHTML = '<a href="./login.html" style="color:#fbbf24; text-decoration:none; padding:6px 14px; background:rgba(251,191,36,0.15); border-radius:20px; font-size:0.85rem;">🔐 Log in for full reveal</a>';
+      }
+    }
+  });
+</script>
+<script type="module">
   import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM, LOGO_URLS, photoPathFor, getInitials } from "./js/data.js";
   import { CLUBS, PLAYER_BIOS } from "./js/lore.js";
   import { db, ref, get } from "./js/firebase-init.js";
+  import { photoOffsetY, photoZoom } from "./js/photo-config.js";
+  import { getAllPlayers } from "./js/players.js";
 
   // Check which photos exist so we can render either the photo or a placeholder
   async function photoExists(url) {
@@ -437,17 +488,41 @@
   // If ?room=XXXX, load real players/rosters from Firebase; else use defaults
   const params = new URLSearchParams(location.search);
   const roomId = params.get('room');
-  let players = DEFAULT_PLAYERS.map(p => ({
+  // Load effective players (defaults + any admin overrides)
+  let players = (await getAllPlayers()).map(p => ({
     ...p,
     overall: Math.round((p.attack+p.serve+p.defense+p.setting+p.athletic)/5 * 10) / 10
   }));
+
+  // ============ UNLOCK STATE ============
+  // Scan ALL completed drafts in Firebase to know which players have ever been part of
+  // a completed draft. Those are "unlocked" — everyone else stays silhouette.
+  // Rules:
+  //   - Any player from a completed draft (drafted OR undrafted) → UNLOCKED
+  //   - Captains: also start as silhouettes; unlocked once their league has any completed draft
+  //   - Player not in any completed draft's pool → LOCKED (silhouette)
+  const unlockedPlayerIds = new Set();
+  try {
+    const allDraftsSnap = await get(ref(db, 'drafts'));
+    const allDrafts = allDraftsSnap.val() || {};
+    for (const d of Object.values(allDrafts)) {
+      if (d.status !== 'complete') continue;
+      // Every player in this completed draft's pool gets unlocked
+      for (const p of (d.players || [])) unlockedPlayerIds.add(p.id);
+      // Every captain in this completed draft's captain list also gets unlocked
+      for (const cap of (d.captains || [])) {
+        if (cap.linkedPlayerId) unlockedPlayerIds.add(cap.linkedPlayerId);
+      }
+    }
+  } catch (e) { console.warn('Could not load completed drafts for unlock check', e); }
   let liveDraft = null;
 
   if (roomId) {
     try {
       const snap = await get(ref(db, `drafts/${roomId.toUpperCase()}`));
       const val = snap.val();
-      if (val) {
+      // Only use as "liveDraft" if the draft is actually complete
+      if (val && val.status === 'complete') {
         liveDraft = val;
         players = val.players;
       }
@@ -457,21 +532,33 @@
   let currentMode = 'blind';
 
   async function playerCardHtml(p, mode, teamColor) {
-    const kanji = (p.nickname || p.name || '').slice(0,2).toUpperCase() || 'V';
-    const displayName = (p.nickname || p.name || '').toUpperCase();
-    const realNameLine = mode === 'blind'
+    // "locked" flag: in full-reveal mode, if the player has never been in a completed
+    // draft, they render as a silhouette (progressive reveal system).
+    const isLocked = mode === 'full' && !unlockedPlayerIds.has(p.id);
+    const isBlindOrLocked = mode === 'blind' || isLocked;
+
+    // Vertical strip on the right side shows their POSITION (e.g. "MB", "OH/OP"),
+    // fallback to first 2 letters of nickname if no position is set.
+    // When locked/blind, still show position (it's non-identifying info).
+    const kanji = (p.position || (p.nickname || p.name || '').slice(0,2) || 'V').toUpperCase();
+    const displayName = isBlindOrLocked
+      ? '???'  // Hide nickname when locked
+      : (p.nickname || p.name || '').toUpperCase();
+    const realNameLine = isBlindOrLocked
       ? `<div class="realname-hidden">Identity classified · pick to reveal</div>`
       : `<div class="realname">${(p.name || '').toUpperCase()}</div>`;
     const photoUrl = await getPhotoUrl(p.id);
-    const silhouetteClass = mode === 'blind' ? ' silhouette' : '';
+    const silhouetteClass = isBlindOrLocked ? ' silhouette' : '';
     const photoHtml = photoUrl
-      ? `<img src="${photoUrl}" alt="${p.name}" crossorigin="anonymous">`
+      ? `<img src="${photoUrl}" alt="${isBlindOrLocked ? 'Classified' : p.name}" crossorigin="anonymous">`
       : `<div class="photo-placeholder">
-           <div class="initials">${mode === 'blind' ? '?' : getInitials(p.name)}</div>
-           <div class="placeholder-label">${mode === 'blind' ? 'Classified' : 'Awaiting photo'}</div>
+           <div class="initials">${isBlindOrLocked ? '?' : getInitials(p.name)}</div>
+           <div class="placeholder-label">${isBlindOrLocked ? 'Classified' : 'Awaiting photo'}</div>
          </div>`;
-    const colorA = teamColor || '#fbbf24';
-    const colorB = teamColor ? '#000000' : '#dc2626';
+    // When locked in full mode, use the same neutral orange-red gradient (no team colors
+    // — those would reveal which captain they belong to)
+    const colorA = isLocked ? '#fbbf24' : (teamColor || '#fbbf24');
+    const colorB = isLocked ? '#dc2626' : (teamColor ? '#000000' : '#dc2626');
     return `
       <div class="tcg-card" style="--team-color-a:${colorA}; --team-color-b:${colorB};">
         <div class="anime-bg"></div>
@@ -485,7 +572,7 @@
             OVR
             <span class="num">${p.overall}</span>
           </div>
-          <div class="type-badge">Gomi Cup ${mode === 'blind' ? '· Classified' : '· 2026'}</div>
+          <div class="type-badge">${teamColor && !isBlindOrLocked ? '🎖️ Captain · Gomi Cup' : 'Gomi Cup ' + (isBlindOrLocked ? '· Classified' : '· 2026')}</div>
         </div>
         <div class="photo-container${silhouetteClass}">${photoHtml}</div>
         <div class="nickname-block">
@@ -535,7 +622,7 @@
             <div class="team-tagline">${club.tagline}</div>
           </div>
           ${capPhoto ? `<div style="width:130px; height:130px; border-radius:50%; overflow:hidden; border:4px solid ${club.colorPrimary}; background:rgba(0,0,0,0.5); box-shadow:0 0 20px ${club.colorPrimary}88;">
-            <img src="${capPhoto}" style="width:100%; height:100%; object-fit:cover; object-position:top;" crossorigin="anonymous">
+            <img src="${capPhoto}" style="width:100%; height:100%; object-fit:cover; object-position: 50% ${photoOffsetY(capId)}%; transform: scale(${photoZoom(capId)}); transform-origin: 50% ${photoOffsetY(capId)}%;" crossorigin="anonymous">
           </div>` : `<div style="width:130px; height:130px; border-radius:50%; border:4px solid ${club.colorPrimary}; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; font-size:56px; font-weight:900; color:${club.colorPrimary};">${getInitials(club.captain.name)}</div>`}
         </div>
         <div class="roster-motto">
@@ -546,7 +633,7 @@
           ${topFive.map((p, i) => {
             const photoUrl = rosterPhotos[i];
             const avatar = photoUrl
-              ? `<div style="width:60px; height:60px; border-radius:50%; overflow:hidden; border:2px solid ${club.colorPrimary}; background:rgba(0,0,0,0.5); flex-shrink:0;"><img src="${photoUrl}" style="width:100%; height:100%; object-fit:cover; object-position:top;" crossorigin="anonymous"></div>`
+              ? `<div style="width:60px; height:60px; border-radius:50%; overflow:hidden; border:2px solid ${club.colorPrimary}; background:rgba(0,0,0,0.5); flex-shrink:0;"><img src="${photoUrl}" style="width:100%; height:100%; object-fit:cover; object-position: 50% ${photoOffsetY(p.id)}%; transform: scale(${photoZoom(p.id)}); transform-origin: 50% ${photoOffsetY(p.id)}%;" crossorigin="anonymous"></div>`
               : `<div style="width:60px; height:60px; border-radius:50%; border:2px solid ${club.colorPrimary}; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; font-weight:900; color:${club.colorPrimary}; flex-shrink:0;">${getInitials(p.name)}</div>`;
             return `
             <div class="roster-row">
@@ -580,35 +667,98 @@
     };
   });
 
+  function showLoginGate(modeLabel) {
+    const grid = document.getElementById('grid');
+    const info = document.getElementById('mode-info');
+    const dlWrap = document.getElementById('dl-all-wrap');
+    if (dlWrap) dlWrap.style.display = 'none';
+    info.innerHTML = '';
+    grid.innerHTML = `
+      <div id="login-gate" style="grid-column: 1 / -1; text-align:center; padding: 60px 24px; background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(239,68,68,0.05)); border: 2px dashed #fbbf24; border-radius: 16px;">
+        <div style="font-size: 4rem; margin-bottom: 16px;">🔒</div>
+        <h2 style="color: #fbbf24; margin-bottom: 12px;">${modeLabel} is for members only</h2>
+        <p style="color: #cbd5e1; max-width: 500px; margin: 0 auto 24px; line-height: 1.6;">
+          The silhouette cards are public — anyone can see them.<br>
+          The real identities, photos and rosters are exclusive to registered members of The Gomi Cup.
+        </p>
+        <a href="./login.html?next=${encodeURIComponent(location.pathname + location.search)}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(90deg, #f97316, #ef4444); color: #fff; font-weight: 700; text-decoration: none; border-radius: 8px; font-size: 1rem;">
+          🔐 Log in to unlock
+        </a>
+        <div style="margin-top: 12px; font-size: 0.85rem; color: #94a3b8;">
+          Don't have an account? Ask Big-B for an invite code.
+        </div>
+      </div>
+    `;
+  }
+
   async function render() {
     const grid = document.getElementById('grid');
     const info = document.getElementById('mode-info');
+    const dlWrap = document.getElementById('dl-all-wrap');
+    if (dlWrap) dlWrap.style.display = '';
     grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;">Rendering cards…</div>';
 
+    const isLoggedIn = window.__cardsSession && window.__cardsSession.profile;
+
     if (currentMode === 'blind') {
-      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. Captains excluded from blind set (identities already known).';
+      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. <strong>Public — no login needed.</strong>';
       grid.innerHTML = '';
       for (const p of players) {
         const wrap = await makeCardWrap(p, 'blind', playerCardHtml, `blind-${p.id}`, false);
         grid.appendChild(wrap);
       }
     } else if (currentMode === 'full') {
-      info.innerHTML = '🎬 <strong>Full reveal cards</strong> — nickname + real name + photo + stats. Includes the 3 captains at the top. Share these to show off your league.';
+      if (!isLoggedIn) { showLoginGate('Full reveal'); return; }
+      // Progressive unlock: silhouettes for anyone who hasn't been part of a completed draft yet
+      const totalCount = players.length;
+      const unlockedCount = players.filter(p => unlockedPlayerIds.has(p.id)).length;
+      info.innerHTML = `🎬 <strong>Full reveal cards</strong> — ${unlockedCount} / ${totalCount} unlocked so far. Silhouettes reveal as they get drafted.`;
       grid.innerHTML = '';
-      for (const c of captainsAsPlayers) {
-        const wrap = await makeCardWrap(c, 'full', (p, m) => playerCardHtml(p, m, c.teamColor), `captain-${c.id}`, false);
-        grid.appendChild(wrap);
-      }
-      for (const p of players) {
-        const wrap = await makeCardWrap(p, 'full', playerCardHtml, `full-${p.id}`, false);
+      // Captain colors only apply to UNLOCKED captains (locked ones look neutral to avoid tipping off which slot they are)
+      const captainColors = { 'big-b': '#dc2626', 'burla': '#16a34a', 'stratus': '#2563eb' };
+      const captainOrder = ['big-b', 'burla', 'stratus'];
+      // Sort: UNLOCKED first (captains at the top, then rest), then LOCKED last
+      const unlockedPlayers = players.filter(p => unlockedPlayerIds.has(p.id));
+      const lockedPlayers   = players.filter(p => !unlockedPlayerIds.has(p.id));
+      const unlockedCaps    = captainOrder.map(id => unlockedPlayers.find(p => p.id === id)).filter(Boolean);
+      const unlockedRest    = unlockedPlayers.filter(p => !captainColors[p.id]);
+      const orderedPlayers  = [...unlockedCaps, ...unlockedRest, ...lockedPlayers];
+      for (const p of orderedPlayers) {
+        const isUnlocked = unlockedPlayerIds.has(p.id);
+        const teamColor  = isUnlocked ? captainColors[p.id] : undefined;
+        const wrap = await makeCardWrap(p, 'full', (pp, m) => playerCardHtml(pp, m, teamColor), `full-${p.id}`, false);
         grid.appendChild(wrap);
       }
     } else if (currentMode === 'rosters') {
-      if (liveDraft) {
-        info.innerHTML = `🏆 <strong>Team roster cards</strong> — pulling live results from room <strong>${roomId}</strong>. These show the actual drafted teams!`;
-      } else {
-        info.innerHTML = '🏆 <strong>Team roster cards</strong> — currently showing top-5 by OVR as a preview. After your real draft, add <code>?room=YOURROOMID</code> to this page\'s URL to see the actual drafted rosters.';
+      if (!isLoggedIn) { showLoginGate('Team roster cards'); return; }
+      if (!liveDraft) {
+        // No real draft data — show a "no draft yet" empty state
+        if (dlWrap) dlWrap.style.display = 'none';
+        info.innerHTML = '';
+        grid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align:center; padding: 60px 24px; background: linear-gradient(135deg, rgba(148,163,184,0.06), rgba(15,23,42,0.5)); border: 2px dashed #475569; border-radius: 16px;">
+            <div style="font-size: 4rem; margin-bottom: 16px;">🏐</div>
+            <h2 style="color: #fbbf24; margin-bottom: 12px;">No draft has happened yet</h2>
+            <p style="color: #cbd5e1; max-width: 500px; margin: 0 auto 24px; line-height: 1.6;">
+              Team roster cards are generated from the actual draft results.
+              Once a draft is completed, come back here with the room ID to see the real rosters.
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+              <a href="./setup.html" style="display: inline-block; padding: 12px 24px; background: linear-gradient(90deg, #f97316, #ef4444); color: #fff; font-weight: 700; text-decoration: none; border-radius: 8px;">
+                🎬 Start a draft
+              </a>
+              <a href="./index.html" style="display: inline-block; padding: 12px 24px; background: rgba(255,255,255,0.08); color: #cbd5e1; text-decoration: none; border-radius: 8px;">
+                Join an existing room
+              </a>
+            </div>
+            <div style="margin-top: 20px; color: #64748b; font-size: 0.85rem;">
+              Or, if a draft is complete, visit <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px;">cards.html?room=YOURROOMID</code>
+            </div>
+          </div>
+        `;
+        return;
       }
+      info.innerHTML = `🏆 <strong>Team roster cards</strong> — pulling live results from room <strong>${roomId}</strong>. These show the actual drafted teams!`;
       grid.innerHTML = '';
       let idx = 0;
       for (const c of Object.values(CLUBS)) {
@@ -619,6 +769,9 @@
       }
     }
   }
+
+  // Expose so the auth watcher can re-render if login state changes while page is open
+  window.__renderCards = render;
 
   async function makeCardWrap(entity, mode, htmlFn, filename, isRoster) {
     const wrap = document.createElement('div');
@@ -635,31 +788,119 @@
     btn.dataset.filename = filename;
     btn.addEventListener('click', () => downloadCard(thumb.querySelector('.tcg-card'), filename));
     wrap.appendChild(btn);
+    // Observe the thumb's size and keep the CSS --thumb-size variable up to date
+    // so the inner .tcg-card always scales properly (including on mobile / resize).
+    observeThumbSize(thumb);
     return wrap;
   }
 
+  const _thumbObserver = new ResizeObserver(entries => {
+    for (const e of entries) {
+      const w = e.contentRect.width;
+      if (w > 0) e.target.style.setProperty('--thumb-scale', (w / 1080).toString());
+    }
+  });
+  function observeThumbSize(thumb) {
+    // Also set an initial value in case ResizeObserver hasn't fired yet
+    requestAnimationFrame(() => {
+      const w = thumb.getBoundingClientRect().width;
+      if (w > 0) thumb.style.setProperty('--thumb-scale', (w / 1080).toString());
+    });
+    _thumbObserver.observe(thumb);
+  }
+
   async function downloadCard(cardEl, filename) {
-    // Render the card at native 1080x1080 by temporarily un-scaling
-    const original = cardEl.style.transform;
-    const originalParentOverflow = cardEl.parentElement.style.overflow;
-    cardEl.style.transform = 'none';
-    cardEl.parentElement.style.overflow = 'visible';
-    // Move offscreen to avoid layout jump
-    const originalPos = cardEl.style.position;
+    // Isolated 1080×1080 staging container, on-screen but invisible.
+    const stage = document.createElement('div');
+    stage.style.cssText = [
+      'position: fixed', 'top: 0', 'left: 0',
+      'width: 1080px', 'height: 1080px',
+      'min-width: 1080px', 'min-height: 1080px',
+      'max-width: none', 'max-height: none',
+      'overflow: visible',
+      'z-index: -9999',
+      'opacity: 0',
+      'pointer-events: none',
+      'transform: none',
+      'transform-origin: 0 0'
+    ].join(';');
+    const clone = cardEl.cloneNode(true);
+    clone.style.setProperty('transform', 'none', 'important');
+    clone.style.setProperty('width',  '1080px', 'important');
+    clone.style.setProperty('height', '1080px', 'important');
+    clone.style.setProperty('min-width',  '1080px', 'important');
+    clone.style.setProperty('min-height', '1080px', 'important');
+    clone.style.setProperty('max-width',  'none', 'important');
+    clone.style.setProperty('max-height', 'none', 'important');
+    clone.style.setProperty('position', 'relative', 'important');
+    stage.appendChild(clone);
+    document.body.appendChild(stage);
     try {
-      const canvas = await html2canvas(cardEl, { width: 1080, height: 1080, scale: 1, backgroundColor: null, useCORS: true, logging: false });
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const imgs = Array.from(clone.querySelectorAll('img'));
+      await Promise.all(imgs.map(img => {
+        if (img.complete && img.naturalWidth) return Promise.resolve();
+        return new Promise(res => { img.onload = img.onerror = () => res(); });
+      }));
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      // Use htmlToImage (handles object-fit correctly via SVG foreignObject).
+      // Fallback to html2canvas if htmlToImage failed to load.
+      let dataUrl;
+      if (window.htmlToImage && typeof window.htmlToImage.toPng === 'function') {
+        dataUrl = await window.htmlToImage.toPng(clone, {
+          width: 1080, height: 1080,
+          canvasWidth: 1080, canvasHeight: 1080,
+          pixelRatio: 1,
+          cacheBust: false,
+          skipFonts: false
+        });
+      } else {
+        const canvas = await html2canvas(clone, {
+          width: 1080, height: 1080,
+          windowWidth: 1200, windowHeight: 1200,
+          scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
+          backgroundColor: null, useCORS: true, allowTaint: true,
+          logging: false, foreignObjectRendering: false
+        });
+        dataUrl = canvas.toDataURL('image/png');
+      }
       const link = document.createElement('a');
       link.download = `${filename}.png`;
-      link.href = canvas.toDataURL('image/png');
+      link.href = dataUrl;
       link.click();
+      showDownloadToast(`✅ Downloaded ${filename}.png`);
     } catch (e) {
       console.error(e);
       alert('Card download failed: ' + e.message);
     } finally {
-      cardEl.style.transform = original;
-      cardEl.parentElement.style.overflow = originalParentOverflow;
-      cardEl.style.position = originalPos;
+      stage.remove();
     }
+  }
+
+  function showDownloadToast(msg) {
+    let toast = document.getElementById('dl-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'dl-toast';
+      toast.style.cssText = `
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        padding: 12px 20px; background: rgba(34,197,94,0.95); color: #052e16;
+        font-weight: 700; border-radius: 10px; z-index: 10000;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        transition: opacity 0.3s, transform 0.3s;
+        max-width: 90vw; text-align: center;
+      `;
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = `${msg}`;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(-50%) translateY(0)';
+    clearTimeout(showDownloadToast._t);
+    showDownloadToast._t = setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(-50%) translateY(20px)';
+    }, 5000);
   }
 
   window.downloadAll = async () => {
@@ -673,15 +914,57 @@
       let done = 0;
       for (const wrap of wraps) {
         const cardEl = wrap.querySelector('.tcg-card');
-        const filename = wrap.querySelector('.download-btn').dataset.filename ||
-          `card-${done}`;
-        const original = cardEl.style.transform;
-        cardEl.style.transform = 'none';
-        cardEl.parentElement.style.overflow = 'visible';
-        const canvas = await html2canvas(cardEl, { width: 1080, height: 1080, scale: 1, backgroundColor: null, useCORS: true, logging: false });
-        cardEl.style.transform = original;
-        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-        zip.file(`${currentMode}-${done+1}.png`, blob);
+        const filename = wrap.querySelector('.download-btn').dataset.filename || `card-${done}`;
+        const stage = document.createElement('div');
+        stage.style.cssText = [
+          'position: fixed', 'top: 0', 'left: 0',
+          'width: 1080px', 'height: 1080px',
+          'min-width: 1080px', 'min-height: 1080px',
+          'max-width: none', 'max-height: none',
+          'overflow: visible',
+          'z-index: -9999', 'opacity: 0', 'pointer-events: none',
+          'transform: none', 'transform-origin: 0 0'
+        ].join(';');
+        const clone = cardEl.cloneNode(true);
+        clone.style.setProperty('transform', 'none', 'important');
+        clone.style.setProperty('width',  '1080px', 'important');
+        clone.style.setProperty('height', '1080px', 'important');
+        clone.style.setProperty('min-width',  '1080px', 'important');
+        clone.style.setProperty('min-height', '1080px', 'important');
+        clone.style.setProperty('max-width',  'none', 'important');
+        clone.style.setProperty('max-height', 'none', 'important');
+        clone.style.setProperty('position', 'relative', 'important');
+        stage.appendChild(clone);
+        document.body.appendChild(stage);
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const imgs = Array.from(clone.querySelectorAll('img'));
+        await Promise.all(imgs.map(img => {
+          if (img.complete && img.naturalWidth) return Promise.resolve();
+          return new Promise(res => { img.onload = img.onerror = () => res(); });
+        }));
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+        let dataUrl;
+        if (window.htmlToImage && typeof window.htmlToImage.toPng === 'function') {
+          dataUrl = await window.htmlToImage.toPng(clone, {
+            width: 1080, height: 1080,
+            canvasWidth: 1080, canvasHeight: 1080,
+            pixelRatio: 1,
+            cacheBust: false, skipFonts: false
+          });
+        } else {
+          const canvas = await html2canvas(clone, {
+            width: 1080, height: 1080,
+            windowWidth: 1200, windowHeight: 1200,
+            scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
+            backgroundColor: null, useCORS: true, allowTaint: true, logging: false,
+            foreignObjectRendering: false
+          });
+          dataUrl = canvas.toDataURL('image/png');
+        }
+        stage.remove();
+        const blob = await (await fetch(dataUrl)).blob();
+        zip.file(`${filename}.png`, blob);
         done++;
         btn.textContent = `⏳ Generating ${done}/${wraps.length}...`;
       }
@@ -709,5 +992,6 @@
 
   render();
 </script>
+<script type="module" src="./js/back-button.js"></script>
 </body>
 </html>

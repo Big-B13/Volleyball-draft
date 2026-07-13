@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .invite-row {
+    display: grid;
+    grid-template-columns: 140px 130px 1fr 60px;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+  }
+  @media (max-width: 720px) {
+    .invite-row {
+      grid-template-columns: 1fr auto !important;
+      gap: 6px;
+      padding: 10px;
+      font-size: 0.85rem;
+    }
+    .invite-row .code { grid-column: 1 / -1; }
+  }
+  .invite-row .code { font-family: monospace; color: #fbbf24; font-weight: 700; letter-spacing: 2px; }
+  .invite-row .role-badge {
+    display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 700;
+  }
+  .invite-row .role-badge.viewer { background: #64748b; color: #fff; }
+  .invite-row .role-badge.captain { background: #fbbf24; color: #422006; }
+  .invite-row .role-badge.commissioner { background: #dc2626; color: #fff; }
+  .invite-row .status { font-size: 0.75rem; }
+  .invite-row .status.free { color: #22c55e; }
+  .invite-row .status.used { color: #64748b; }
+  .invite-row button {
+    padding: 4px 8px; font-size: 0.75rem; background: #334155; color:#cbd5e1;
+  }
+  .quick-btn {
+    background: #334155; padding: 8px 14px; font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./setup.html">🎬 Setup</a>
+    <a href="./league-editor.html">🏆 Leagues</a>
+    <a href="./admin.html" class="active">👑 Admin</a>
+  </nav>
+
+  <div id="auth-badge" style="text-align:right; margin-bottom: 12px;"></div>
+
+  <h1><span class="emoji">👑</span> COMMISSIONER PANEL</h1>
+  <p class="tagline">Create invite codes and manage users.</p>
+
+  <div class="card">
+    <h2>Create Invite Code</h2>
+    <div class="grid-2">
+      <div>
+        <label>Code (or generate)</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="new-code" placeholder="e.g. GOMI-ABC" style="text-transform:uppercase; flex:1;">
+          <button class="quick-btn" onclick="genCode()">🎲 Generate</button>
+        </div>
+      </div>
+      <div>
+        <label>Role</label>
+        <select id="new-role">
+          <option value="viewer">👀 Viewer</option>
+          <option value="captain">🎖️ Captain</option>
+          <option value="commissioner">👑 Commissioner</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top: 12px;">
+      <div>
+        <label>Display name (optional)</label>
+        <input type="text" id="new-displayname" placeholder="e.g. Nikita Brown">
+      </div>
+      <div id="captain-select-wrap" class="hidden">
+        <label>Link to captain slot (captains only)</label>
+        <select id="new-captain">
+          <option value="">— select —</option>
+          <option value="c1">Big-B / Strigidae</option>
+          <option value="c2">Burla / Kòrsou Otters</option>
+          <option value="c3">Stratus / Shizuka</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-btns" style="justify-content:flex-start;">
+      <button onclick="createCode()">➕ Create invite code</button>
+      <button class="quick-btn" onclick="createAllStandardCodes()">🚀 Bulk-create codes for all 32 people</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Invite Codes (<span id="code-count">0</span>)</h2>
+    <div id="msg-invite" style="display:none;"></div>
+    <div id="invite-list"></div>
+  </div>
+
+  <div class="card">
+    <h2>Registered Users (<span id="user-count">0</span>)</h2>
+    <div id="user-list"></div>
+  </div>
+
+  <div class="card">
+    <h2>🏐 Players (<span id="player-count">0</span>)</h2>
+    <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:14px;">
+      Edit nicknames, real names, stats and bios. Changes sync live to everyone. Click <strong>Save</strong> after editing a row.
+      <br>Filter or search below.
+    </p>
+    <input type="text" id="player-search" placeholder="🔎 Filter by name or nickname…" style="margin-bottom:12px;">
+    <div id="players-list"></div>
+    <hr style="margin: 24px 0; border-color: #334155;">
+    <h3 style="color:#fbbf24;">➕ Add a new player</h3>
+    <div class="grid-2">
+      <div>
+        <label>ID / slug (lowercase, no spaces)</label>
+        <input type="text" id="new-p-id" placeholder="e.g. new-friend">
+      </div>
+      <div>
+        <label>Real name</label>
+        <input type="text" id="new-p-name" placeholder="e.g. Alex">
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top: 10px;">
+      <div>
+        <label>Nickname</label>
+        <input type="text" id="new-p-nickname" placeholder="e.g. The Sniper">
+      </div>
+      <div>
+        <label>Position (max 2, e.g. OH or L/S)</label>
+        <input type="text" id="new-p-position" maxlength="6" placeholder="e.g. OH" value="OH">
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top: 10px;">
+      <div><label>Attack</label><input type="number" id="new-p-attack" min="1" max="10" step="0.5" value="5"></div>
+      <div><label>Serve</label><input type="number" id="new-p-serve" min="1" max="10" step="0.5" value="5"></div>
+    </div>
+    <div class="grid-2" style="margin-top: 10px;">
+      <div><label>Defense</label><input type="number" id="new-p-defense" min="1" max="10" step="0.5" value="5"></div>
+      <div><label>Setting</label><input type="number" id="new-p-setting" min="1" max="10" step="0.5" value="5"></div>
+    </div>
+    <div class="grid-2" style="margin-top: 10px;">
+      <div><label>Athletic</label><input type="number" id="new-p-athletic" min="1" max="10" step="0.5" value="5"></div>
+      <div></div>
+    </div>
+    <div style="margin-top: 10px;">
+      <label>Bio (optional)</label>
+      <input type="text" id="new-p-bio" placeholder="e.g. Big personality, lets you know he's here.">
+    </div>
+    <div class="row-btns" style="justify-content:flex-start;">
+      <button onclick="createNewPlayer()">➕ Create player</button>
+    </div>
+    <p style="color:#94a3b8; font-size:0.8rem; margin-top:12px;">
+      💡 New players won't have a photo automatically — upload one to <code>assets/players/&lt;id&gt;.png</code> on GitHub after creating.
+    </p>
+  </div>
+</div>
+
+<script type="module">
+  import {
+    guardPage, renderAuthBadge, createInviteCode, listInviteCodes,
+    listUsers, deleteInviteCode, updateUserRole, resetUser
+  } from "./js/auth.js";
+  import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS } from "./js/data.js";
+  import {
+    subscribePlayers, savePlayer, resetPlayerToDefault, addCustomPlayer, deleteCustomPlayer, isPlayerEdited
+  } from "./js/players.js";
+  import { escapeHtml } from "./js/util.js";
+
+  // Protect: only commissioners can be here
+  const { profile } = await guardPage({ requireRole: 'commissioner' });
+  renderAuthBadge(document.getElementById('auth-badge'), profile);
+
+  window.genCode = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const rand = Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+    document.getElementById('new-code').value = 'GOMI-' + rand;
+  };
+
+  document.getElementById('new-role').addEventListener('change', (e) => {
+    document.getElementById('captain-select-wrap').classList.toggle('hidden', e.target.value !== 'captain');
+  });
+
+  window.createCode = async () => {
+    const code = document.getElementById('new-code').value.trim().toUpperCase();
+    const role = document.getElementById('new-role').value;
+    const displayName = document.getElementById('new-displayname').value.trim();
+    const captainId = role === 'captain' ? document.getElementById('new-captain').value : null;
+    if (!code) return alert('Enter or generate a code.');
+    if (role === 'captain' && !captainId) return alert('Pick which captain slot.');
+    try {
+      await createInviteCode({ code, role, captainId, displayName });
+      document.getElementById('new-code').value = '';
+      document.getElementById('new-displayname').value = '';
+      await refresh();
+    } catch (e) { alert('Failed: ' + e.message); }
+  };
+
+  window.createAllStandardCodes = async () => {
+    if (!confirm('Bulk-create 32 invite codes (3 captains + 29 players)? Existing codes with the same names will be overwritten.')) return;
+    const captainMap = { c1:'big-b', c2:'burla', c3:'stratus' };
+    let created = 0;
+    for (const cap of DEFAULT_CAPTAINS) {
+      const shortId = captainMap[cap.id] || cap.name.toLowerCase();
+      await createInviteCode({
+        code: 'GOMI-' + shortId.toUpperCase(),
+        role: 'captain',
+        captainId: cap.id,
+        displayName: cap.name
+      });
+      created++;
+    }
+    for (const p of DEFAULT_PLAYERS) {
+      await createInviteCode({
+        code: 'GOMI-' + p.id.toUpperCase().replace('-', ''),
+        role: 'viewer',
+        displayName: p.name
+      });
+      created++;
+    }
+    alert(`Created ${created} codes!`);
+    await refresh();
+  };
+
+  window.deleteCode = async (code) => {
+    if (!confirm(`Delete code ${code}?`)) return;
+    await deleteInviteCode(code);
+    await refresh();
+  };
+
+  window.changeRole = async (uid, newRole) => {
+    await updateUserRole(uid, { role: newRole });
+    await refresh();
+  };
+
+  window.resetUserAccount = async (uid, name) => {
+    if (!confirm(`Reset account for "${name}"?\n\nThis will:\n• Delete their profile from the database\n• Free up their invite code so they can re-sign-up with a new password\n\nYou'll then need to manually delete their Firebase Auth entry (I'll show you the UID).`)) return;
+    try {
+      const result = await resetUser(uid);
+      const msg = `✅ Reset complete for ${result.displayName || result.username}!
+
+Freed invite code: ${result.freedCode || '(none found — you may need to create a new one)'}
+
+⚠️ ONE MORE STEP — Delete their Firebase Auth entry:
+1. Firebase Console → Authentication → Users
+2. Find their email and delete
+3. Their Auth UID is: ${result.authUid}
+
+Then they can sign up fresh with the invite code above.`;
+      alert(msg);
+      // Copy the auth UID to clipboard for convenience
+      try { await navigator.clipboard.writeText(result.authUid); } catch (e) {}
+      await refresh();
+    } catch (e) {
+      alert('❌ Reset failed: ' + e.message);
+    }
+  };
+
+  async function refresh() {
+    const codes = await listInviteCodes();
+    document.getElementById('code-count').textContent = codes.length;
+    codes.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    document.getElementById('invite-list').innerHTML = codes.map(c => `
+      <div class="invite-row">
+        <div class="code">${c.code}</div>
+        <div>
+          <span class="role-badge ${c.role||'viewer'}">${c.role||'viewer'}</span>
+          ${c.captainId ? `<span style="font-size:0.7rem;color:#94a3b8;"> · ${c.captainId}</span>` : ''}
+        </div>
+        <div>
+          <div style="color:#e2e8f0;">${c.displayName || '<em style="color:#64748b">no name</em>'}</div>
+          <div class="status ${c.consumed?'used':'free'}">${c.consumed ? '✓ used' : '● unused'}</div>
+        </div>
+        <button onclick="deleteCode('${c.code}')">🗑</button>
+      </div>
+    `).join('') || '<div style="color:#64748b;">No codes yet. Create one above or bulk-generate.</div>';
+
+    const users = await listUsers();
+    document.getElementById('user-count').textContent = users.length;
+    document.getElementById('user-list').innerHTML = users.map(u => {
+      const safeName = (u.displayName || u.username || '').replace(/'/g, "\\'");
+      return `
+      <div class="invite-row" style="grid-template-columns: 1fr 130px 1fr 130px 80px;">
+        <div><strong>${u.displayName || u.username}</strong> <span style="color:#64748b; font-size:0.8rem;">@${u.username}</span></div>
+        <div><span class="role-badge ${u.role||'viewer'}">${u.role||'viewer'}</span></div>
+        <div style="color:#64748b; font-size:0.75rem;">${u.captainId ? 'linked: '+u.captainId : ''}</div>
+        <select onchange="changeRole('${u.uid}', this.value)">
+          <option value="viewer" ${u.role==='viewer'?'selected':''}>viewer</option>
+          <option value="captain" ${u.role==='captain'?'selected':''}>captain</option>
+          <option value="commissioner" ${u.role==='commissioner'?'selected':''}>commissioner</option>
+        </select>
+        <button onclick="resetUserAccount('${u.uid}', '${safeName}')" title="Reset password / delete account" style="background:#7c2d12; color:#fed7aa;">🔄 Reset</button>
+      </div>
+    `;}).join('') || '<div style="color:#64748b;">No registered users yet.</div>';
+  }
+
+  await refresh();
+
+  // ============ PLAYERS EDITOR ============
+  let allPlayers = [];
+  let playerFilter = '';
+
+  subscribePlayers((list) => {
+    allPlayers = list;
+    renderPlayers();
+  });
+
+  document.getElementById('player-search').addEventListener('input', (e) => {
+    playerFilter = e.target.value.toLowerCase();
+    renderPlayers();
+  });
+
+  function renderPlayers() {
+    const listEl = document.getElementById('players-list');
+    document.getElementById('player-count').textContent = allPlayers.length;
+    const filtered = playerFilter
+      ? allPlayers.filter(p =>
+          (p.name || '').toLowerCase().includes(playerFilter) ||
+          (p.nickname || '').toLowerCase().includes(playerFilter) ||
+          (p.id || '').toLowerCase().includes(playerFilter))
+      : allPlayers;
+    listEl.innerHTML = filtered.map(p => {
+      const edited = isPlayerEdited(p);
+      const badge = p.isCustom
+        ? '<span style="background:#22c55e; color:#052e16; padding:2px 6px; border-radius:8px; font-size:0.65rem; font-weight:700;">CUSTOM</span>'
+        : edited
+          ? '<span style="background:#fbbf24; color:#422006; padding:2px 6px; border-radius:8px; font-size:0.65rem; font-weight:700;">EDITED</span>'
+          : '';
+      return `
+        <div class="player-editor-row" data-pid="${p.id}" style="background:rgba(0,0,0,0.3); border-radius:8px; padding:12px; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <strong style="color:#fff;">${escapeHtml(p.name || '(no name)')}</strong>
+              <span style="color:#64748b; font-size:0.75rem;">${escapeHtml(p.id)}</span>
+              ${badge}
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="pe-save" style="background:#22c55e; color:#052e16; padding:4px 10px; font-size:0.75rem;">💾 Save</button>
+              ${p.isCustom
+                ? `<button class="pe-delete" style="background:#ef4444; color:#fff; padding:4px 10px; font-size:0.75rem;">🗑 Delete</button>`
+                : edited
+                  ? `<button class="pe-reset" style="background:#64748b; color:#fff; padding:4px 10px; font-size:0.75rem;">↺ Reset</button>`
+                  : ''}
+            </div>
+          </div>
+          <div class="grid-2" style="gap:8px;">
+            <div>
+              <label style="font-size:0.72rem;">Real name</label>
+              <input class="pe-name" type="text" value="${escapeHtml(p.name || '')}">
+            </div>
+            <div>
+              <label style="font-size:0.72rem;">Nickname</label>
+              <input class="pe-nickname" type="text" value="${escapeHtml(p.nickname || '')}">
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+            <label style="font-size:0.72rem;">Position (max 2, e.g. MB, S, L, OH, OP, or OH/OP for two)</label>
+            <input class="pe-position" type="text" maxlength="6" value="${escapeHtml(p.position || '')}" placeholder="e.g. OH or L/S">
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:8px;">
+            <div><label style="font-size:0.7rem;">ATT</label><input class="pe-attack"   type="number" min="1" max="10" step="0.5" value="${p.attack}"></div>
+            <div><label style="font-size:0.7rem;">SER</label><input class="pe-serve"    type="number" min="1" max="10" step="0.5" value="${p.serve}"></div>
+            <div><label style="font-size:0.7rem;">DEF</label><input class="pe-defense"  type="number" min="1" max="10" step="0.5" value="${p.defense}"></div>
+            <div><label style="font-size:0.7rem;">SET</label><input class="pe-setting"  type="number" min="1" max="10" step="0.5" value="${p.setting}"></div>
+            <div><label style="font-size:0.7rem;">ATH</label><input class="pe-athletic" type="number" min="1" max="10" step="0.5" value="${p.athletic}"></div>
+          </div>
+          <div style="margin-top:8px;">
+            <label style="font-size:0.72rem;">Bio (scouting report — shown on reveal)</label>
+            <input class="pe-bio" type="text" value="${escapeHtml(p.bio || '')}">
+          </div>
+        </div>
+      `;
+    }).join('') || '<div style="color:#64748b; padding:20px; text-align:center;">No players match the filter.</div>';
+
+    // Wire up buttons
+    listEl.querySelectorAll('.player-editor-row').forEach(row => {
+      const pid = row.dataset.pid;
+      const saveBtn = row.querySelector('.pe-save');
+      const resetBtn = row.querySelector('.pe-reset');
+      const delBtn = row.querySelector('.pe-delete');
+      if (saveBtn) saveBtn.addEventListener('click', async () => {
+        try {
+          // Normalize position: uppercase, allow letters + slash, max 2 positions (like "OH/OP")
+          let pos = row.querySelector('.pe-position').value.trim().toUpperCase().replace(/[^A-Z/]/g, '');
+          // Enforce max 2 positions separated by /
+          const posParts = pos.split('/').filter(Boolean).slice(0, 2);
+          pos = posParts.join('/');
+          const patch = {
+            name: row.querySelector('.pe-name').value.trim(),
+            nickname: row.querySelector('.pe-nickname').value.trim(),
+            position: pos,
+            attack: parseFloat(row.querySelector('.pe-attack').value) || 5,
+            serve: parseFloat(row.querySelector('.pe-serve').value) || 5,
+            defense: parseFloat(row.querySelector('.pe-defense').value) || 5,
+            setting: parseFloat(row.querySelector('.pe-setting').value) || 5,
+            athletic: parseFloat(row.querySelector('.pe-athletic').value) || 5,
+            bio: row.querySelector('.pe-bio').value.trim()
+          };
+          saveBtn.textContent = '⏳ Saving…';
+          await savePlayer(pid, patch);
+          saveBtn.textContent = '✅ Saved';
+          setTimeout(() => saveBtn.textContent = '💾 Save', 1500);
+        } catch (e) {
+          alert('❌ ' + e.message);
+          saveBtn.textContent = '💾 Save';
+        }
+      });
+      if (resetBtn) resetBtn.addEventListener('click', async () => {
+        if (!confirm(`Reset "${pid}" back to hardcoded defaults? This wipes any edits.`)) return;
+        await resetPlayerToDefault(pid);
+      });
+      if (delBtn) delBtn.addEventListener('click', async () => {
+        if (!confirm(`Delete custom player "${pid}"? This can't be undone.`)) return;
+        await deleteCustomPlayer(pid);
+      });
+    });
+  }
+
+  window.createNewPlayer = async () => {
+    try {
+      await addCustomPlayer({
+        id: document.getElementById('new-p-id').value,
+        name: document.getElementById('new-p-name').value,
+        nickname: document.getElementById('new-p-nickname').value,
+        position: document.getElementById('new-p-position').value,
+        attack: document.getElementById('new-p-attack').value,
+        serve: document.getElementById('new-p-serve').value,
+        defense: document.getElementById('new-p-defense').value,
+        setting: document.getElementById('new-p-setting').value,
+        athletic: document.getElementById('new-p-athletic').value,
+        bio: document.getElementById('new-p-bio').value
+      });
+      // Reset form
+      ['new-p-id','new-p-name','new-p-nickname','new-p-bio'].forEach(id =>
+        document.getElementById(id).value = '');
+      alert('✅ Player added!');
+    } catch (e) {
+      alert('❌ ' + e.message);
+    }
+  };
+</script>
+<script type="module" src="./js/back-button.js"></script>
+</body>
+</html>

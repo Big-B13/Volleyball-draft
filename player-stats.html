@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌟 Player Stats — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .mode-tabs { display:flex; gap:8px; justify-content:center; margin: 20px 0; flex-wrap:wrap; }
+  .mode-tabs button { padding: 8px 14px; background:#334155; color:#cbd5e1; border-radius:6px; font-weight:600; font-size:0.85rem; }
+  .mode-tabs button.active { background:linear-gradient(90deg,#f97316,#ef4444); color:#fff; }
+
+  .lb-table { width:100%; border-collapse:collapse; }
+  .lb-table th { text-align:left; padding:8px 10px; font-size:0.72rem; letter-spacing:1px; text-transform:uppercase; color:#94a3b8; border-bottom:2px solid #334155; }
+  .lb-table td { padding:10px; border-bottom:1px solid #334155; color:#e2e8f0; }
+  .lb-table tr.top1 { background: linear-gradient(90deg, rgba(251,191,36,0.15), transparent); }
+  .lb-table tr.top2 { background: linear-gradient(90deg, rgba(203,213,225,0.10), transparent); }
+  .lb-table tr.top3 { background: linear-gradient(90deg, rgba(217,119,6,0.08), transparent); }
+  .lb-table .rank { font-weight:900; text-align:center; width:44px; font-size:1.05rem; }
+  .lb-table tr.top1 .rank { color:#fbbf24; }
+  .lb-table tr.top2 .rank { color:#cbd5e1; }
+  .lb-table tr.top3 .rank { color:#d97706; }
+  .lb-table .num { text-align:center; font-variant-numeric:tabular-nums; font-weight:700; }
+  .lb-table .score { color:#fbbf24; font-weight:900; font-size:1.05rem; }
+  .lb-table .player-cell { display:flex; align-items:center; gap:10px; }
+  .lb-table .avatar {
+    width:36px; height:36px; border-radius:50%; overflow:hidden;
+    background:#0f172a; border:2px solid #334155; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:900; color:#64748b; font-size:0.8rem;
+  }
+  .lb-table .avatar img { width:100%; height:100%; object-fit:cover; object-position:top; }
+  .lb-table .p-name { font-weight:700; color:#fff; }
+  .lb-table .p-nick { color:#94a3b8; font-size:0.75rem; font-style:italic; }
+  .lb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .lb-card { padding: 14px 16px; background: rgba(0,0,0,0.3); border-radius: 10px; }
+  .lb-card h3 { color:#fbbf24; font-size:0.9rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:10px; }
+
+  @media (max-width: 720px) {
+    .lb-grid { grid-template-columns: 1fr; }
+    .lb-table th, .lb-table td { padding: 6px 4px; font-size: 0.8rem; }
+    .lb-table .avatar { width: 28px; height: 28px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./standings.html">📊 Team Standings</a>
+    <a href="./player-stats.html" class="active">🌟 Player Stats</a>
+    <a href="./cards.html">🃏 Cards</a>
+  </nav>
+
+  <h1><span class="emoji">🌟</span> PLAYER STATS</h1>
+  <p class="tagline">Season leaderboards. Who's carrying the league?</p>
+
+  <div class="card">
+    <label>League</label>
+    <select id="league-select" style="max-width: 400px;"></select>
+  </div>
+
+  <div class="mode-tabs">
+    <button class="mode-btn active" data-mode="overall">🏆 Overall MVP Ranking</button>
+    <button class="mode-btn" data-mode="categories">📊 Category Leaders</button>
+  </div>
+
+  <div class="card">
+    <div id="content"></div>
+  </div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { listLeagues, ensureGomiCupSeeded, currentLeagueId } from "./js/leagues.js";
+  import { watchMatches } from "./js/standings.js";
+  import { watchStats, aggregatePlayerStats, STAT_FIELDS, computeMvpScore } from "./js/player-stats.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { escapeHtml } from "./js/util.js";
+  import { db, ref, get } from "./js/firebase-init.js";
+  import { photoPathFor, getInitials } from "./js/data.js";
+
+  await ensureGomiCupSeeded();
+
+  const params = new URLSearchParams(location.search);
+  let selectedLeague = null;
+  let leagues = await listLeagues();
+  let matches = [];
+  let stats = {};
+  let players = await getAllPlayers();
+  let mode = 'overall';
+  let playerRosters = {}; // { playerId: captainId } — from any completed drafts
+
+  const picker = document.getElementById('league-select');
+  const initialId = params.get('league') || currentLeagueId();
+  picker.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  picker.addEventListener('change', () => switchLeague(picker.value));
+
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      mode = b.dataset.mode;
+      render();
+    });
+  });
+
+  let unsubMatches = null, unsubStats = null;
+
+  async function switchLeague(leagueId) {
+    if (unsubMatches) unsubMatches();
+    if (unsubStats)   unsubStats();
+    selectedLeague = leagues.find(l => l.id === leagueId);
+    if (!selectedLeague) return;
+    // Load player→captain mappings from ALL completed drafts in this league
+    playerRosters = await computePlayerRosters(leagueId);
+    unsubMatches = watchMatches(leagueId, (list) => { matches = list; render(); });
+    unsubStats   = watchStats(leagueId, (blob)  => { stats   = blob;  render(); });
+  }
+
+  async function computePlayerRosters(leagueId) {
+    // Look at all drafts in Firebase that reference this league — take the most recent complete one
+    const snap = await get(ref(db, 'drafts'));
+    const drafts = snap.val() || {};
+    let latest = null;
+    for (const [id, d] of Object.entries(drafts)) {
+      if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
+      if (d.status !== 'complete') continue;
+      if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+    }
+    if (!latest || !latest.picks) return {};
+    const map = {};
+    for (const pk of latest.picks) {
+      const cap = latest.captains[pk.captainIdx];
+      if (cap) map[pk.playerId] = cap.id;
+    }
+    return map;
+  }
+
+  function playerCellHtml(p) {
+    const photoUrl = photoPathFor(p.id);
+    return `
+      <div class="player-cell">
+        <div class="avatar"><img src="${photoUrl}" onerror="this.style.display='none'; this.parentElement.textContent='${getInitials(p.name)}'"></div>
+        <div>
+          <div class="p-name">${escapeHtml(p.name)}</div>
+          <div class="p-nick">"${escapeHtml(p.nickname || '')}"</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function render() {
+    const container = document.getElementById('content');
+    if (!selectedLeague) return;
+
+    const aggregate = aggregatePlayerStats({ statsBlob: stats, matches, playerRosters });
+    const entries = Object.values(aggregate).filter(e => e.gamesPlayed > 0);
+
+    if (!entries.length) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:60px 20px; color:#94a3b8;">
+          <div style="font-size:3rem; margin-bottom:12px;">📊</div>
+          <div style="color:#fbbf24; font-weight:700; margin-bottom:6px;">No player stats logged yet</div>
+          <div style="font-size:0.9rem;">
+            After each match, a commissioner can log per-player stats on the
+            <a href="./standings.html" style="color:#fbbf24;">standings page</a>.
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    // Enrich with player info
+    const playerById = Object.fromEntries(players.map(p => [p.id, p]));
+    entries.forEach(e => { e.player = playerById[e.playerId] || { id: e.playerId, name: e.playerId, nickname: '' }; });
+
+    if (mode === 'overall') {
+      renderOverall(container, entries);
+    } else {
+      renderCategories(container, entries);
+    }
+  }
+
+  function renderOverall(container, entries) {
+    const sorted = entries.slice().sort((a, b) => b.totalScore - a.totalScore);
+    container.innerHTML = `
+      <h2 style="color:#fbbf24; font-size:1.1rem; margin-bottom:10px;">🏆 Season MVP Ranking</h2>
+      <p style="color:#94a3b8; font-size:0.82rem; margin-bottom:14px;">
+        Weighted formula: Kills×1 + Blocks×1.5 + Aces×1.5 + Digs×0.5 + Assists×0.5 + MVP-bonus + Win-bonus
+      </p>
+      <div style="overflow-x:auto;">
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Player</th>
+              <th class="num">GP</th><th class="num">W</th><th class="num">MVP</th>
+              ${STAT_FIELDS.map(f => `<th class="num">${f.short}</th>`).join('')}
+              <th class="num">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map((e, i) => {
+              const rank = i + 1;
+              const rowClass = rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '';
+              const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank;
+              return `
+                <tr class="${rowClass}">
+                  <td class="rank">${medal}</td>
+                  <td>${playerCellHtml(e.player)}</td>
+                  <td class="num">${e.gamesPlayed}</td>
+                  <td class="num">${e.matchesWon}</td>
+                  <td class="num">${e.mvpCount}</td>
+                  ${STAT_FIELDS.map(f => `<td class="num">${e[f.id]}</td>`).join('')}
+                  <td class="num score">${Math.round(e.totalScore * 10) / 10}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderCategories(container, entries) {
+    const categoryHtml = STAT_FIELDS.map(f => {
+      const top = entries.slice().sort((a, b) => b[f.id] - a[f.id]).slice(0, 5);
+      return `
+        <div class="lb-card">
+          <h3>Top ${f.label}</h3>
+          <table class="lb-table">
+            <tbody>
+              ${top.map((e, i) => {
+                const rank = i + 1;
+                const rowClass = rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '';
+                return `
+                  <tr class="${rowClass}">
+                    <td class="rank">${rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank}</td>
+                    <td>${playerCellHtml(e.player)}</td>
+                    <td class="num score">${e[f.id]}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+    // Also add MVP-count leaderboard
+    const mvpTop = entries.slice().filter(e => e.mvpCount > 0).sort((a, b) => b.mvpCount - a.mvpCount).slice(0, 5);
+    const mvpBlock = mvpTop.length ? `
+      <div class="lb-card">
+        <h3>🏆 MVP Count</h3>
+        <table class="lb-table">
+          <tbody>
+            ${mvpTop.map((e, i) => {
+              const rank = i + 1;
+              const rowClass = rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '';
+              return `
+                <tr class="${rowClass}">
+                  <td class="rank">${rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank}</td>
+                  <td>${playerCellHtml(e.player)}</td>
+                  <td class="num score">${e.mvpCount}×</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : '';
+    container.innerHTML = `<div class="lb-grid">${categoryHtml}${mvpBlock}</div>`;
+  }
+
+  await switchLeague(initialId);
+</script>
+</body>
+</html>

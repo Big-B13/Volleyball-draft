@@ -50,11 +50,13 @@
   .photo-item.has-photo { border-color: #22c55e; }
   .photo-item.missing { border-color: #ef4444; opacity: 0.85; }
   .photo-avatar {
-    width: 100px;
-    height: 100px;
+    width: 110px;
+    height: 110px;
     border-radius: 50%;
     margin: 0 auto 10px;
-    background: #0f172a;
+    background:
+      radial-gradient(circle at 50% 45%, rgba(251,191,36,0.08), rgba(15,23,42,0.9) 70%),
+      linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -62,7 +64,17 @@
     border: 3px solid;
     position: relative;
   }
-  .photo-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 15%; /* overridden per-player via inline + zoom */
+  }
+  /* zoom multiplier via CSS variable — set per-player inline */
+  .photo-avatar img[data-zoom] {
+    transform: scale(var(--zoom, 1));
+    transform-origin: 50% var(--zoom-origin-y, 30%);
+  }
   .photo-avatar .initials { font-size: 36px; font-weight: 900; color: rgba(255,255,255,0.6); }
   .photo-item .name { font-weight: 700; color: #fff; font-size: 0.95rem; margin-bottom: 4px; }
   .photo-item .nickname { color: #94a3b8; font-size: 0.8rem; font-style: italic; margin-bottom: 6px; }
@@ -101,7 +113,7 @@
     <a href="./photos.html" class="active">📸 Photo Checklist</a>
   </nav>
 
-  <h1>📸 PHOTO CHECKLIST</h1>
+  <h1><span class="emoji">📸</span> PHOTO CHECKLIST</h1>
   <p class="tagline">Track which players still need photos uploaded. Green = ready, red = missing.</p>
 
   <div class="card">
@@ -124,8 +136,18 @@
 </div>
 
 <script type="module">
+  import { guardPage, renderAuthBadge } from "./js/auth.js";
+  const { profile } = await guardPage({ requireRole: 'viewer' });
+  const badgeEl = document.createElement('div');
+  badgeEl.style.cssText = 'text-align:right; margin-bottom:12px;';
+  document.querySelector('.container').insertBefore(badgeEl, document.querySelector('.container').firstChild);
+  renderAuthBadge(badgeEl, profile);
+</script>
+<script type="module">
   import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, photoPathFor, getInitials } from "./js/data.js";
   import { CLUBS } from "./js/lore.js";
+  import { photoOffsetY, photoZoom } from "./js/photo-config.js";
+  import { getAllPlayers } from "./js/players.js";
 
   function photoExists(url) {
     return new Promise(r => {
@@ -146,8 +168,10 @@
     };
   });
 
-  const players = DEFAULT_PLAYERS.map(p => ({
-    id: p.id, name: p.name, nickname: `"${p.nickname}"`, color: '#94a3b8'
+  // Effective players = defaults + admin overrides + custom players
+  const effectivePlayers = await getAllPlayers();
+  const players = effectivePlayers.map(p => ({
+    id: p.id, name: p.name, nickname: `"${p.nickname || ''}"`, color: '#94a3b8'
   }));
 
   function renderItem(item) {
@@ -172,7 +196,9 @@
       div.classList.add('has-photo');
       div.classList.remove('missing');
       const avatar = div.querySelector('.photo-avatar');
-      avatar.innerHTML = `<img src="${url}" alt="${item.name}">`;
+      const yOff = photoOffsetY(item.id);
+      const zoom = photoZoom(item.id);
+      avatar.innerHTML = `<img src="${url}" alt="${item.name}" data-zoom style="object-position: 50% ${yOff}%; --zoom:${zoom}; --zoom-origin-y:${yOff}%;">`;
       div.querySelector('.status-badge').className = 'status-badge ok';
       div.querySelector('.status-badge').textContent = '✓ READY';
       return true;
@@ -207,5 +233,6 @@
   document.getElementById('progress-fill').style.width = pct + '%';
   document.getElementById('progress-text').textContent = `${readyCount} / ${allItems.length} photos ready (${pct}%)`;
 </script>
+<script type="module" src="./js/back-button.js"></script>
 </body>
 </html>

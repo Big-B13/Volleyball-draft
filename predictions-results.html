@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏆 Prediction Leaderboard — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  .leader-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 90px;
+    align-items: center;
+    padding: 14px 18px;
+    background: rgba(15,23,42,0.7);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    gap: 10px;
+  }
+  .leader-row.gold   { border-left: 4px solid #fbbf24; background: linear-gradient(90deg, rgba(251,191,36,0.15), rgba(15,23,42,0.7)); }
+  .leader-row.silver { border-left: 4px solid #cbd5e1; background: linear-gradient(90deg, rgba(203,213,225,0.10), rgba(15,23,42,0.7)); }
+  .leader-row.bronze { border-left: 4px solid #d97706; background: linear-gradient(90deg, rgba(217,119,6,0.10), rgba(15,23,42,0.7)); }
+  .leader-row .rank { font-size: 1.5rem; font-weight: 900; color: #94a3b8; text-align: center; }
+  .leader-row.gold   .rank { color: #fbbf24; }
+  .leader-row.silver .rank { color: #cbd5e1; }
+  .leader-row.bronze .rank { color: #d97706; }
+  .leader-row .nick { font-weight: 700; color: #fff; font-size: 1.05rem; }
+  .leader-row .points { text-align: right; font-size: 1.4rem; font-weight: 900; color: #fbbf24; }
+  .leader-row .points .max { font-size: 0.75rem; color: #64748b; margin-left: 4px; }
+  .breakdown { padding: 6px 0 0; font-size: 0.8rem; color: #94a3b8; }
+  .breakdown .ok { color: #22c55e; }
+  .breakdown .miss { color: #64748b; }
+  .status-strip {
+    padding: 10px 14px;
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid #fbbf24;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    color: #fbbf24;
+    text-align: center;
+    font-weight: 700;
+  }
+  .status-strip.done { background: rgba(34, 197, 94, 0.1); border-color: #22c55e; color: #22c55e; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span class="emoji">🏆</span> PREDICTION LEADERBOARD</h1>
+  <p class="tagline">Live rankings — who's got the eye for talent?</p>
+
+  <div id="pre-load" class="card">
+    <h2 style="text-align:center;">Loading…</h2>
+  </div>
+
+  <div id="err" class="card hidden">
+    <div class="warning" id="err-msg"></div>
+    <a href="./index.html"><button>← Home</button></a>
+  </div>
+
+  <div id="main" class="card hidden">
+    <div id="status" class="status-strip"></div>
+    <div id="leaderboard"></div>
+
+    <div class="row-btns" style="margin-top:20px;">
+      <a href="#" id="link-predict"><button>🔮 Submit / edit your predictions</button></a>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { db, ref, get, onValue } from "./js/firebase-init.js";
+  import {
+    getPredictionQuestions, watchEntries, computeAnswers, scoreSubmission
+  } from "./js/predictions.js";
+  import { escapeHtml } from "./js/util.js";
+
+  const params = new URLSearchParams(location.search);
+  const roomId = (params.get('room') || '').toUpperCase();
+
+  if (!roomId) {
+    document.getElementById('err').classList.remove('hidden');
+    document.getElementById('pre-load').classList.add('hidden');
+    document.getElementById('err-msg').textContent = 'No room ID in URL.';
+  } else {
+    init();
+  }
+
+  let draft = null;
+  let entries = [];
+
+  async function init() {
+    document.getElementById('link-predict').href = `./predictions.html?room=${roomId}`;
+
+    // Subscribe to draft updates (to know when it completes)
+    onValue(ref(db, `drafts/${roomId}`), (snap) => {
+      draft = snap.val();
+      if (!draft) {
+        document.getElementById('err').classList.remove('hidden');
+        document.getElementById('pre-load').classList.add('hidden');
+        document.getElementById('err-msg').textContent = `Draft "${roomId}" not found.`;
+        return;
+      }
+      document.getElementById('pre-load').classList.add('hidden');
+      document.getElementById('main').classList.remove('hidden');
+      renderStatus();
+      renderLeaderboard();
+    });
+
+    // Subscribe to prediction entries in real time
+    watchEntries(roomId, (list) => {
+      entries = list;
+      renderLeaderboard();
+    });
+  }
+
+  function renderStatus() {
+    const el = document.getElementById('status');
+    if (!draft) return;
+    if (draft.status === 'complete') {
+      el.className = 'status-strip done';
+      el.textContent = `✅ Draft complete! ${entries.length} predictor${entries.length===1?'':'s'} on the board.`;
+    } else if (draft.picks && draft.picks.length) {
+      el.className = 'status-strip';
+      const total = draft.picksPerTeam * draft.captains.length;
+      el.textContent = `🎯 Draft in progress: pick ${draft.picks.length}/${total} · ${entries.length} predictor${entries.length===1?'':'s'} so far`;
+    } else {
+      el.className = 'status-strip';
+      el.textContent = `⏳ Draft hasn't started yet — ${entries.length} prediction${entries.length===1?'':'s'} locked in`;
+    }
+  }
+
+  function renderLeaderboard() {
+    if (!draft) return;
+    renderStatus();
+
+    const correctAnswers = computeAnswers(draft);
+    const qs = getPredictionQuestions();
+    // Max possible points
+    const maxPoints = qs.reduce((sum, q) => sum + (q.perCaptain ? draft.captains.length : 1), 0);
+
+    // Score each entry
+    const scored = entries.map(e => {
+      const s = scoreSubmission(e, correctAnswers, draft.captains);
+      return { ...e, ...s };
+    }).sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total;
+      return (a.submittedAt || 0) - (b.submittedAt || 0); // earlier = better tiebreaker
+    });
+
+    const container = document.getElementById('leaderboard');
+    if (!scored.length) {
+      container.innerHTML = `<div style="text-align:center; color:#94a3b8; padding: 40px 20px;">
+        No predictions submitted yet. Be the first!
+      </div>`;
+      return;
+    }
+
+    const canShowScores = correctAnswers !== null; // draft has at least one pick
+
+    container.innerHTML = scored.map((entry, i) => {
+      const rank = i + 1;
+      const rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+      const points = canShowScores
+        ? `${entry.total}<span class="max">/${maxPoints}</span>`
+        : `<span style="font-size:0.85rem; color:#64748b;">?</span>`;
+      return `
+        <div class="leader-row ${rankClass}">
+          <div class="rank">${medal}</div>
+          <div>
+            <div class="nick">${escapeHtml(entry.nickname || 'Anonymous')}</div>
+            ${canShowScores ? renderBreakdown(entry) : ''}
+          </div>
+          <div class="points">${points}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderBreakdown(entry) {
+    if (!entry.breakdown) return '';
+    const items = Object.entries(entry.breakdown);
+    const correctCount = items.filter(([_, v]) => v.correct).length;
+    const totalCount = items.length;
+    return `<div class="breakdown">${correctCount}/${totalCount} correct so far</div>`;
+  }
+</script>
+</body>
+</html>

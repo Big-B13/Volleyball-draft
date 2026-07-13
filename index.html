@@ -8,40 +8,38 @@
 </head>
 <body>
 <div class="container">
-  <h1>🏐 THE GOMI CUP</h1>
+  <div id="auth-strip" style="text-align:right; margin-bottom: 8px; min-height: 34px;"></div>
+  <h1><span class="emoji">🏐</span> THE GOMI CUP</h1>
   <p class="tagline">3 captains. 29 players. 15 spots. One trophy.</p>
 
   <nav style="display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap;">
     <a href="./league.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🏆 League history</a>
     <a href="./clubs.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🛡️ The clubs</a>
     <a href="./cards.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🃏 Cards</a>
+    <a href="./standings.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">📊 Standings</a>
+    <a href="./player-stats.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🌟 Player stats</a>
     <a href="./photos.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">📸 Photos</a>
+    <a href="./login.html" id="nav-login" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🔐 Log in</a>
+    <a href="./admin.html" id="nav-admin" style="display:none; color:#fbbf24; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(251,191,36,0.15); font-size:0.9rem;">👑 Admin</a>
   </nav>
 
-  <div class="landing-choice">
-    <a href="./setup.html">
-      <div class="emoji">🎬</div>
-      <h3>Commissioner Setup</h3>
-      <p>Create a new draft room, enter captains & players, get invite codes for the 3 captains.</p>
-    </a>
-    <a href="#" onclick="showJoin(); return false;">
-      <div class="emoji">🎯</div>
-      <h3>Join as Captain</h3>
-      <p>Enter your room ID + captain code to join a draft that a commissioner already created.</p>
-    </a>
+  <div class="landing-choice" id="landing-choice">
+    <!-- Rendered dynamically based on login state -->
   </div>
 
   <div id="join-card" class="card hidden" style="margin-top: 24px;">
-    <h2>Join a draft</h2>
+    <h2 id="join-title">Join a draft</h2>
     <label>Room ID</label>
     <input type="text" id="join-room" placeholder="e.g. ABC123" style="text-transform:uppercase;" maxlength="6">
-    <label style="margin-top: 12px;">Captain code</label>
-    <input type="text" id="join-code" placeholder="e.g. XY7Q" style="text-transform:uppercase;" maxlength="4">
+    <div id="captain-code-wrap">
+      <label style="margin-top: 12px;">Captain code</label>
+      <input type="text" id="join-code" placeholder="e.g. XY7Q" style="text-transform:uppercase;" maxlength="4">
+    </div>
     <div class="row-btns">
-      <button onclick="joinDraft()">Enter draft →</button>
+      <button id="btn-enter" onclick="joinDraft()">Enter draft →</button>
       <button class="secondary" onclick="joinAsSpectator()">👀 Spectator only</button>
     </div>
-    <p style="color:#94a3b8; font-size:0.85rem; margin-top: 12px;">
+    <p style="color:#94a3b8; font-size:0.85rem; margin-top: 12px;" id="join-hint">
       Spectator mode lets you watch the draft live without picking. Leave the captain code blank.
     </p>
   </div>
@@ -54,8 +52,9 @@ function showJoin() {
 }
 function joinDraft() {
   const room = document.getElementById('join-room').value.trim().toUpperCase();
-  const code = document.getElementById('join-code').value.trim().toUpperCase();
+  const code = (document.getElementById('join-code') || {}).value?.trim().toUpperCase() || '';
   if (!room) { alert('Enter a room ID'); return; }
+  // For non-captains this button is hidden, so only captains reach here (or someone who typed a code)
   if (!code) { alert('Enter your captain code (or use spectator mode)'); return; }
   location.href = `./draft.html?room=${encodeURIComponent(room)}&code=${encodeURIComponent(code)}`;
 }
@@ -64,6 +63,177 @@ function joinAsSpectator() {
   if (!room) { alert('Enter a room ID'); return; }
   location.href = `./draft.html?room=${encodeURIComponent(room)}&spectate=1`;
 }
+function joinAsMyCaptain() {
+  const room = document.getElementById('join-room').value.trim().toUpperCase();
+  if (!room) { alert('Enter a room ID'); return; }
+  // Captain identity comes from their logged-in profile — no code needed
+  location.href = `./draft.html?room=${encodeURIComponent(room)}`;
+}
+</script>
+
+<script type="module">
+  import { watchAuth, renderAuthBadge } from "./js/auth.js";
+
+  const CHOICES = {
+    loggedOut: `
+      <a href="./login.html">
+        <div class="emoji">🔐</div>
+        <h3>Log in / Sign up</h3>
+        <p>Members can see the full trading cards, real player names, live drafts, and the big reveal.</p>
+      </a>
+      <a href="#" onclick="showCodeJoin(); return false;">
+        <div class="emoji">🎯</div>
+        <h3>Join a draft (with code)</h3>
+        <p>Have a captain code from your commissioner? Enter it here to join a draft without an account.</p>
+      </a>
+      <a href="#" onclick="showSpectator(); return false;">
+        <div class="emoji">👀</div>
+        <h3>Watch a draft (spectator)</h3>
+        <p>No account needed. Enter a live draft room ID to watch a draft happen in real time.</p>
+      </a>`,
+    viewer: `
+      <a href="./cards.html">
+        <div class="emoji">🃏</div>
+        <h3>View trading cards</h3>
+        <p>Browse the full-reveal player cards, download shareable PNGs.</p>
+      </a>
+      <a href="#" onclick="showSpectator(); return false;">
+        <div class="emoji">👀</div>
+        <h3>Watch a live draft</h3>
+        <p>Enter a room ID to spectate a draft in real-time.</p>
+      </a>`,
+    captain: `
+      <a href="#" onclick="showCaptainJoin(); return false;">
+        <div class="emoji">🎖️</div>
+        <h3>Join as my captain slot</h3>
+        <p>Enter your room ID — auto-recognized from your account.</p>
+      </a>
+      <a href="#" onclick="showCodeJoin(); return false;">
+        <div class="emoji">🔑</div>
+        <h3>Join with a captain code</h3>
+        <p>Have a specific captain code? Enter room ID + code to join that slot.</p>
+      </a>
+      <a href="#" onclick="showSpectator(); return false;">
+        <div class="emoji">👀</div>
+        <h3>Watch as spectator</h3>
+        <p>Enter a room ID to spectate a draft in real-time.</p>
+      </a>`,
+    commissioner: `
+      <a href="./setup.html">
+        <div class="emoji">🎬</div>
+        <h3>Commissioner Setup</h3>
+        <p>Create a new draft room, get invite codes for the captains.</p>
+      </a>
+      <a href="./league-editor.html">
+        <div class="emoji">🏆</div>
+        <h3>Manage Leagues</h3>
+        <p>Create new cups (e.g. Winter Cup 2027) with their own captains + teams.</p>
+      </a>
+      <a href="./admin.html">
+        <div class="emoji">👑</div>
+        <h3>Admin panel</h3>
+        <p>Manage users, invite codes, and clean up test drafts.</p>
+      </a>
+      <a href="#" onclick="showCommishJoin(); return false;">
+        <div class="emoji">🎯</div>
+        <h3>Enter a draft</h3>
+        <p>Watch a live draft, or (for testing) pick as any captain slot.</p>
+      </a>`
+  };
+
+  window.showSpectator = () => {
+    document.getElementById('join-card').classList.remove('hidden');
+    document.getElementById('join-title').textContent = 'Watch a draft (spectator)';
+    document.getElementById('captain-code-wrap').style.display = 'none';
+    document.getElementById('btn-enter').style.display = 'none';
+    document.getElementById('join-hint').textContent = 'Enter a room ID that someone shared with you. You can watch every pick live.';
+    document.getElementById('join-room').focus();
+  };
+  window.showCommishJoin = () => {
+    const card = document.getElementById('join-card');
+    card.classList.remove('hidden');
+    document.getElementById('join-title').textContent = '🎯 Enter a draft (commissioner)';
+    document.getElementById('captain-code-wrap').style.display = 'none';
+    document.getElementById('join-hint').innerHTML = 'As commissioner you can spectate any draft, or (for testing) pick as one of the captains.';
+    // Replace the button row with a spectate + captain-slot dropdown
+    const btns = card.querySelector('.row-btns');
+    btns.innerHTML = `
+      <button onclick="joinAsSpectator()">👀 Watch as spectator</button>
+      <select id="commish-slot" style="padding:12px; background:#0f172a; color:#f1f5f9; border:1px solid #475569; border-radius:8px; font-size:1rem;">
+        <option value="">— pick as captain slot (test) —</option>
+        <option value="c1">Slot 1: Strigidae (Big-B)</option>
+        <option value="c2">Slot 2: Kòrsou Otters (Burla)</option>
+        <option value="c3">Slot 3: Shizuka (Stratus)</option>
+      </select>
+      <button onclick="joinAsCommishCaptain()">Enter as chosen slot →</button>
+    `;
+    document.getElementById('join-room').focus();
+  };
+  window.joinAsCommishCaptain = () => {
+    const room = document.getElementById('join-room').value.trim().toUpperCase();
+    const slot = document.getElementById('commish-slot').value;
+    if (!room) { alert('Enter a room ID'); return; }
+    if (!slot) { alert('Pick a captain slot from the dropdown'); return; }
+    // Special impersonation param the draft page understands
+    location.href = `./draft.html?room=${encodeURIComponent(room)}&impersonate=${encodeURIComponent(slot)}`;
+  };
+  window.showCaptainJoin = () => {
+    document.getElementById('join-card').classList.remove('hidden');
+    document.getElementById('join-title').textContent = 'Join a draft as captain';
+    document.getElementById('captain-code-wrap').style.display = 'none';
+    document.getElementById('btn-enter').style.display = 'none';
+    document.getElementById('join-hint').innerHTML = 'You\'ll be auto-recognized as your captain slot from your account.';
+    // Swap the "spectator" button label so this flow is a "join as captain" button
+    const btns = document.querySelector('#join-card .row-btns');
+    btns.innerHTML = `
+      <button onclick="joinAsMyCaptain()">🎖️ Join as my captain →</button>
+      <button class="secondary" onclick="joinAsSpectator()">👀 Or just spectate</button>
+    `;
+    document.getElementById('join-room').focus();
+  };
+  window.showCodeJoin = () => {
+    document.getElementById('join-card').classList.remove('hidden');
+    document.getElementById('join-title').textContent = '🎯 Join with captain code';
+    document.getElementById('captain-code-wrap').style.display = '';
+    document.getElementById('btn-enter').style.display = '';
+    document.getElementById('btn-enter').textContent = 'Enter draft →';
+    document.getElementById('join-hint').innerHTML = 'Enter the room ID and the 4-character captain code your commissioner sent you.';
+    const btns = document.querySelector('#join-card .row-btns');
+    btns.innerHTML = `
+      <button id="btn-enter" onclick="joinDraft()">🔑 Enter draft →</button>
+      <button class="secondary" onclick="joinAsSpectator()">👀 Or just spectate</button>
+    `;
+    document.getElementById('join-room').focus();
+  };
+
+  function renderLanding(profile) {
+    const container = document.getElementById('landing-choice');
+    if (!profile) {
+      container.innerHTML = CHOICES.loggedOut;
+    } else if (profile.role === 'commissioner') {
+      container.innerHTML = CHOICES.commissioner;
+    } else if (profile.role === 'captain') {
+      container.innerHTML = CHOICES.captain;
+    } else {
+      container.innerHTML = CHOICES.viewer;
+    }
+    // Cap the grid to 2 or 3 columns nicely
+    const count = container.children.length;
+    container.style.gridTemplateColumns = count >= 3 ? 'repeat(3, 1fr)' : '1fr 1fr';
+  }
+
+  watchAuth((session) => {
+    if (session && session.profile) {
+      renderAuthBadge(document.getElementById('auth-strip'), session.profile);
+      document.getElementById('nav-login').style.display = 'none';
+      if (session.profile.role === 'commissioner') {
+        document.getElementById('nav-admin').style.display = '';
+      }
+      renderLanding(session.profile);
+    } else {
+      renderLanding(null);
+    }
+  });
 </script>
 </body>
 </html>
