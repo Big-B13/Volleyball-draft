@@ -182,7 +182,7 @@ async function render() {
 
     return `
       <div class="reveal-team" style="border-top-color:${cap.color}; background:linear-gradient(135deg, ${cap.color}22, #1e293b);">
-        ${logo}
+        ${headerVisuals}
         <h2 style="color:${cap.color}">${escapeHtml(cap.team)}</h2>
         <div class="captain-line">Captain: ${escapeHtml(cap.name)}${club ? ` · <em>${club.captain.role} · "${club.captain.title}"</em>` : ''} · Avg OVR: ${teamOvr}</div>
         ${loreHtml}
