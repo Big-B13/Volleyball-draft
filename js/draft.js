@@ -264,14 +264,16 @@ function renderWaiting(onClock, whoHtml, onClockPresent) {
   w.classList.remove('hidden');
   document.getElementById('who-am-i').innerHTML = whoHtml;
   document.getElementById('wait-team-name').innerHTML = teamHeaderHtml(onClock);
-  const round = Math.floor(state.currentPick / 3) + 1;
+  const numCaptains = state.captains.length;
+  const totalPicks = state.picksPerTeam * numCaptains;
+  const round = Math.floor(state.currentPick / numCaptains) + 1;
   const absentMsg = !onClockPresent
     ? `<div style="margin-top: 12px; padding: 10px 14px; background: rgba(239,68,68,0.15); border: 1px solid #ef4444; border-radius: 8px; color: #fecaca; font-size: 0.9rem;">
          ⚠️ <strong>${escapeHtml(onClock.name)}</strong> hasn't joined yet — the draft is paused waiting for them.
        </div>`
     : '';
   document.getElementById('wait-round-info').innerHTML =
-    `Round ${round} of ${state.picksPerTeam} · Captain: ${escapeHtml(onClock.name)} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * 3}${absentMsg}`;
+    `Round ${round} of ${state.picksPerTeam} · Captain: ${escapeHtml(onClock.name)} · Overall pick #${state.currentPick + 1} of ${totalPicks}${absentMsg}`;
 }
 
 async function renderMyTurn(onClock, whoHtml) {
@@ -280,9 +282,10 @@ async function renderMyTurn(onClock, whoHtml) {
   m.classList.remove('hidden');
   document.getElementById('who-am-i-2').innerHTML = whoHtml;
   document.getElementById('my-team-name').innerHTML = teamHeaderHtml(onClock);
-  const round = Math.floor(state.currentPick / 3) + 1;
+  const numCaptains = state.captains.length;
+  const round = Math.floor(state.currentPick / numCaptains) + 1;
   document.getElementById('my-round-info').textContent =
-    `Round ${round} of ${state.picksPerTeam} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * 3}`;
+    `Round ${round} of ${state.picksPerTeam} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * numCaptains}`;
 
   const pickedIds = new Set((state.picks || []).map(p => p.playerId));
   const displayOrder = state.displayOrder || state.players.map(p => p.id);
@@ -389,7 +392,7 @@ function renderPickHistory() {
   const rows = picks.slice().reverse().map(pk => {
     const p = state.players.find(pp => pp.id === pk.playerId);
     const cap = state.captains[pk.captainIdx];
-    const round = Math.floor(pk.pickIndex / 3) + 1;
+    const round = Math.floor(pk.pickIndex / state.captains.length) + 1;
     return `
       <div style="display:flex; justify-content:space-between; padding:8px 4px; border-bottom:1px solid #334155; font-size:0.9rem;">
         <span style="color:#64748b;">R${round} · #${pk.pickIndex + 1}</span>

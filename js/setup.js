@@ -160,7 +160,8 @@ window.createRoom = async () => {
   }
 
   const roomId = makeRoomId();
-  const captainOrder = shuffle([0, 1, 2]);
+  // Build the initial captain order dynamically from the number of captains (not hardcoded to 3!)
+  const captainOrder = shuffle(captains.map((_, i) => i));
   const draftOrder = buildDraftOrder(captainOrder, PICKS_PER_TEAM);
 
   const captainsWithCodes = captains.map(c => ({ ...c, code: makeCaptainCode() }));
