@@ -725,7 +725,6 @@
 
   async function downloadCard(cardEl, filename) {
     // Isolated 1080×1080 staging container, positioned ON-SCREEN but invisible.
-    // (html2canvas has bugs capturing elements at negative coordinates.)
     const stage = document.createElement('div');
     stage.style.cssText = [
       'position: fixed', 'top: 0', 'left: 0',
@@ -740,7 +739,6 @@
       'transform-origin: 0 0'
     ].join(';');
     const clone = cardEl.cloneNode(true);
-    // Force the clone to be exactly 1080×1080 with no transform
     clone.style.setProperty('transform', 'none', 'important');
     clone.style.setProperty('width',  '1080px', 'important');
     clone.style.setProperty('height', '1080px', 'important');
@@ -752,74 +750,120 @@
     stage.appendChild(clone);
     document.body.appendChild(stage);
     try {
-      // Give the browser two frames to lay out + load any images
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      // Also wait for any <img> inside to finish loading
+      // Wait for all images to fully load (naturalWidth becomes available)
       const imgs = Array.from(clone.querySelectorAll('img'));
-      await Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
-        new Promise(res => { img.onload = img.onerror = () => res(); })));
+      await Promise.all(imgs.map(img => {
+        if (img.complete && img.naturalWidth) return Promise.resolve();
+        return new Promise(res => {
+          img.onload = img.onerror = () => res();
+        });
+      }));
 
-      // FIX for html2canvas + object-fit bug:
-      // Replace each <img> inside .photo-container with a div using background-image
-      // (html2canvas renders background-size correctly, but breaks on object-fit).
+      // ============ FIX: Manually compute "contain" sizing ============
+      // Replace .photo-container's <img> with an <img> that has EXPLICIT pixel
+      // dimensions (computed from natural aspect ratio to fit 640×480 container).
+      // This avoids html2canvas's broken object-fit handling entirely.
       clone.querySelectorAll('.photo-container').forEach(pc => {
         const img = pc.querySelector('img');
-        if (!img || !img.src) return;
-        const replacement = document.createElement('div');
-        // Preserve any inline styling from the original img (transform/scale for the circle avatars)
-        const inline = img.getAttribute('style') || '';
-        replacement.setAttribute('style', inline + ';' + [
-          'width: 100%', 'height: 100%',
-          `background-image: url("${img.src}")`,
-          'background-size: contain',
-          'background-repeat: no-repeat',
-          'background-position: bottom center'
-        ].join(';'));
-        img.replaceWith(replacement);
-      });
-      // Same fix for small circular avatars (roster cards). These have inline styles
-      // like `object-fit:cover; object-position: 50% 15%; transform: scale(...)`
-      clone.querySelectorAll('img[style*="object-fit"], img[style*="object-position"]').forEach(img => {
-        if (!img.src) return;
-        const src = img.src;
-        const styleStr = img.getAttribute('style') || '';
-        // Extract object-position (default: 50% 50%)
-        const posMatch = styleStr.match(/object-position:\s*([^;]+)/i);
-        const bgPos = posMatch ? posMatch[1].trim() : 'center';
-        // Extract transform (scale)
-        const trMatch = styleStr.match(/transform:\s*([^;]+)/i);
-        const transform = trMatch ? trMatch[1].trim() : 'none';
-        const trOrig = styleStr.match(/transform-origin:\s*([^;]+)/i);
-        const trOrigin = trOrig ? trOrig[1].trim() : '50% 50%';
-        const replacement = document.createElement('div');
-        replacement.setAttribute('style', [
-          'width: 100%', 'height: 100%',
-          `background-image: url("${src}")`,
-          'background-size: cover',
-          'background-repeat: no-repeat',
-          `background-position: ${bgPos}`,
-          `transform: ${transform}`,
-          `transform-origin: ${trOrigin}`
-        ].join(';'));
-        img.replaceWith(replacement);
+        if (!img || !img.naturalWidth) return;
+        const containerW = 640, containerH = 480;
+        const nw = img.naturalWidth, nh = img.naturalHeight;
+        // "contain": scale so image fits fully inside container, preserving aspect
+        const scale = Math.min(containerW / nw, containerH / nh);
+        const finalW = Math.round(nw * scale);
+        const finalH = Math.round(nh * scale);
+        // Replace with an absolutely-positioned img at exact dimensions
+        const newImg = document.createElement('img');
+        newImg.src = img.src;
+        newImg.crossOrigin = 'anonymous';
+        newImg.style.cssText = [
+          'position: absolute',
+          `width: ${finalW}px`,
+          `height: ${finalH}px`,
+          // Center horizontally, align to bottom (matches CSS: align-items: flex-end)
+          `left: ${(containerW - finalW) / 2}px`,
+          `top: ${containerH - finalH}px`,
+          'max-width: none', 'max-height: none',
+          'object-fit: initial'
+        ].join(';');
+        // Preserve silhouette filter if the container has that class
+        if (pc.classList.contains('silhouette')) {
+          newImg.style.filter = 'brightness(0) contrast(1)';
+        }
+        // Clear the container's content and add the new img
+        pc.innerHTML = '';
+        pc.style.display = 'block';  // remove flex, since we're positioning absolutely
+        pc.style.position = 'absolute';
+        pc.appendChild(newImg);
       });
 
-      // Another layout frame after DOM swaps
+      // Small circular avatars in roster cards: also use explicit sizing.
+      // These use object-fit: cover — meaning fill the circle, cropping as needed.
+      // For cover, we need to scale so the SHORTER natural dimension fills the container,
+      // then position based on object-position.
+      clone.querySelectorAll('img[style*="object-fit"], img[style*="object-position"]').forEach(img => {
+        if (!img.naturalWidth || !img.parentElement) return;
+        // Skip if we already handled it above
+        if (img.closest('.photo-container')) return;
+        const parent = img.parentElement;
+        const parentRect = parent.getBoundingClientRect();
+        const pw = parentRect.width, ph = parentRect.height;
+        if (!pw || !ph) return;
+        const nw = img.naturalWidth, nh = img.naturalHeight;
+        // "cover": scale so image fully covers container, cropping excess
+        const scale = Math.max(pw / nw, ph / nh);
+        const finalW = nw * scale, finalH = nh * scale;
+        // Parse object-position (default: 50% 50%)
+        const s = img.getAttribute('style') || '';
+        const posMatch = s.match(/object-position:\s*([^;]+)/i);
+        let posY = 50; // percent from top
+        if (posMatch) {
+          const posStr = posMatch[1].trim();
+          // Handle "50% 15%" format
+          const parts = posStr.split(/\s+/);
+          if (parts.length >= 2) {
+            const yp = parts[1].replace('%', '');
+            posY = parseFloat(yp) || 50;
+          } else if (posStr === 'top') { posY = 0; }
+          else if (posStr === 'bottom') { posY = 100; }
+        }
+        // Preserve any transform (like scale for zoom)
+        const trMatch = s.match(/transform:\s*([^;]+)/i);
+        const transform = trMatch ? trMatch[1].trim() : 'none';
+        const trOrig = s.match(/transform-origin:\s*([^;]+)/i);
+        const trOrigin = trOrig ? trOrig[1].trim() : '50% 50%';
+
+        const newImg = document.createElement('img');
+        newImg.src = img.src;
+        newImg.crossOrigin = 'anonymous';
+        newImg.style.cssText = [
+          'position: absolute',
+          `width: ${finalW}px`,
+          `height: ${finalH}px`,
+          `left: ${(pw - finalW) / 2}px`,
+          // Position vertically based on object-position Y%
+          `top: ${(ph - finalH) * (posY / 100)}px`,
+          'max-width: none', 'max-height: none',
+          'object-fit: initial',
+          `transform: ${transform}`,
+          `transform-origin: ${trOrigin}`
+        ].join(';');
+        // Ensure parent clips overflow (so cover crop works)
+        parent.style.overflow = 'hidden';
+        parent.style.position = 'relative';
+        img.replaceWith(newImg);
+      });
+
+      // Another frame after DOM swaps
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
       const canvas = await html2canvas(clone, {
-        width: 1080,
-        height: 1080,
-        windowWidth: 1200,      // give the virtual window room to breathe
-        windowHeight: 1200,
-        scale: 1,
-        x: 0,
-        y: 0,
-        scrollX: 0,
-        scrollY: 0,
+        width: 1080, height: 1080,
+        windowWidth: 1200, windowHeight: 1200,
+        scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
         backgroundColor: null,
-        useCORS: true,
-        allowTaint: true,
+        useCORS: true, allowTaint: true,
         logging: false,
         foreignObjectRendering: false
       });
@@ -896,29 +940,50 @@
         document.body.appendChild(stage);
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         const imgs = Array.from(clone.querySelectorAll('img'));
-        await Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
-          new Promise(res => { img.onload = img.onerror = () => res(); })));
+        await Promise.all(imgs.map(img => {
+          if (img.complete && img.naturalWidth) return Promise.resolve();
+          return new Promise(res => { img.onload = img.onerror = () => res(); });
+        }));
 
-        // Same object-fit fix as single download
+        // Same explicit-sizing fix as single download
         clone.querySelectorAll('.photo-container').forEach(pc => {
           const img = pc.querySelector('img');
-          if (!img || !img.src) return;
-          const inline = img.getAttribute('style') || '';
-          const rep = document.createElement('div');
-          rep.setAttribute('style', inline + ';width:100%;height:100%;' +
-            `background-image:url("${img.src}");background-size:contain;background-repeat:no-repeat;background-position:bottom center`);
-          img.replaceWith(rep);
+          if (!img || !img.naturalWidth) return;
+          const cw = 640, ch = 480;
+          const nw = img.naturalWidth, nh = img.naturalHeight;
+          const scale = Math.min(cw / nw, ch / nh);
+          const fw = Math.round(nw * scale), fh = Math.round(nh * scale);
+          const newImg = document.createElement('img');
+          newImg.src = img.src;
+          newImg.style.cssText = `position:absolute;width:${fw}px;height:${fh}px;left:${(cw-fw)/2}px;top:${ch-fh}px;max-width:none;max-height:none;object-fit:initial`;
+          if (pc.classList.contains('silhouette')) newImg.style.filter = 'brightness(0) contrast(1)';
+          pc.innerHTML = ''; pc.style.display = 'block'; pc.style.position = 'absolute';
+          pc.appendChild(newImg);
         });
         clone.querySelectorAll('img[style*="object-fit"], img[style*="object-position"]').forEach(img => {
-          if (!img.src) return;
-          const src = img.src;
+          if (!img.naturalWidth || !img.parentElement) return;
+          if (img.closest('.photo-container')) return;
+          const p = img.parentElement;
+          const pr = p.getBoundingClientRect();
+          const pw = pr.width, ph = pr.height;
+          if (!pw || !ph) return;
+          const nw = img.naturalWidth, nh = img.naturalHeight;
+          const scale = Math.max(pw/nw, ph/nh);
+          const fw = nw*scale, fh = nh*scale;
           const s = img.getAttribute('style') || '';
-          const pos = (s.match(/object-position:\s*([^;]+)/i) || [,'center'])[1].trim();
+          const posMatch = s.match(/object-position:\s*([^;]+)/i);
+          let posY = 50;
+          if (posMatch) {
+            const parts = posMatch[1].trim().split(/\s+/);
+            if (parts.length >= 2) posY = parseFloat(parts[1].replace('%','')) || 50;
+          }
           const tr = (s.match(/transform:\s*([^;]+)/i) || [,'none'])[1].trim();
           const to = (s.match(/transform-origin:\s*([^;]+)/i) || [,'50% 50%'])[1].trim();
-          const rep = document.createElement('div');
-          rep.setAttribute('style', `width:100%;height:100%;background-image:url("${src}");background-size:cover;background-repeat:no-repeat;background-position:${pos};transform:${tr};transform-origin:${to}`);
-          img.replaceWith(rep);
+          const newImg = document.createElement('img');
+          newImg.src = img.src;
+          newImg.style.cssText = `position:absolute;width:${fw}px;height:${fh}px;left:${(pw-fw)/2}px;top:${(ph-fh)*(posY/100)}px;max-width:none;max-height:none;object-fit:initial;transform:${tr};transform-origin:${to}`;
+          p.style.overflow = 'hidden'; p.style.position = 'relative';
+          img.replaceWith(newImg);
         });
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
