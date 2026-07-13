@@ -1,13 +1,76 @@
 import { db, ref, set, serverTimestamp } from "./firebase-init.js";
-import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM } from "./data.js";
+import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM, PLAYER_DATA_VERSION } from "./data.js";
 import { makeRoomId, makeCaptainCode, buildDraftOrder, shuffle, overall, saveLocal, loadLocal, escapeHtml } from "./util.js";
+import { guardPage, renderAuthBadge } from "./auth.js";
+import { listLeagues, getLeague, ensureGomiCupSeeded, currentLeagueId, GOMI_CUP_LEAGUE_ID } from "./leagues.js";
+import { getAllPlayers } from "./players.js";
 
-let captains = loadLocal('vd_captains') || JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
-let players  = loadLocal('vd_players')  || JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
+// Only commissioners can create draft rooms
+const { profile: __authProfile } = await guardPage({ requireRole: 'commissioner' });
+setTimeout(() => {
+  const container = document.querySelector('.container');
+  if (container && !document.getElementById('auth-badge-el')) {
+    const b = document.createElement('div');
+    b.id = 'auth-badge-el';
+    b.style.cssText = 'text-align:right; margin-bottom:12px;';
+    container.insertBefore(b, container.firstChild);
+    renderAuthBadge(b, __authProfile);
+  }
+}, 0);
+
+// Ensure gomi cup exists in DB and load available leagues
+await ensureGomiCupSeeded();
+
+let selectedLeagueId = currentLeagueId();
+let captains = [];
+
+// Load the effective player list from Firebase (merges defaults + admin edits).
+// This means any nickname/stat/bio edits from the admin panel appear here immediately.
+let players = await getAllPlayers();
+
+async function loadLeagueCaptains() {
+  const league = await getLeague(selectedLeagueId);
+  if (league && league.captains && league.captains.length) {
+    captains = JSON.parse(JSON.stringify(league.captains));
+  } else {
+    captains = JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
+  }
+  buildCaptainInputs();
+  buildPlayerInputs(); // re-render to show which players are excluded
+}
+
+/** Returns the set of player IDs that should be excluded from the draft pool
+ *  because they're serving as captains in the selected league. */
+function excludedPlayerIds() {
+  const excluded = new Set();
+  for (const c of captains) {
+    if (c.linkedPlayerId) excluded.add(c.linkedPlayerId);
+  }
+  return excluded;
+}
+
+async function buildLeaguePicker() {
+  const leagues = await listLeagues();
+  const wrap = document.getElementById('league-picker');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <label>Which league is this draft for?</label>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap: wrap;">
+      <select id="league-select" style="flex: 1; min-width: 200px;">
+        ${leagues.map(l => `<option value="${l.id}" ${l.id === selectedLeagueId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+      </select>
+      <a href="./league-editor.html" style="color:#fbbf24; text-decoration:none; font-size:0.85rem;">➕ Create new league</a>
+    </div>
+  `;
+  document.getElementById('league-select').addEventListener('change', async (e) => {
+    selectedLeagueId = e.target.value;
+    await loadLeagueCaptains();
+  });
+}
 
 function persist() {
-  saveLocal('vd_captains', captains);
-  saveLocal('vd_players', players);
+  // Setup-page-only player edits are transient (they only affect the draft
+  // room being created right now). Permanent player edits happen in /admin.html.
 }
 
 function buildCaptainInputs() {
@@ -15,44 +78,42 @@ function buildCaptainInputs() {
   g.innerHTML = captains.map((c, i) => `
     <div>
       <label>Captain ${i + 1} name</label>
-      <input type="text" value="${escapeHtml(c.name)}" data-i="${i}" data-field="name">
+      <input type="text" value="${escapeHtml(c.name)}" data-i="${i}" data-field="name" readonly style="opacity:0.7; cursor:not-allowed;">
       <label style="margin-top:8px;">Team name</label>
-      <input type="text" value="${escapeHtml(c.team)}" data-i="${i}" data-field="team">
-      <div class="grid-2" style="margin-top:8px;">
-        <div>
-          <label>Primary color</label>
-          <input type="color" value="${c.color}" data-i="${i}" data-field="color">
-        </div>
-        <div>
-          <label>Secondary color</label>
-          <input type="color" value="${c.color2}" data-i="${i}" data-field="color2">
-        </div>
+      <input type="text" value="${escapeHtml(c.team)}" data-i="${i}" data-field="team" readonly style="opacity:0.7; cursor:not-allowed;">
+      <div style="font-size:0.72rem; color:#94a3b8; margin-top:6px; padding:4px 6px; background:rgba(0,0,0,0.3); border-radius:4px;">
+        <span style="display:inline-block; width:12px; height:12px; background:${c.color}; border-radius:3px; vertical-align:middle;"></span>
+        ${c.role ? '· '+escapeHtml(c.role) : ''}
+        · Edit in <a href="./league-editor.html" style="color:#fbbf24;">League Editor</a>
       </div>
     </div>
   `).join('');
-  g.querySelectorAll('input').forEach(el => {
-    el.addEventListener('input', () => {
-      const i = +el.dataset.i, f = el.dataset.field;
-      captains[i][f] = el.value;
-      persist();
-    });
-  });
 }
 
 function buildPlayerInputs() {
   const g = document.getElementById('players-grid');
-  g.innerHTML = players.map((p, i) => `
-    <div class="player-row">
+  const excluded = excludedPlayerIds();
+  g.innerHTML = players.map((p, i) => {
+    const isExcluded = excluded.has(p.id);
+    const styleAttr = isExcluded
+      ? 'style="opacity:0.4; text-decoration:line-through;"'
+      : '';
+    const badge = isExcluded
+      ? `<div style="grid-column:1/-1; color:#fbbf24; font-size:0.72rem; padding:2px 6px;">🎖️ Excluded — captain in ${captains.find(c => c.linkedPlayerId === p.id)?.team || 'this league'}</div>`
+      : '';
+    return `
+    <div class="player-row" ${styleAttr}>
+      ${badge}
       <div class="num">${i + 1}</div>
       <input type="text" value="${escapeHtml(p.name)}"     data-i="${i}" data-field="name"     placeholder="Real name">
       <input type="text" value="${escapeHtml(p.nickname || '')}" data-i="${i}" data-field="nickname" placeholder="Nickname">
-      ${STAT_KEYS.map(s => `<input type="number" min="1" max="10" value="${p[s]}" data-i="${i}" data-field="${s}">`).join('')}
+      ${STAT_KEYS.map(s => `<input type="number" min="1" max="10" step="0.5" value="${p[s]}" data-i="${i}" data-field="${s}">`).join('')}
     </div>
-  `).join('');
+  `;}).join('');
   g.querySelectorAll('input').forEach(el => {
     el.addEventListener('input', () => {
       const i = +el.dataset.i, f = el.dataset.field;
-      const v = el.type === 'number' ? (parseInt(el.value) || 0) : el.value;
+      const v = el.type === 'number' ? (parseFloat(el.value) || 0) : el.value;
       players[i][f] = v;
       persist();
     });
@@ -70,13 +131,12 @@ window.removeLastPlayer = () => {
   buildPlayerInputs();
   persist();
 };
-window.resetDefaults = () => {
-  if (!confirm('Reset captains + players + stats back to the pre-loaded defaults? This wipes any local edits.')) return;
-  captains = JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
-  players  = JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
-  persist();
-  buildCaptainInputs();
+window.resetDefaults = async () => {
+  if (!confirm('Reload the player list from Firebase? This drops any unsaved local edits on this setup form.')) return;
+  players = await getAllPlayers();
+  await loadLeagueCaptains();
   buildPlayerInputs();
+  alert('✅ Player list reloaded from Firebase — showing ' + players.length + ' players.\n\nNote: to permanently edit players (nickname, stats, bio), use the Admin panel → Players section.');
 };
 
 let lastRoom = null;
@@ -91,11 +151,17 @@ window.createRoom = async () => {
   }
 
   const roomId = makeRoomId();
-  const captainOrder = shuffle([0, 1, 2]);
+  // Build the initial captain order dynamically from the number of captains (not hardcoded to 3!)
+  const captainOrder = shuffle(captains.map((_, i) => i));
   const draftOrder = buildDraftOrder(captainOrder, PICKS_PER_TEAM);
 
   const captainsWithCodes = captains.map(c => ({ ...c, code: makeCaptainCode() }));
-  const playersWithOverall = players.map(p => ({ ...p, overall: overall(p) }));
+  const excluded = excludedPlayerIds();
+  const activePlayers = players.filter(p => !excluded.has(p.id));
+  if (activePlayers.length < captains.length * PICKS_PER_TEAM) {
+    return alert(`After excluding captains from the pool, only ${activePlayers.length} players remain, but ${captains.length * PICKS_PER_TEAM} draft picks are needed. Add more players or reduce captain count.`);
+  }
+  const playersWithOverall = activePlayers.map(p => ({ ...p, overall: overall(p) }));
 
   // Shuffle player display order so card position gives away nothing
   const displayOrder = shuffle(playersWithOverall.map(p => p.id));
@@ -103,6 +169,7 @@ window.createRoom = async () => {
   const draftData = {
     createdAt: Date.now(),
     picksPerTeam: PICKS_PER_TEAM,
+    leagueId: selectedLeagueId,
     captains: captainsWithCodes,
     players: playersWithOverall,
     displayOrder,
@@ -132,11 +199,16 @@ function showRoomCreated() {
       <span class="code-value">${c.code}</span>
     </div>
   `).join('');
+  const predUrl = new URL('./predictions.html', location.href);
+  const predLink = `${predUrl.origin}${predUrl.pathname}?room=${lastRoom.roomId}`;
+  const linkEl = document.getElementById('out-predictions-link');
+  if (linkEl) { linkEl.textContent = predLink; linkEl.href = predLink; }
   box.scrollIntoView({ behavior: 'smooth' });
 }
 
 window.copyInvites = () => {
   const url = new URL('./draft.html', location.href);
+  const predUrl = new URL('./predictions.html', location.href);
   const lines = [
     `🏐 Volleyball Blind Draft — Room: ${lastRoom.roomId}`,
     ``,
@@ -144,14 +216,18 @@ window.copyInvites = () => {
       `${c.name} (${c.team}): ${url.origin}${url.pathname}?room=${lastRoom.roomId}&code=${c.code}`
     ),
     ``,
-    `Spectator link: ${url.origin}${url.pathname}?room=${lastRoom.roomId}&spectate=1`
+    `Spectator link: ${url.origin}${url.pathname}?room=${lastRoom.roomId}&spectate=1`,
+    ``,
+    `🔮 Predictions (share publicly for hype!): ${predUrl.origin}${predUrl.pathname}?room=${lastRoom.roomId}`
   ].join('\n');
-  navigator.clipboard.writeText(lines).then(() => alert('Invites copied to clipboard!'));
+  navigator.clipboard.writeText(lines).then(() => alert('Invites + predictions link copied to clipboard!'));
 };
 
 window.openDraftAsCommissioner = () => {
   location.href = `./draft.html?room=${lastRoom.roomId}&spectate=1`;
 };
 
-buildCaptainInputs();
+// Init
+await buildLeaguePicker();
+await loadLeagueCaptains();
 buildPlayerInputs();

@@ -8,11 +8,24 @@
 </head>
 <body>
 <div class="container">
-  <h1>🎬 COMMISSIONER SETUP</h1>
+  <nav style="display:flex; gap:12px; justify-content:center; margin-bottom:20px; flex-wrap:wrap;">
+    <a href="./index.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🏠 Home</a>
+    <a href="./league-editor.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🏆 Leagues</a>
+    <a href="./admin.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">👑 Admin</a>
+  </nav>
+  <h1><span class="emoji">🎬</span> COMMISSIONER SETUP</h1>
   <p class="tagline">Configure the league, then create the draft room.</p>
 
   <div class="card">
-    <h2>Step 1 — The 3 Captains</h2>
+    <h2>Step 1a — Choose league</h2>
+    <div id="league-picker"></div>
+  </div>
+
+  <div class="card">
+    <h2>Step 1b — The Captains (from league)</h2>
+    <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:14px;">
+      Captains and team info come from the selected league. To change them, use the League Editor.
+    </p>
     <div class="grid-3" id="captains-grid"></div>
   </div>
 
@@ -52,6 +65,13 @@
     </div>
     <h3>Captain codes (send each one privately)</h3>
     <div class="codes-box" id="out-captain-codes"></div>
+    <h3>🔮 Predictions link (share this publicly for hype!)</h3>
+    <div class="codes-box">
+      <div class="code-row">
+        <span>Public predictions</span>
+        <a id="out-predictions-link" class="code-value" href="#" target="_blank" style="text-decoration: none;">—</a>
+      </div>
+    </div>
     <div class="row-btns">
       <button class="secondary" onclick="copyInvites()">📋 Copy all invites</button>
       <button onclick="openDraftAsCommissioner()">Open draft (as spectator) →</button>
@@ -60,5 +80,6 @@
 </div>
 
 <script type="module" src="./js/setup.js"></script>
+<script type="module" src="./js/back-button.js"></script>
 </body>
 </html>

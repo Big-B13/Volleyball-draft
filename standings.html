@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏆 Standings — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .standings-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+  }
+  .standings-table th {
+    text-align: left; padding: 10px 12px;
+    color: #94a3b8; font-size: 0.75rem; letter-spacing: 1px;
+    text-transform: uppercase; font-weight: 700;
+    border-bottom: 2px solid #334155;
+  }
+  .standings-table td {
+    padding: 12px; border-bottom: 1px solid #334155; color: #e2e8f0;
+  }
+  .standings-table tr.top1 { background: linear-gradient(90deg, rgba(251,191,36,0.10), transparent); }
+  .standings-table tr.top2 { background: linear-gradient(90deg, rgba(203,213,225,0.06), transparent); }
+  .standings-table tr.top3 { background: linear-gradient(90deg, rgba(217,119,6,0.05), transparent); }
+  .standings-table .rank { font-weight: 900; text-align: center; width: 40px; }
+  .standings-table .team-cell { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+  .standings-table .team-color { width: 14px; height: 14px; border-radius: 3px; }
+  .standings-table .num { text-align: center; font-variant-numeric: tabular-nums; }
+  .standings-table .pts { font-weight: 900; color: #fbbf24; }
+
+  .match-row {
+    display: grid;
+    grid-template-columns: 130px 1fr auto;
+    align-items: center;
+    padding: 12px 14px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    gap: 10px;
+    font-size: 0.9rem;
+  }
+  .match-row .when { color: #64748b; font-size: 0.75rem; }
+  .match-row .score { font-weight: 900; font-size: 1.1rem; }
+  .match-row .notes { color: #94a3b8; font-size: 0.78rem; }
+
+  .win  { color: #22c55e; }
+  .loss { color: #ef4444; }
+
+  @media (max-width: 720px) {
+    .standings-table th, .standings-table td { padding: 8px 6px; font-size: 0.85rem; }
+    .match-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./league.html">🏆 League</a>
+    <a href="./clubs.html">🛡️ Clubs</a>
+    <a href="./standings.html" class="active">📊 Standings</a>
+  </nav>
+
+  <h1><span class="emoji">📊</span> STANDINGS</h1>
+  <p class="tagline">Season-long tracker. Wins, losses, and set differential.</p>
+
+  <div class="card">
+    <label>League</label>
+    <select id="league-select" style="max-width: 400px;"></select>
+  </div>
+
+  <div id="commish-only" class="card hidden">
+    <h2><span class="emoji">➕</span> Log a match result</h2>
+    <div class="grid-2">
+      <div>
+        <label>Team A</label>
+        <select id="teamA"></select>
+      </div>
+      <div>
+        <label>Team B</label>
+        <select id="teamB"></select>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top: 12px;">
+      <div>
+        <label>Sets won by A</label>
+        <input type="number" id="scoreA" min="0" max="5" value="3">
+      </div>
+      <div>
+        <label>Sets won by B</label>
+        <input type="number" id="scoreB" min="0" max="5" value="0">
+      </div>
+    </div>
+    <div style="margin-top: 12px;">
+      <label>Notes (optional)</label>
+      <input type="text" id="notes" placeholder="e.g. Playoff quarterfinal, MVP: Nikita">
+    </div>
+    <div class="row-btns">
+      <button onclick="submitMatch()">💾 Log match</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="emoji">🏆</span> Standings</h2>
+    <div style="overflow-x: auto;">
+      <table class="standings-table" id="standings"></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="emoji">📋</span> Recent matches</h2>
+    <div id="matches"></div>
+  </div>
+
+  <div id="player-stats-section" class="card hidden">
+    <h2><span class="emoji">🌟</span> Log player stats for a match</h2>
+    <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:14px;">
+      Pick a match, then fill in each player's numbers. Only commissioners can log stats.
+    </p>
+    <label>Match</label>
+    <select id="stats-match-select" style="max-width: 500px;"></select>
+    <div id="stats-editor" style="margin-top: 16px;"></div>
+    <p style="color:#94a3b8; font-size:0.8rem; margin-top:12px;">
+      💡 <a href="./player-stats.html" style="color:#fbbf24;">View the full player leaderboards →</a>
+    </p>
+  </div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script>/* back button already loaded */</script>
+<script type="module">
+  import { listLeagues, ensureGomiCupSeeded, currentLeagueId } from "./js/leagues.js";
+  import { watchMatches, logMatch, deleteMatch, computeStandings } from "./js/standings.js";
+  import { watchAuth } from "./js/auth.js";
+  import { escapeHtml } from "./js/util.js";
+  import { LOGO_URLS, photoPathFor, getInitials } from "./js/data.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { savePlayerStats, watchStats, STAT_FIELDS } from "./js/player-stats.js";
+  import { db, ref, get } from "./js/firebase-init.js";
+
+  await ensureGomiCupSeeded();
+
+  const params = new URLSearchParams(location.search);
+  let selectedLeague = null;
+  let leagues = await listLeagues();
+  let isCommish = false;
+  let matches = [];
+
+  // Populate league picker
+  const picker = document.getElementById('league-select');
+  const initialId = params.get('league') || currentLeagueId();
+  picker.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  picker.addEventListener('change', () => switchLeague(picker.value));
+
+  watchAuth((session) => {
+    isCommish = !!(session && session.profile && session.profile.role === 'commissioner');
+    document.getElementById('commish-only').classList.toggle('hidden', !isCommish);
+    document.getElementById('player-stats-section').classList.toggle('hidden', !isCommish);
+  });
+
+  // Player stats section
+  let allPlayers = [];
+  let playerRosters = {}; // playerId -> captainId from the most recent completed draft
+  let currentStatsBlob = {};
+  let statsUnsub = null;
+
+  (async () => { allPlayers = await getAllPlayers(); })();
+
+  async function loadRosterMapForLeague(leagueId) {
+    const snap = await get(ref(db, 'drafts'));
+    const drafts = snap.val() || {};
+    let latest = null;
+    for (const [id, d] of Object.entries(drafts)) {
+      if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
+      if (d.status !== 'complete') continue;
+      if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+    }
+    const map = {};
+    if (latest && latest.picks) {
+      for (const pk of latest.picks) {
+        const cap = latest.captains[pk.captainIdx];
+        if (cap) map[pk.playerId] = cap.id;
+      }
+    }
+    return map;
+  }
+
+  let matchUnsub = null;
+  async function switchLeague(leagueId) {
+    if (matchUnsub) matchUnsub();
+    if (statsUnsub) statsUnsub();
+    selectedLeague = leagues.find(l => l.id === leagueId);
+    if (!selectedLeague) return;
+    // Populate team dropdowns
+    const opts = (selectedLeague.captains || []).map(c =>
+      `<option value="${c.id}">${escapeHtml(c.team)} (${escapeHtml(c.name)})</option>`).join('');
+    document.getElementById('teamA').innerHTML = opts;
+    document.getElementById('teamB').innerHTML = opts;
+    if (selectedLeague.captains && selectedLeague.captains.length > 1) {
+      document.getElementById('teamB').selectedIndex = 1;
+    }
+    // Load roster mapping so we know which players are on which team
+    playerRosters = await loadRosterMapForLeague(leagueId);
+    // Subscribe to matches and stats in parallel
+    matchUnsub = watchMatches(leagueId, (list) => {
+      matches = list;
+      renderStandings();
+      renderMatches();
+      renderStatsMatchDropdown();
+    });
+    statsUnsub = watchStats(leagueId, (blob) => {
+      currentStatsBlob = blob || {};
+      renderStatsEditor();
+    });
+  }
+
+  function renderStatsMatchDropdown() {
+    const sel = document.getElementById('stats-match-select');
+    if (!sel) return;
+    const capsById = Object.fromEntries((selectedLeague.captains || []).map(c => [c.id, c]));
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— pick a match —</option>' + matches.map(m => {
+      const a = capsById[m.teamAId], b = capsById[m.teamBId];
+      if (!a || !b) return '';
+      const when = new Date(m.playedAt || m.loggedAt || Date.now()).toLocaleDateString();
+      return `<option value="${m.id}">${when}: ${escapeHtml(a.team)} ${m.scoreA} – ${m.scoreB} ${escapeHtml(b.team)}</option>`;
+    }).join('');
+    if (prev) sel.value = prev;
+    sel.onchange = renderStatsEditor;
+  }
+
+  function renderStatsEditor() {
+    const box = document.getElementById('stats-editor');
+    if (!box) return;
+    const sel = document.getElementById('stats-match-select');
+    const matchId = sel ? sel.value : '';
+    if (!matchId) {
+      box.innerHTML = '<div style="color:#64748b; padding:12px;">Pick a match above to log player stats.</div>';
+      return;
+    }
+    const match = matches.find(m => m.id === matchId);
+    if (!match) { box.innerHTML = ''; return; }
+    // Roster: only players whose captain is teamA or teamB
+    const eligibleCaps = new Set([match.teamAId, match.teamBId]);
+    const rosterPlayers = allPlayers.filter(p => eligibleCaps.has(playerRosters[p.id]));
+    if (!rosterPlayers.length) {
+      box.innerHTML = `<div style="color:#94a3b8; padding:12px;">
+        No completed draft found for this league yet — can't determine which players are on which team.
+        <br>Once a draft finishes, come back here and log stats.
+      </div>`;
+      return;
+    }
+    const capsById = Object.fromEntries((selectedLeague.captains || []).map(c => [c.id, c]));
+    const existingStats = currentStatsBlob[matchId] || {};
+    box.innerHTML = `
+      <div style="max-height: 460px; overflow-y: auto; border:1px solid #334155; border-radius:8px;">
+      <table class="standings-table" style="min-width: 600px;">
+        <thead>
+          <tr>
+            <th>Player</th>
+            ${STAT_FIELDS.map(f => `<th class="num">${f.short}</th>`).join('')}
+            <th class="num">MVP</th>
+            <th class="num">Save</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rosterPlayers.map(p => {
+            const capId = playerRosters[p.id];
+            const cap = capsById[capId];
+            const s = existingStats[p.id] || {};
+            return `
+              <tr data-pid="${p.id}">
+                <td>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="width:8px; height:8px; background:${cap ? cap.color : '#64748b'}; border-radius:2px;"></span>
+                    <strong>${escapeHtml(p.name)}</strong>
+                    <span style="color:#64748b; font-size:0.75rem;">${escapeHtml(p.position || '')}</span>
+                  </div>
+                </td>
+                ${STAT_FIELDS.map(f => `<td class="num"><input class="ps-${f.id}" type="number" min="0" max="999" value="${s[f.id] || 0}" style="width:56px; padding:4px; text-align:center;"></td>`).join('')}
+                <td class="num"><input type="checkbox" class="ps-mvp" ${s.mvp ? 'checked' : ''}></td>
+                <td class="num"><button class="secondary ps-save" style="padding:4px 10px; font-size:0.75rem;">💾</button></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+      <div class="row-btns" style="margin-top: 12px;">
+        <button onclick="saveAllStats('${matchId}')">💾 Save all rows</button>
+      </div>
+    `;
+    // Wire per-row save buttons
+    box.querySelectorAll('.ps-save').forEach(btn => {
+      const row = btn.closest('tr');
+      btn.addEventListener('click', async () => {
+        await savePlayerStats(selectedLeague.id, matchId, row.dataset.pid, readRowStats(row));
+        btn.textContent = '✅';
+        setTimeout(() => btn.textContent = '💾', 1000);
+      });
+    });
+  }
+
+  function readRowStats(row) {
+    return {
+      kills:   row.querySelector('.ps-kills').value,
+      blocks:  row.querySelector('.ps-blocks').value,
+      aces:    row.querySelector('.ps-aces').value,
+      digs:    row.querySelector('.ps-digs').value,
+      assists: row.querySelector('.ps-assists').value,
+      mvp:     row.querySelector('.ps-mvp').checked
+    };
+  }
+
+  window.saveAllStats = async (matchId) => {
+    const rows = document.querySelectorAll('#stats-editor tr[data-pid]');
+    let count = 0;
+    for (const row of rows) {
+      const s = readRowStats(row);
+      // Skip completely-empty rows (all zeros and no MVP)
+      const isEmpty = !s.mvp && [s.kills, s.blocks, s.aces, s.digs, s.assists].every(v => (parseInt(v)||0) === 0);
+      if (isEmpty) continue;
+      await savePlayerStats(selectedLeague.id, matchId, row.dataset.pid, s);
+      count++;
+    }
+    alert(`✅ Saved ${count} player stat lines.`);
+  };
+
+  function renderStandings() {
+    if (!selectedLeague) return;
+    const table = document.getElementById('standings');
+    const rows = computeStandings(selectedLeague.captains || [], matches);
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>#</th><th>Team</th><th class="num">P</th><th class="num">W</th><th class="num">L</th>
+          <th class="num">Sets +</th><th class="num">Sets -</th><th class="num">Diff</th><th class="num">Pts</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((r, i) => {
+          const rank = i + 1;
+          const rowClass = rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '';
+          const logo = r.logo && LOGO_URLS[r.logo] ? `<img src="${LOGO_URLS[r.logo]}" style="height:24px;">` : '';
+          return `
+            <tr class="${rowClass}">
+              <td class="rank" style="color:${r.color};">${rank}</td>
+              <td>
+                <div class="team-cell">
+                  <span class="team-color" style="background:${r.color}"></span>
+                  ${logo}
+                  <span style="color:${r.color}">${escapeHtml(r.teamName)}</span>
+                </div>
+              </td>
+              <td class="num">${r.played}</td>
+              <td class="num win">${r.wins}</td>
+              <td class="num loss">${r.losses}</td>
+              <td class="num">${r.setsWon}</td>
+              <td class="num">${r.setsLost}</td>
+              <td class="num">${r.setDiff > 0 ? '+' : ''}${r.setDiff}</td>
+              <td class="num pts">${r.points}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    `;
+    if (!rows.length) table.innerHTML = '<tbody><tr><td colspan="9" style="text-align:center; padding:20px; color:#64748b;">No teams in this league.</td></tr></tbody>';
+  }
+
+  function renderMatches() {
+    const box = document.getElementById('matches');
+    if (!matches.length) {
+      box.innerHTML = '<div style="color:#64748b; padding:12px;">No matches logged yet.</div>';
+      return;
+    }
+    const capsById = Object.fromEntries((selectedLeague.captains || []).map(c => [c.id, c]));
+    box.innerHTML = matches.map(m => {
+      const a = capsById[m.teamAId], b = capsById[m.teamBId];
+      if (!a || !b) return '';
+      const aWin = m.scoreA > m.scoreB, bWin = m.scoreB > m.scoreA;
+      const when = new Date(m.playedAt || m.loggedAt || Date.now());
+      return `
+        <div class="match-row">
+          <div class="when">${when.toLocaleDateString()}<br>${when.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</div>
+          <div>
+            <div>
+              <strong style="color:${a.color}">${escapeHtml(a.team)}</strong>
+              <span class="score ${aWin?'win':bWin?'loss':''}"> ${m.scoreA} </span>
+              <span style="color:#64748b;">-</span>
+              <span class="score ${bWin?'win':aWin?'loss':''}"> ${m.scoreB} </span>
+              <strong style="color:${b.color}">${escapeHtml(b.team)}</strong>
+            </div>
+            ${m.notes ? `<div class="notes">${escapeHtml(m.notes)}</div>` : ''}
+          </div>
+          <div>${isCommish ? `<button class="secondary" onclick="removeMatch('${m.id}')">🗑</button>` : ''}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  window.submitMatch = async () => {
+    const teamAId = document.getElementById('teamA').value;
+    const teamBId = document.getElementById('teamB').value;
+    if (teamAId === teamBId) return alert('Teams must be different.');
+    const scoreA = document.getElementById('scoreA').value;
+    const scoreB = document.getElementById('scoreB').value;
+    if (!scoreA || !scoreB) return alert('Enter set scores.');
+    const notes = document.getElementById('notes').value;
+    try {
+      await logMatch(selectedLeague.id, { teamAId, teamBId, scoreA, scoreB, notes });
+      document.getElementById('notes').value = '';
+      alert('✅ Match logged!');
+    } catch (e) {
+      alert('❌ ' + e.message);
+    }
+  };
+
+  window.removeMatch = async (matchId) => {
+    if (!confirm('Delete this match result?')) return;
+    await deleteMatch(selectedLeague.id, matchId);
+  };
+
+  await switchLeague(initialId);
+</script>
+</body>
+</html>
