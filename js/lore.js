@@ -122,7 +122,16 @@ export const PLAYER_BIOS = {
   'joep':         "Hands like glass. Sets that arrive exactly where a hitter's swing was already going. Rarely spectacular, always exactly right.",
   'pavel':        "Attack side, defense side, doesn't matter. Cleans up whatever the rally leaves behind. Nothing hits the floor near him without a fight.",
   'merel':        "Feet don't leave the ground; her mind never leaves the play. Always in the right spot, always making the correct next touch.",
-  'tabeeb':       "Big personality on a raw skill set. When it clicks, it clicks — the highlight is coming. Just needs the reps."
+  'tabeeb':       "Big personality on a raw skill set. When it clicks, it clicks — the highlight is coming. Just needs the reps.",
+
+  // Second-wave additions
+  'daan':         "Blooms under pressure. Named for a flower, plays like a weed — impossible to root out of any rotation.",
+  'gabsche':      "Wears the C on any team he joins. Reads the whole floor before the serve is even up. Elite in every column.",
+  'ani':          "Everyone else is a guest — Ani is running the party. Average stats, above-average vibes, keeps rallies alive.",
+  'mandie':       "Sniper's calm. Doesn't force shots — waits until the block splits, then puts it exactly where it needs to go.",
+  'dawood':       "Setter one moment, opposite the next. Loads the hands, then loads the arm. You never know where the ball is going, and neither does the block.",
+  'aizaz':        "Every gym needs the spark plug. Not the loudest stat line, but the guy whose hustle keeps the whole side moving.",
+  'robin':        "7 across the board. No highlight reel, no weakness to hunt — just wins his rotation every single time."
 };
 
 // Positions per team come from the roster after draft; we don't need to hard-code them here.

@@ -40,7 +40,16 @@ export const PHOTO_CONFIG = {
   'joep':         { y: 18, zoom: 1.0 },
   'pavel':        { y: 20, zoom: 1.0 },
   'merel':        { y: 15, zoom: 1.0 },   // nudge down a smidge
-  'tabeeb':       { y: 20, zoom: 1.0 }
+  'tabeeb':       { y: 20, zoom: 1.0 },
+
+  // Second-wave additions (tuned by first-glance; adjust as needed)
+  'daan':         { y: 18, zoom: 1.0 },   // portrait, face upper-middle
+  'gabsche':      { y: 20, zoom: 1.1 },   // wide crop, zoom to fill
+  'ani':          { y: 18, zoom: 1.0 },
+  'mandie':       { y: 15, zoom: 1.0 },   // face already at top of crop
+  'dawood':       { y: 18, zoom: 1.0 },
+  'aizaz':        { y: 20, zoom: 1.0 },
+  'robin':        { y: 35, zoom: 1.0 }   // silhouette — center the whole shape
 };
 
 /** Get the offset Y for a player id (fallback: 15) */

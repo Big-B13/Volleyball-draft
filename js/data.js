@@ -14,7 +14,7 @@ export const LOGO_URLS = {
 
 // Bump this any time DEFAULT_PLAYERS changes — clients with a lower version
 // will auto-refresh their local cache to pick up the new list.
-export const PLAYER_DATA_VERSION = 3;
+export const PLAYER_DATA_VERSION = 5;
 
 // Photo path convention: ./assets/players/<id>.png (transparent PNG cutout preferred)
 // If a file doesn't exist, cards fall back to a silhouette + initials.
@@ -62,7 +62,16 @@ export const DEFAULT_PLAYERS = [
   { id: 'joep',         name:'Joep',         nickname:'Blank',            attack:5, serve:5, defense:7, setting:8, athletic:6 },
   { id: 'pavel',        name:'Pavel',        nickname:'Janitor',          attack:6, serve:6, defense:8, setting:5, athletic:7 },
   { id: 'merel',        name:'Merel',        nickname:'Bird',             attack:7, serve:6, defense:7, setting:6, athletic:6 },
-  { id: 'tabeeb',       name:'Tabeeb',       nickname:'Bomber',           attack:4, serve:4, defense:4, setting:3, athletic:5 }
+  { id: 'tabeeb',       name:'Tabeeb',       nickname:'Bomber',           attack:4, serve:4, defense:4, setting:3, athletic:5 },
+
+  // Second-wave additions
+  { id: 'daan',         name:'Daan',         nickname:'Dahliah',          attack:7, serve:7, defense:7, setting:6, athletic:7 },
+  { id: 'gabsche',      name:'Gabsche',      nickname:'Capitain',         attack:8, serve:8, defense:8, setting:7, athletic:8 },
+  { id: 'ani',          name:'Ani',          nickname:'The Host',         attack:6, serve:5, defense:6, setting:5, athletic:6 },
+  { id: 'mandie',       name:'Mandie',       nickname:'Scope',            attack:7, serve:7, defense:7, setting:6, athletic:7 },
+  { id: 'dawood',       name:'Dawood',       nickname:'Canon',            attack:7, serve:7, defense:6, setting:8, athletic:7 },
+  { id: 'aizaz',        name:'Aizaz',        nickname:'Spark',            attack:6, serve:5, defense:6, setting:5, athletic:6 },
+  { id: 'robin',        name:'Robin',        nickname:'Bullseye',         attack:7, serve:7, defense:7, setting:7, athletic:7 }
 ];
 
 // Helper: given an id like 'nikita-brown', returns './assets/players/nikita-brown.png'
