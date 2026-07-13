@@ -1,7 +1,7 @@
 // Initialize Firebase using the modular v10+ SDK from Google's CDN
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
-  getDatabase, ref, set, get, update, onValue, runTransaction, serverTimestamp, remove
+  getDatabase, ref, set, get, update, onValue, runTransaction, serverTimestamp, remove, onDisconnect
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -20,7 +20,7 @@ try {
 }
 
 export {
-  db, ref, set, get, update, onValue, runTransaction, serverTimestamp, remove,
+  db, ref, set, get, update, onValue, runTransaction, serverTimestamp, remove, onDisconnect,
   auth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, updatePassword
 };

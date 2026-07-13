@@ -1,4 +1,4 @@
-import { db, ref, onValue, runTransaction } from "./firebase-init.js";
+import { db, ref, onValue, runTransaction, set, remove, onDisconnect } from "./firebase-init.js";
 import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./data.js";
 import { escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge, watchAuth } from "./auth.js";
@@ -74,7 +74,9 @@ if (!roomId) {
 }
 
 let state = null;
+let presence = {}; // { captainIdx: { at: timestamp } }
 let myCaptainIdx = null; // null = spectator
+let presenceRegistered = false;
 
 function subscribe() {
   const draftRef = ref(db, `drafts/${roomId}`);
@@ -105,12 +107,32 @@ function subscribe() {
       myCaptainIdx = null;
     }
 
+    // Register my presence as this captain (once per session)
+    if (myCaptainIdx !== null && !presenceRegistered) {
+      registerPresence(myCaptainIdx);
+      presenceRegistered = true;
+    }
+
     render();
   }, (err) => {
     console.error(err);
     setConnected(false);
     showError('Firebase connection failed: ' + err.message);
   });
+
+  // Subscribe to presence separately
+  const presenceRef = ref(db, `presence/${roomId}`);
+  onValue(presenceRef, (snap) => {
+    presence = snap.val() || {};
+    if (state) render();
+  });
+}
+
+async function registerPresence(captainIdx) {
+  const myPresenceRef = ref(db, `presence/${roomId}/${captainIdx}`);
+  await set(myPresenceRef, { at: Date.now(), captainIdx });
+  // Auto-cleanup when tab closes / connection drops
+  onDisconnect(myPresenceRef).remove();
 }
 
 function setConnected(ok) {
@@ -132,6 +154,8 @@ function showError(msg) {
 function render() {
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('error').classList.add('hidden');
+  const lobbyEl = document.getElementById('lobby');
+  if (lobbyEl) lobbyEl.classList.add('hidden');
 
   // If complete, redirect to reveal
   if (state.status === 'complete' || state.currentPick >= state.draftOrder.length) {
@@ -139,9 +163,21 @@ function render() {
     return;
   }
 
+  // Check if all captains are present — if not (and no picks made yet), show lobby
+  const totalCaptains = state.captains.length;
+  const presentCount = Object.keys(presence).length;
+  const noPicksYet = !(state.picks && state.picks.length);
+  const shouldShowLobby = noPicksYet && presentCount < totalCaptains && !spectate;
+
+  if (shouldShowLobby) {
+    renderLobby();
+    return;
+  }
+
   const onClockIdx = state.draftOrder[state.currentPick];
   const onClock = state.captains[onClockIdx];
   const isMyTurn = myCaptainIdx !== null && onClockIdx === myCaptainIdx;
+  const onClockPresent = presence[onClockIdx];
 
   const whoAmIHtml = spectate
     ? `<span class="status-pill spectator">👀 Spectator</span>`
@@ -153,10 +189,68 @@ function render() {
   if (isMyTurn) {
     renderMyTurn(onClock, whoAmIHtml);
   } else {
-    renderWaiting(onClock, whoAmIHtml);
+    renderWaiting(onClock, whoAmIHtml, onClockPresent);
   }
   renderTeamsPanel();
   renderPickHistory();
+}
+
+function renderLobby() {
+  // Hide draft views
+  document.getElementById('waiting').classList.add('hidden');
+  document.getElementById('my-turn').classList.add('hidden');
+  const teamsPanel = document.getElementById('teams-panel');
+  if (teamsPanel) teamsPanel.innerHTML = '';
+  const historyCard = document.getElementById('pick-history-card');
+  if (historyCard) historyCard.classList.add('hidden');
+
+  // Create or reuse the lobby container
+  let lobby = document.getElementById('lobby');
+  if (!lobby) {
+    lobby = document.createElement('div');
+    lobby.id = 'lobby';
+    lobby.className = 'card';
+    const container = document.querySelector('.container');
+    container.insertBefore(lobby, container.firstChild.nextSibling);
+  }
+  lobby.classList.remove('hidden');
+
+  const totalCaptains = state.captains.length;
+  const presentCount = Object.keys(presence).length;
+  const meLabel = myCaptainIdx !== null
+    ? `You are <strong style="color:${state.captains[myCaptainIdx].color}">${escapeHtml(state.captains[myCaptainIdx].name)}</strong>. You're checked in ✓`
+    : `You are a spectator waiting for the draft to begin.`;
+
+  lobby.innerHTML = `
+    <div style="text-align:center; padding: 20px 0;">
+      <div style="font-size: 0.85rem; color:#94a3b8; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px;">Draft Lobby</div>
+      <h2 style="color:#fbbf24; margin-bottom: 8px;">Waiting for captains to join</h2>
+      <p style="color:#cbd5e1; margin-bottom: 8px;">${presentCount} / ${totalCaptains} captains are here.</p>
+      <p style="color:#94a3b8; font-size: 0.85rem; margin-bottom: 24px;">${meLabel}</p>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; max-width: 800px; margin: 0 auto;">
+        ${state.captains.map((c, i) => {
+          const here = presence[i];
+          const meMark = myCaptainIdx === i ? ' (you)' : '';
+          return `
+            <div style="padding: 20px 14px; border-radius: 12px; text-align:center;
+                        background: ${here ? `linear-gradient(135deg, ${c.color}33, rgba(15,23,42,0.7))` : 'rgba(15,23,42,0.7)'};
+                        border: 2px solid ${here ? c.color : '#475569'};
+                        ${here ? `box-shadow: 0 0 20px ${c.color}66;` : 'opacity: 0.55;'}">
+              <div style="font-size: 2rem; margin-bottom: 6px;">${here ? '✅' : '⏳'}</div>
+              <div style="font-weight: 900; color: ${c.color}; font-size: 1.1rem;">${escapeHtml(c.team)}</div>
+              <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 4px;">${escapeHtml(c.name)}${meMark}</div>
+              <div style="margin-top: 8px; font-size: 0.75rem; color: ${here ? '#22c55e' : '#94a3b8'}; letter-spacing: 1px; text-transform: uppercase;">
+                ${here ? 'Ready' : 'Waiting…'}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <p style="color: #64748b; font-size: 0.8rem; margin-top: 24px;">
+        The draft will start as soon as all captains have joined.
+      </p>
+    </div>
+  `;
 }
 
 function teamHeaderHtml(cap) {
@@ -164,15 +258,20 @@ function teamHeaderHtml(cap) {
   return `${logo}<span style="color:${cap.color}">${escapeHtml(cap.team)}</span>`;
 }
 
-function renderWaiting(onClock, whoHtml) {
+function renderWaiting(onClock, whoHtml, onClockPresent) {
   document.getElementById('my-turn').classList.add('hidden');
   const w = document.getElementById('waiting');
   w.classList.remove('hidden');
   document.getElementById('who-am-i').innerHTML = whoHtml;
   document.getElementById('wait-team-name').innerHTML = teamHeaderHtml(onClock);
   const round = Math.floor(state.currentPick / 3) + 1;
-  document.getElementById('wait-round-info').textContent =
-    `Round ${round} of ${state.picksPerTeam} · Captain: ${onClock.name} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * 3}`;
+  const absentMsg = !onClockPresent
+    ? `<div style="margin-top: 12px; padding: 10px 14px; background: rgba(239,68,68,0.15); border: 1px solid #ef4444; border-radius: 8px; color: #fecaca; font-size: 0.9rem;">
+         ⚠️ <strong>${escapeHtml(onClock.name)}</strong> hasn't joined yet — the draft is paused waiting for them.
+       </div>`
+    : '';
+  document.getElementById('wait-round-info').innerHTML =
+    `Round ${round} of ${state.picksPerTeam} · Captain: ${escapeHtml(onClock.name)} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * 3}${absentMsg}`;
 }
 
 async function renderMyTurn(onClock, whoHtml) {

@@ -79,6 +79,11 @@ function joinAsMyCaptain() {
         <h3>Log in / Sign up</h3>
         <p>Members can see the full trading cards, real player names, live drafts, and the big reveal.</p>
       </a>
+      <a href="#" onclick="showCodeJoin(); return false;">
+        <div class="emoji">🎯</div>
+        <h3>Join a draft (with code)</h3>
+        <p>Have a captain code from your commissioner? Enter it here to join a draft without an account.</p>
+      </a>
       <a href="#" onclick="showSpectator(); return false;">
         <div class="emoji">👀</div>
         <h3>Watch a draft (spectator)</h3>
@@ -98,8 +103,13 @@ function joinAsMyCaptain() {
     captain: `
       <a href="#" onclick="showCaptainJoin(); return false;">
         <div class="emoji">🎖️</div>
-        <h3>Join a draft as captain</h3>
-        <p>Enter your room ID — you'll be auto-recognized as your captain slot.</p>
+        <h3>Join as my captain slot</h3>
+        <p>Enter your room ID — auto-recognized from your account.</p>
+      </a>
+      <a href="#" onclick="showCodeJoin(); return false;">
+        <div class="emoji">🔑</div>
+        <h3>Join with a captain code</h3>
+        <p>Have a specific captain code? Enter room ID + code to join that slot.</p>
       </a>
       <a href="#" onclick="showSpectator(); return false;">
         <div class="emoji">👀</div>
@@ -175,6 +185,20 @@ function joinAsMyCaptain() {
     const btns = document.querySelector('#join-card .row-btns');
     btns.innerHTML = `
       <button onclick="joinAsMyCaptain()">🎖️ Join as my captain →</button>
+      <button class="secondary" onclick="joinAsSpectator()">👀 Or just spectate</button>
+    `;
+    document.getElementById('join-room').focus();
+  };
+  window.showCodeJoin = () => {
+    document.getElementById('join-card').classList.remove('hidden');
+    document.getElementById('join-title').textContent = '🎯 Join with captain code';
+    document.getElementById('captain-code-wrap').style.display = '';
+    document.getElementById('btn-enter').style.display = '';
+    document.getElementById('btn-enter').textContent = 'Enter draft →';
+    document.getElementById('join-hint').innerHTML = 'Enter the room ID and the 4-character captain code your commissioner sent you.';
+    const btns = document.querySelector('#join-card .row-btns');
+    btns.innerHTML = `
+      <button id="btn-enter" onclick="joinDraft()">🔑 Enter draft →</button>
       <button class="secondary" onclick="joinAsSpectator()">👀 Or just spectate</button>
     `;
     document.getElementById('join-room').focus();
