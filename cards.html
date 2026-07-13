@@ -475,7 +475,8 @@
     try {
       const snap = await get(ref(db, `drafts/${roomId.toUpperCase()}`));
       const val = snap.val();
-      if (val) {
+      // Only use as "liveDraft" if the draft is actually complete
+      if (val && val.status === 'complete') {
         liveDraft = val;
         players = val.players;
       }
@@ -662,11 +663,34 @@
       }
     } else if (currentMode === 'rosters') {
       if (!isLoggedIn) { showLoginGate('Team roster cards'); return; }
-      if (liveDraft) {
-        info.innerHTML = `🏆 <strong>Team roster cards</strong> — pulling live results from room <strong>${roomId}</strong>. These show the actual drafted teams!`;
-      } else {
-        info.innerHTML = '🏆 <strong>Team roster cards</strong> — currently showing top-5 by OVR as a preview. After your real draft, add <code>?room=YOURROOMID</code> to this page\'s URL to see the actual drafted rosters.';
+      if (!liveDraft) {
+        // No real draft data — show a "no draft yet" empty state
+        if (dlWrap) dlWrap.style.display = 'none';
+        info.innerHTML = '';
+        grid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align:center; padding: 60px 24px; background: linear-gradient(135deg, rgba(148,163,184,0.06), rgba(15,23,42,0.5)); border: 2px dashed #475569; border-radius: 16px;">
+            <div style="font-size: 4rem; margin-bottom: 16px;">🏐</div>
+            <h2 style="color: #fbbf24; margin-bottom: 12px;">No draft has happened yet</h2>
+            <p style="color: #cbd5e1; max-width: 500px; margin: 0 auto 24px; line-height: 1.6;">
+              Team roster cards are generated from the actual draft results.
+              Once a draft is completed, come back here with the room ID to see the real rosters.
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+              <a href="./setup.html" style="display: inline-block; padding: 12px 24px; background: linear-gradient(90deg, #f97316, #ef4444); color: #fff; font-weight: 700; text-decoration: none; border-radius: 8px;">
+                🎬 Start a draft
+              </a>
+              <a href="./index.html" style="display: inline-block; padding: 12px 24px; background: rgba(255,255,255,0.08); color: #cbd5e1; text-decoration: none; border-radius: 8px;">
+                Join an existing room
+              </a>
+            </div>
+            <div style="margin-top: 20px; color: #64748b; font-size: 0.85rem;">
+              Or, if a draft is complete, visit <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px;">cards.html?room=YOURROOMID</code>
+            </div>
+          </div>
+        `;
+        return;
       }
+      info.innerHTML = `🏆 <strong>Team roster cards</strong> — pulling live results from room <strong>${roomId}</strong>. These show the actual drafted teams!`;
       grid.innerHTML = '';
       let idx = 0;
       for (const c of Object.values(CLUBS)) {
