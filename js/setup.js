@@ -32,6 +32,17 @@ async function loadLeagueCaptains() {
     captains = JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
   }
   buildCaptainInputs();
+  buildPlayerInputs(); // re-render to show which players are excluded
+}
+
+/** Returns the set of player IDs that should be excluded from the draft pool
+ *  because they're serving as captains in the selected league. */
+function excludedPlayerIds() {
+  const excluded = new Set();
+  for (const c of captains) {
+    if (c.linkedPlayerId) excluded.add(c.linkedPlayerId);
+  }
+  return excluded;
 }
 
 async function buildLeaguePicker() {
@@ -76,18 +87,28 @@ function buildCaptainInputs() {
 
 function buildPlayerInputs() {
   const g = document.getElementById('players-grid');
-  g.innerHTML = players.map((p, i) => `
-    <div class="player-row">
+  const excluded = excludedPlayerIds();
+  g.innerHTML = players.map((p, i) => {
+    const isExcluded = excluded.has(p.id);
+    const styleAttr = isExcluded
+      ? 'style="opacity:0.4; text-decoration:line-through;"'
+      : '';
+    const badge = isExcluded
+      ? `<div style="grid-column:1/-1; color:#fbbf24; font-size:0.72rem; padding:2px 6px;">🎖️ Excluded — captain in ${captains.find(c => c.linkedPlayerId === p.id)?.team || 'this league'}</div>`
+      : '';
+    return `
+    <div class="player-row" ${styleAttr}>
+      ${badge}
       <div class="num">${i + 1}</div>
       <input type="text" value="${escapeHtml(p.name)}"     data-i="${i}" data-field="name"     placeholder="Real name">
       <input type="text" value="${escapeHtml(p.nickname || '')}" data-i="${i}" data-field="nickname" placeholder="Nickname">
-      ${STAT_KEYS.map(s => `<input type="number" min="1" max="10" value="${p[s]}" data-i="${i}" data-field="${s}">`).join('')}
+      ${STAT_KEYS.map(s => `<input type="number" min="1" max="10" step="0.5" value="${p[s]}" data-i="${i}" data-field="${s}">`).join('')}
     </div>
-  `).join('');
+  `;}).join('');
   g.querySelectorAll('input').forEach(el => {
     el.addEventListener('input', () => {
       const i = +el.dataset.i, f = el.dataset.field;
-      const v = el.type === 'number' ? (parseInt(el.value) || 0) : el.value;
+      const v = el.type === 'number' ? (parseFloat(el.value) || 0) : el.value;
       players[i][f] = v;
       persist();
     });
@@ -129,7 +150,12 @@ window.createRoom = async () => {
   const draftOrder = buildDraftOrder(captainOrder, PICKS_PER_TEAM);
 
   const captainsWithCodes = captains.map(c => ({ ...c, code: makeCaptainCode() }));
-  const playersWithOverall = players.map(p => ({ ...p, overall: overall(p) }));
+  const excluded = excludedPlayerIds();
+  const activePlayers = players.filter(p => !excluded.has(p.id));
+  if (activePlayers.length < captains.length * PICKS_PER_TEAM) {
+    return alert(`After excluding captains from the pool, only ${activePlayers.length} players remain, but ${captains.length * PICKS_PER_TEAM} draft picks are needed. Add more players or reduce captain count.`);
+  }
+  const playersWithOverall = activePlayers.map(p => ({ ...p, overall: overall(p) }));
 
   // Shuffle player display order so card position gives away nothing
   const displayOrder = shuffle(playersWithOverall.map(p => p.id));

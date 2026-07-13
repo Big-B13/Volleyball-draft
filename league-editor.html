@@ -102,7 +102,7 @@
 
 <script type="module">
   import { guardPage, renderAuthBadge } from "./js/auth.js";
-  import { listLeagues, getLeague, createLeague, updateLeague, deleteLeague, slugify, ensureGomiCupSeeded, BUILTIN_LOGOS, GOMI_CUP_LEAGUE_ID } from "./js/leagues.js";
+  import { listLeagues, getLeague, createLeague, updateLeague, deleteLeague, slugify, ensureGomiCupSeeded, BUILTIN_LOGOS, GOMI_CUP_LEAGUE_ID, findPlayerByName } from "./js/leagues.js";
   import { escapeHtml } from "./js/util.js";
 
   const { profile, user } = await guardPage({ requireRole: 'commissioner' });
@@ -178,11 +178,20 @@
     const logoOpts = ['<option value="">(no logo)</option>']
       .concat(BUILTIN_LOGOS.map(l => `<option value="${l}">${l}</option>`))
       .join('');
-    box.innerHTML = captains.map((c, i) => `
+    box.innerHTML = captains.map((c, i) => {
+      const matched = findPlayerByName(c.name);
+      let matchBadge = '';
+      if (c.name && c.name.trim()) {
+        matchBadge = matched
+          ? `<span style="color:#22c55e; font-size:0.72rem;">✓ Matched player "${matched.name}" — will be excluded from this league's draft pool</span>`
+          : `<span style="color:#94a3b8; font-size:0.72rem;">⚠️ No player matches this name — captain will be standalone (not in any player pool)</span>`;
+      }
+      return `
       <div class="cap-editor" data-cap-idx="${i}">
+        <div style="grid-column: 1 / -1; padding-bottom: 4px; ${matchBadge ? '' : 'display:none;'}">${matchBadge}</div>
         <div>
           <label>Captain name</label>
-          <input type="text" value="${escapeHtml(c.name)}" data-field="name">
+          <input type="text" value="${escapeHtml(c.name)}" data-field="name" placeholder="e.g. Big-B or Nathan">
         </div>
         <div>
           <label>Team name</label>
@@ -211,7 +220,7 @@
           <button class="secondary" data-remove="${i}">🗑</button>
         </div>
       </div>
-    `).join('') || '<div style="color:#64748b; padding:8px;">No captains yet — click "+ Add captain" below.</div>';
+    `;}).join('') || '<div style="color:#64748b; padding:8px;">No captains yet — click "+ Add captain" below.</div>';
 
     // Wire up proper event listeners (inline oninput doesn't see module scope)
     box.querySelectorAll('[data-cap-idx]').forEach(row => {
@@ -220,6 +229,27 @@
         el.addEventListener('input', () => {
           captains[idx][el.dataset.field] = el.value;
         });
+        // For the name field, re-render on blur so the "matched player" badge updates
+        if (el.dataset.field === 'name') {
+          let debounceTimer;
+          el.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+              const activeEl = document.activeElement;
+              const isMe = activeEl === el;
+              renderCaptainsEditor();
+              // Restore focus to the same input
+              if (isMe) {
+                const newInput = box.querySelector(`[data-cap-idx="${idx}"] input[data-field="name"]`);
+                if (newInput) {
+                  newInput.focus();
+                  const v = newInput.value;
+                  newInput.setSelectionRange(v.length, v.length);
+                }
+              }
+            }, 400);
+          });
+        }
       });
       const removeBtn = row.querySelector('[data-remove]');
       if (removeBtn) removeBtn.addEventListener('click', () => removeCaptain(idx));

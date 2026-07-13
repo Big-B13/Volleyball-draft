@@ -3,14 +3,50 @@
 // team names, colors, and logos. Player pool is shared globally from data.js.
 
 import { db, ref, get, set, update, remove } from "./firebase-init.js";
-import { DEFAULT_CAPTAINS, LOGO_URLS } from "./data.js";
+import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, LOGO_URLS } from "./data.js";
+
+/** Fuzzy-match a name to a player in the pool.
+ *  Case/space/punctuation insensitive; also matches partial (e.g. "nathan" -> "burla" via nickname) */
+export function findPlayerByName(query) {
+  const q = String(query || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!q) return null;
+  // Exact match first (by id, name, or nickname)
+  for (const p of DEFAULT_PLAYERS) {
+    const idN = p.id.replace(/[^a-z0-9]/g, '').toLowerCase();
+    const nameN = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const nickN = (p.nickname || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (idN === q || nameN === q || nickN === q) return p;
+  }
+  // Substring/startsWith match
+  for (const p of DEFAULT_PLAYERS) {
+    const nameN = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (nameN.startsWith(q) || q.startsWith(nameN)) return p;
+  }
+  for (const p of DEFAULT_PLAYERS) {
+    const nameN = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (nameN.includes(q) || q.includes(nameN)) return p;
+  }
+  return null;
+}
 
 const GOMI_CUP_ID = 'gomi-cup';
 
 /** Ensure the Gomi Cup exists in the DB. Called on admin load. */
 export async function ensureGomiCupSeeded() {
   const snap = await get(ref(db, `leagues/${GOMI_CUP_ID}`));
-  if (snap.exists()) return;
+  if (snap.exists()) {
+    // Make sure existing gomi cup has linkedPlayerId set on captains (migration)
+    const existing = snap.val();
+    let needsFix = false;
+    (existing.captains || []).forEach(c => {
+      if (!c.linkedPlayerId && c.name) {
+        const match = findPlayerByName(c.name);
+        if (match) { c.linkedPlayerId = match.id; needsFix = true; }
+      }
+    });
+    if (needsFix) await update(ref(db, `leagues/${GOMI_CUP_ID}`), { captains: existing.captains });
+    return;
+  }
   const gomi = {
     id: GOMI_CUP_ID,
     name: 'The Gomi Cup',
@@ -18,11 +54,7 @@ export async function ensureGomiCupSeeded() {
     founded: 2026,
     setting: 'Indoor',
     active: true,
-    captains: DEFAULT_CAPTAINS.map(c => ({
-      id: c.id, name: c.name, team: c.team,
-      color: c.color, color2: c.color2,
-      logo: c.logo, role: c.role, photo: c.photo || null
-    })),
+    captains: DEFAULT_CAPTAINS.map(c => normalizeCaptain(c)),
     createdAt: Date.now(),
     createdBy: 'system'
   };
@@ -88,15 +120,19 @@ export function slugify(s) {
 }
 
 function normalizeCaptain(c) {
+  const name = (c.name || '').trim();
+  const matchedPlayer = name ? findPlayerByName(name) : null;
   return {
     id: c.id || `c${Math.random().toString(36).slice(2, 7)}`,
-    name: (c.name || '').trim(),
+    name,
     team: (c.team || '').trim(),
     color: c.color || '#94a3b8',
     color2: c.color2 || '#000000',
     logo: c.logo || null,     // one of: 'strigidae', 'otters', 'shizuka', OR a custom URL
-    role: (c.role || '').trim() || null,
-    photo: c.photo || null
+    role: (c.role || '').trim() || (matchedPlayer && matchedPlayer.role) || null,
+    photo: c.photo || (matchedPlayer ? `./assets/players/${matchedPlayer.id}.png` : null),
+    // If the captain matches a player in the pool, remember that so we can exclude them from that league's draft
+    linkedPlayerId: matchedPlayer ? matchedPlayer.id : null
   };
 }
 
