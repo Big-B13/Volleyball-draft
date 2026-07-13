@@ -724,23 +724,56 @@
   }
 
   async function downloadCard(cardEl, filename) {
-    // Clone the card and render it at native 1080x1080 in a hidden off-screen container.
-    // This avoids scaling issues from the .card-thumb wrapper.
-    const clone = cardEl.cloneNode(true);
+    // Isolated 1080×1080 staging container, positioned ON-SCREEN but invisible.
+    // (html2canvas has bugs capturing elements at negative coordinates.)
     const stage = document.createElement('div');
-    stage.style.cssText = 'position: fixed; left: -20000px; top: 0; width: 1080px; height: 1080px; overflow: visible; z-index: -1;';
-    clone.style.transform = 'none';
-    clone.style.width = '1080px';
-    clone.style.height = '1080px';
+    stage.style.cssText = [
+      'position: fixed', 'top: 0', 'left: 0',
+      'width: 1080px', 'height: 1080px',
+      'min-width: 1080px', 'min-height: 1080px',
+      'max-width: none', 'max-height: none',
+      'overflow: visible',
+      'z-index: -9999',
+      'opacity: 0',
+      'pointer-events: none',
+      'transform: none',
+      'transform-origin: 0 0'
+    ].join(';');
+    const clone = cardEl.cloneNode(true);
+    // Force the clone to be exactly 1080×1080 with no transform
+    clone.style.setProperty('transform', 'none', 'important');
+    clone.style.setProperty('width',  '1080px', 'important');
+    clone.style.setProperty('height', '1080px', 'important');
+    clone.style.setProperty('min-width',  '1080px', 'important');
+    clone.style.setProperty('min-height', '1080px', 'important');
+    clone.style.setProperty('max-width',  'none', 'important');
+    clone.style.setProperty('max-height', 'none', 'important');
+    clone.style.setProperty('position', 'relative', 'important');
     stage.appendChild(clone);
     document.body.appendChild(stage);
     try {
-      // Wait one frame so the browser lays out the clone
+      // Give the browser two frames to lay out + load any images
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // Also wait for any <img> inside to finish loading
+      const imgs = Array.from(clone.querySelectorAll('img'));
+      await Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
+        new Promise(res => { img.onload = img.onerror = () => res(); })));
+
       const canvas = await html2canvas(clone, {
-        width: 1080, height: 1080,
-        windowWidth: 1080, windowHeight: 1080,
-        scale: 1, backgroundColor: null, useCORS: true, logging: false, allowTaint: true
+        width: 1080,
+        height: 1080,
+        windowWidth: 1200,      // give the virtual window room to breathe
+        windowHeight: 1200,
+        scale: 1,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        backgroundColor: null,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        foreignObjectRendering: false
       });
       const link = document.createElement('a');
       link.download = `${filename}.png`;
@@ -766,19 +799,37 @@
       for (const wrap of wraps) {
         const cardEl = wrap.querySelector('.tcg-card');
         const filename = wrap.querySelector('.download-btn').dataset.filename || `card-${done}`;
-        const clone = cardEl.cloneNode(true);
         const stage = document.createElement('div');
-        stage.style.cssText = 'position: fixed; left: -20000px; top: 0; width: 1080px; height: 1080px; overflow: visible; z-index: -1;';
-        clone.style.transform = 'none';
-        clone.style.width = '1080px';
-        clone.style.height = '1080px';
+        stage.style.cssText = [
+          'position: fixed', 'top: 0', 'left: 0',
+          'width: 1080px', 'height: 1080px',
+          'min-width: 1080px', 'min-height: 1080px',
+          'max-width: none', 'max-height: none',
+          'overflow: visible',
+          'z-index: -9999', 'opacity: 0', 'pointer-events: none',
+          'transform: none', 'transform-origin: 0 0'
+        ].join(';');
+        const clone = cardEl.cloneNode(true);
+        clone.style.setProperty('transform', 'none', 'important');
+        clone.style.setProperty('width',  '1080px', 'important');
+        clone.style.setProperty('height', '1080px', 'important');
+        clone.style.setProperty('min-width',  '1080px', 'important');
+        clone.style.setProperty('min-height', '1080px', 'important');
+        clone.style.setProperty('max-width',  'none', 'important');
+        clone.style.setProperty('max-height', 'none', 'important');
+        clone.style.setProperty('position', 'relative', 'important');
         stage.appendChild(clone);
         document.body.appendChild(stage);
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const imgs = Array.from(clone.querySelectorAll('img'));
+        await Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
+          new Promise(res => { img.onload = img.onerror = () => res(); })));
         const canvas = await html2canvas(clone, {
           width: 1080, height: 1080,
-          windowWidth: 1080, windowHeight: 1080,
-          scale: 1, backgroundColor: null, useCORS: true, logging: false, allowTaint: true
+          windowWidth: 1200, windowHeight: 1200,
+          scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
+          backgroundColor: null, useCORS: true, allowTaint: true, logging: false,
+          foreignObjectRendering: false
         });
         stage.remove();
         const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
