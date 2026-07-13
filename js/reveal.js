@@ -1,7 +1,43 @@
 import { db, ref, onValue } from "./firebase-init.js";
-import { LOGO_URLS, photoPathFor, getInitials } from "./data.js";
+import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./data.js";
 import { CLUBS, PLAYER_BIOS } from "./lore.js";
 import { escapeHtml } from "./util.js";
+
+// Mini trading card renderer — used on reveal + optional other pages
+function miniCardHtml({ player, teamColor, pickNum, isCut, initialsColor }) {
+  const kanji = (player.nickname || player.name || '').slice(0, 1).toUpperCase() || 'V';
+  const photoUrl = player._photoUrl;
+  const photoHtml = photoUrl
+    ? `<img src="${photoUrl}" alt="${escapeHtml(player.name)}" crossorigin="anonymous">`
+    : `<div class="mini-placeholder">${getInitials(player.name)}</div>`;
+  const pickBadge = pickNum ? `<div class="mini-pick-num">${pickNum}</div>` : '';
+  const cutClass = isCut ? ' cut' : '';
+  const teamC = teamColor || '#64748b';
+  return `
+    <div class="mini-tcg${cutClass}" style="--team-c:${teamC};">
+      ${pickBadge}
+      <div class="mini-halftone"></div>
+      <div class="mini-slash"></div>
+      <div class="mini-top">
+        <div class="mini-ovr">OVR<span class="num">${player.overall}</span></div>
+        <div class="mini-kanji">${escapeHtml(kanji)}</div>
+      </div>
+      <div class="mini-photo">${photoHtml}</div>
+      <div class="mini-name-block">
+        <div class="mini-nick">"${escapeHtml(player.nickname || player.name)}"</div>
+        <div class="mini-real">${escapeHtml(player.name)}</div>
+      </div>
+      <div class="mini-stats">
+        ${STAT_KEYS.map(s => `
+          <div class="mini-stat">
+            <div class="lbl">${STAT_LABELS[s].slice(0,3)}</div>
+            <div class="val">${player[s]}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
 
 // Async check if a photo file exists at the expected path
 function photoExists(url) {
@@ -100,27 +136,29 @@ async function render() {
       </div>
     `;
 
-    // Player rows with photos
+    // Player mini trading cards (portrait grid)
     const playerPhotos = await Promise.all(teamPlayers.map(p => getPhotoUrl(p.id)));
-    const rosterRows = teamPlayers.map((p, idx) => {
-      const bio = PLAYER_BIOS[p.id];
-      const pPhoto = playerPhotos[idx];
-      const avatar = pPhoto
-        ? `<img src="${pPhoto}" style="width:56px; height:56px; border-radius:50%; object-fit:cover; object-position:top; border:2px solid ${cap.color}; background:rgba(0,0,0,0.5);" crossorigin="anonymous">`
-        : `<div style="width:56px; height:56px; border-radius:50%; border:2px solid ${cap.color}; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; font-weight:900; color:${cap.color};">${getInitials(p.name)}</div>`;
-      return `
-        <div class="reveal-player" style="grid-template-columns: 40px 72px 1fr 100px;">
-          <div style="text-align:center; font-weight:900; color:${cap.color}; font-size:1.4rem;">${idx + 1}</div>
-          <div>${avatar}</div>
-          <div>
-            <div class="reveal-codename">"${escapeHtml(p.nickname || '—')}"</div>
-            <div class="reveal-realname">→ ${escapeHtml(p.name)}</div>
-            ${bio ? `<div style="color:#94a3b8; font-size:0.82rem; margin-top:4px; font-style:italic; line-height:1.4;">${escapeHtml(bio)}</div>` : ''}
-          </div>
-          <div class="reveal-ovr">${p.overall}</div>
-        </div>
-      `;
+    const miniCards = teamPlayers.map((p, idx) => {
+      const withPhoto = { ...p, _photoUrl: playerPhotos[idx] };
+      return miniCardHtml({ player: withPhoto, teamColor: cap.color, pickNum: idx + 1, isCut: false });
     }).join('');
+
+    // Bios listed below the mini cards (optional flavor)
+    const biosBlock = teamPlayers.some(p => PLAYER_BIOS[p.id]) ? `
+      <div style="margin-top:16px; padding:14px 18px; background:rgba(0,0,0,0.3); border-radius:8px;">
+        <h4 style="color:${cap.color}; font-size:0.8rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:10px;">Scouting Report</h4>
+        ${teamPlayers.map((p, idx) => {
+          const bio = PLAYER_BIOS[p.id];
+          if (!bio) return '';
+          return `<div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.85rem;">
+            <strong style="color:${cap.color};">${idx+1}. ${escapeHtml(p.nickname || p.name)}</strong>
+            <span style="color:#cbd5e1; margin-left:6px;">— ${escapeHtml(bio)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    ` : '';
+
+    const rosterRows = `<div class="roster-mini-grid">${miniCards}</div>${biosBlock}`;
 
     const loreHtml = club ? `
       <div style="clear:both;"></div>
@@ -147,28 +185,15 @@ async function render() {
 
   const undrafted = state.players.filter(p => !pickedIds.has(p.id));
   const undraftedPhotos = await Promise.all(undrafted.map(p => getPhotoUrl(p.id)));
+  const undraftedCards = undrafted.map((p, i) => {
+    const withPhoto = { ...p, _photoUrl: undraftedPhotos[i] };
+    return miniCardHtml({ player: withPhoto, teamColor: '#64748b', pickNum: null, isCut: true });
+  }).join('');
   const undraftedHtml = undrafted.length ? `
     <div class="reveal-team" style="border-top-color:#64748b; background:linear-gradient(135deg, #64748b22, #0f172a);">
       <h2 style="color:#94a3b8">💔 Didn't make a team (${undrafted.length})</h2>
       <div class="captain-line">These players were left on the board when the draft ended.</div>
-      ${undrafted.map((p, i) => {
-        const bio = PLAYER_BIOS[p.id];
-        const uPhoto = undraftedPhotos[i];
-        const avatar = uPhoto
-          ? `<img src="${uPhoto}" style="width:56px; height:56px; border-radius:50%; object-fit:cover; object-position:top; border:2px solid #64748b; background:rgba(0,0,0,0.5); filter:grayscale(0.7);" crossorigin="anonymous">`
-          : `<div style="width:56px; height:56px; border-radius:50%; border:2px solid #64748b; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; font-weight:900; color:#64748b;">${getInitials(p.name)}</div>`;
-        return `
-        <div class="reveal-player" style="grid-template-columns: 40px 72px 1fr 100px;">
-          <div style="text-align:center; font-weight:900; color:#64748b; font-size:1.4rem;">✕</div>
-          <div>${avatar}</div>
-          <div>
-            <div class="reveal-codename">"${escapeHtml(p.nickname || '—')}"</div>
-            <div class="reveal-realname">→ ${escapeHtml(p.name)}</div>
-            ${bio ? `<div style="color:#64748b; font-size:0.8rem; margin-top:4px; font-style:italic;">${escapeHtml(bio)}</div>` : ''}
-          </div>
-          <div class="reveal-ovr" style="color:#64748b">${p.overall}</div>
-        </div>
-      `;}).join('')}
+      <div class="roster-mini-grid">${undraftedCards}</div>
     </div>
   ` : '';
 
