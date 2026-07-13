@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔮 Predictions — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  .q-card {
+    padding: 18px 20px;
+    background: rgba(15, 23, 42, 0.7);
+    border-left: 4px solid #fbbf24;
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .q-card h3 { color: #fbbf24; margin-bottom: 4px; font-size: 1.05rem; }
+  .q-card .help { color: #94a3b8; font-size: 0.82rem; margin-bottom: 12px; }
+  .cap-question { margin-bottom: 10px; }
+  .cap-question label {
+    display: flex; align-items: center; gap: 8px;
+    color: #cbd5e1; font-size: 0.9rem; margin-bottom: 4px;
+  }
+  select.pred {
+    padding: 10px 12px;
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    color: #f1f5f9;
+    font-size: 0.95rem;
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span class="emoji">🔮</span> DRAFT PREDICTIONS</h1>
+  <p class="tagline">Guess the picks. Bragging rights up for grabs.</p>
+
+  <div id="pre-load" class="card">
+    <h2 style="text-align: center;">Loading predictions…</h2>
+  </div>
+
+  <div id="err" class="card hidden">
+    <div class="warning" id="err-msg"></div>
+    <a href="./index.html"><button>← Home</button></a>
+  </div>
+
+  <div id="form" class="card hidden">
+    <div class="info-box" id="status-strip"></div>
+
+    <div style="margin-bottom: 20px;">
+      <label>Your nickname (shown on the leaderboard)</label>
+      <input type="text" id="nickname" placeholder="e.g. Alex" maxlength="30" style="max-width: 300px;">
+    </div>
+
+    <div id="questions-container"></div>
+
+    <div class="row-btns">
+      <button id="btn-submit" class="big" onclick="submit()">🔮 Submit predictions</button>
+    </div>
+    <p style="text-align:center; color:#94a3b8; font-size: 0.82rem; margin-top: 12px;">
+      You can update your predictions any time until the draft starts.
+    </p>
+  </div>
+
+  <div id="post-submit" class="card hidden">
+    <div class="success-box">
+      ✅ Your predictions are locked in!
+    </div>
+    <p style="color:#cbd5e1; margin-top:12px;">
+      Check the leaderboard live during the draft — scores update as picks come in.
+    </p>
+    <div class="row-btns">
+      <a href="#" id="link-results"><button>🏆 View leaderboard →</button></a>
+      <button class="secondary" onclick="editAgain()">✏️ Edit predictions</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { db, ref, get, onValue } from "./js/firebase-init.js";
+  import {
+    getPredictionQuestions, getPredictionMeta, getMyPrediction,
+    submitPrediction, getParticipantId
+  } from "./js/predictions.js";
+  import { escapeHtml } from "./js/util.js";
+
+  const params = new URLSearchParams(location.search);
+  const roomId = (params.get('room') || '').toUpperCase();
+  const participantId = getParticipantId();
+
+  if (!roomId) {
+    showErr('No room ID in the URL. Ask your commissioner for the predictions link.');
+  } else {
+    init();
+  }
+
+  function showErr(msg) {
+    document.getElementById('pre-load').classList.add('hidden');
+    document.getElementById('form').classList.add('hidden');
+    document.getElementById('err').classList.remove('hidden');
+    document.getElementById('err-msg').textContent = msg;
+  }
+  function show(id) {
+    ['pre-load','form','err','post-submit'].forEach(x =>
+      document.getElementById(x).classList.toggle('hidden', x !== id));
+  }
+
+  let draft, meta, existingSubmission;
+
+  async function init() {
+    const draftSnap = await get(ref(db, `drafts/${roomId}`));
+    draft = draftSnap.val();
+    if (!draft) { showErr(`Draft room "${roomId}" not found.`); return; }
+
+    meta = await getPredictionMeta(roomId);
+    existingSubmission = await getMyPrediction(roomId, participantId);
+
+    // Predictions are OPEN if:
+    //  (a) meta.open is true AND draft not complete yet
+    //  (b) OR meta not created yet AND draft not complete (fallback: allow anyway)
+    const draftDone = draft.status === 'complete';
+    const anyPicksYet = draft.picks && draft.picks.length > 0;
+
+    if (draftDone) {
+      showErr('This draft is already complete. Head to the leaderboard to see the results!');
+      const link = document.createElement('div');
+      link.style.textAlign = 'center';
+      link.style.marginTop = '16px';
+      link.innerHTML = `<a href="./predictions-results.html?room=${roomId}"><button>🏆 View leaderboard →</button></a>`;
+      document.getElementById('err').appendChild(link);
+      return;
+    }
+    if (anyPicksYet) {
+      showErr('The draft has already started — predictions are locked. But you can watch the leaderboard live!');
+      const link = document.createElement('div');
+      link.style.textAlign = 'center';
+      link.style.marginTop = '16px';
+      link.innerHTML = `<a href="./predictions-results.html?room=${roomId}"><button>🏆 View leaderboard →</button></a>`;
+      document.getElementById('err').appendChild(link);
+      return;
+    }
+
+    show('form');
+    renderForm();
+  }
+
+  function renderForm() {
+    // Status strip
+    document.getElementById('status-strip').innerHTML =
+      `🎯 Predicting for room <strong>${escapeHtml(roomId)}</strong> — ${draft.captains.length} captains, ${draft.players.length} players in the pool.`;
+
+    document.getElementById('link-results').href = `./predictions-results.html?room=${roomId}`;
+
+    // Prefill nickname if we have a previous submission
+    if (existingSubmission) {
+      document.getElementById('nickname').value = existingSubmission.nickname || '';
+    }
+
+    const captains = draft.captains;
+    const players = draft.players;
+    const playerOptions = players
+      .slice()
+      .sort((a,b) => (a.nickname || a.name).localeCompare(b.nickname || b.name))
+      .map(p => `<option value="${p.id}">${escapeHtml(p.nickname || '—')} · ${escapeHtml(p.name)}</option>`)
+      .join('');
+
+    const container = document.getElementById('questions-container');
+    const qs = getPredictionQuestions();
+    container.innerHTML = qs.map(q => {
+      if (q.perCaptain) {
+        return `
+          <div class="q-card">
+            <h3>🎯 ${escapeHtml(q.label)}</h3>
+            <div class="help">${escapeHtml(q.help)}</div>
+            ${captains.map(cap => {
+              const key = `${q.id}:${cap.id}`;
+              const currentVal = existingSubmission?.answers?.[key] || '';
+              return `
+                <div class="cap-question">
+                  <label>
+                    <span style="width:14px; height:14px; background:${cap.color}; border-radius:3px;"></span>
+                    <strong style="color:${cap.color}">${escapeHtml(cap.team)}</strong>
+                    — Captain ${escapeHtml(cap.name)}
+                  </label>
+                  <select class="pred" data-q="${key}">
+                    <option value="">— select a player —</option>
+                    ${playerOptions.replace(`value="${currentVal}"`, `value="${currentVal}" selected`)}
+                  </select>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      } else {
+        const currentVal = existingSubmission?.answers?.[q.id] || '';
+        return `
+          <div class="q-card">
+            <h3>💡 ${escapeHtml(q.label)}</h3>
+            <div class="help">${escapeHtml(q.help)}</div>
+            <select class="pred" data-q="${q.id}">
+              <option value="">— select a player —</option>
+              ${playerOptions.replace(`value="${currentVal}"`, `value="${currentVal}" selected`)}
+            </select>
+          </div>
+        `;
+      }
+    }).join('');
+  }
+
+  window.submit = async () => {
+    const nickname = document.getElementById('nickname').value.trim();
+    if (!nickname) { alert('Enter your nickname first.'); return; }
+
+    const answers = {};
+    document.querySelectorAll('select.pred').forEach(sel => {
+      if (sel.value) answers[sel.dataset.q] = sel.value;
+    });
+
+    if (Object.keys(answers).length === 0) {
+      alert('Answer at least one question.');
+      return;
+    }
+
+    try {
+      const btn = document.getElementById('btn-submit');
+      btn.disabled = true;
+      btn.textContent = '⏳ Submitting…';
+      await submitPrediction(roomId, participantId, nickname, answers);
+      show('post-submit');
+    } catch (e) {
+      alert('Failed to submit: ' + e.message);
+      document.getElementById('btn-submit').disabled = false;
+      document.getElementById('btn-submit').textContent = '🔮 Submit predictions';
+    }
+  };
+
+  window.editAgain = () => {
+    show('form');
+  };
+</script>
+</body>
+</html>

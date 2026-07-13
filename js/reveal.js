@@ -4,6 +4,23 @@ import { CLUBS, PLAYER_BIOS } from "./lore.js";
 import { escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge } from "./auth.js";
 import { photoOffsetY } from "./photo-config.js";
+import { playReveal, injectMuteButton } from "./sounds.js";
+
+injectMuteButton();
+// Play the dramatic reveal sting once on page load (after any user gesture)
+let __revealSoundPlayed = false;
+function tryPlayReveal() {
+  if (__revealSoundPlayed) return;
+  __revealSoundPlayed = true;
+  playReveal();
+  document.removeEventListener('click', tryPlayReveal);
+  document.removeEventListener('keydown', tryPlayReveal);
+  document.removeEventListener('touchstart', tryPlayReveal);
+}
+setTimeout(() => { tryPlayReveal(); }, 400); // try immediately (may need gesture)
+document.addEventListener('click', tryPlayReveal);
+document.addEventListener('keydown', tryPlayReveal);
+document.addEventListener('touchstart', tryPlayReveal);
 
 // Require at least a viewer login before showing the reveal
 const { profile: __authProfile } = await guardPage({ requireRole: 'viewer' });
@@ -230,10 +247,15 @@ async function render() {
   cardsCta.style.textAlign = 'center';
   cardsCta.style.margin = '30px 0';
   cardsCta.innerHTML = `
-    <a href="./cards.html?room=${roomId}" style="display:inline-block; padding:14px 28px; background:linear-gradient(90deg,#fbbf24,#f97316); color:#0f172a; font-weight:800; border-radius:8px; text-decoration:none; letter-spacing:1px;">
-      🃏 Get shareable roster cards →
-    </a>
-    <div style="color:#94a3b8; font-size:0.85rem; margin-top:8px;">Download 1080×1080 PNGs of each team's roster for Instagram/WhatsApp</div>
+    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+      <a href="./cards.html?room=${roomId}" style="display:inline-block; padding:14px 28px; background:linear-gradient(90deg,#fbbf24,#f97316); color:#0f172a; font-weight:800; border-radius:8px; text-decoration:none; letter-spacing:1px;">
+        🃏 Get shareable roster cards →
+      </a>
+      <a href="./predictions-results.html?room=${roomId}" style="display:inline-block; padding:14px 28px; background:rgba(124, 58, 237, 0.9); color:#fff; font-weight:800; border-radius:8px; text-decoration:none; letter-spacing:1px;">
+        🏆 Prediction leaderboard →
+      </a>
+    </div>
+    <div style="color:#94a3b8; font-size:0.85rem; margin-top:12px;">Download 1080×1080 PNGs · See who guessed the draft right</div>
   `;
   container.appendChild(cardsCta);
 }

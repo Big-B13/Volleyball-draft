@@ -2,6 +2,10 @@ import { db, ref, onValue, runTransaction, set, remove, onDisconnect } from "./f
 import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./data.js";
 import { escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge, watchAuth } from "./auth.js";
+import { playPick, playTick, playYourTurn, playTimesUp, injectMuteButton } from "./sounds.js";
+
+// Inject mute button once
+injectMuteButton();
 
 // Spectator mode? Then login is NOT required (public watching)
 const __params = new URLSearchParams(location.search);
@@ -77,6 +81,127 @@ let state = null;
 let presence = {}; // { captainIdx: { at: timestamp } }
 let myCaptainIdx = null; // null = spectator
 let presenceRegistered = false;
+
+// ============ PICK TIMER ============
+const PICK_TIMER_SECONDS = 60;   // seconds per pick
+const TIMER_WARNING_AT   = 10;   // start urgent ticks at this many seconds
+let timerHandle = null;
+let timerDeadline = null;
+let timerLastPickIndex = -1;   // resets timer whenever a new pick is on the clock
+let lastAnnouncedMyTurn = -1;  // to play the "your turn" sound once per turn
+
+function startPickTimer() {
+  if (timerHandle) clearInterval(timerHandle);
+  timerDeadline = Date.now() + PICK_TIMER_SECONDS * 1000;
+  timerHandle = setInterval(tickTimer, 250);
+  tickTimer(); // initial paint
+}
+
+function stopPickTimer() {
+  if (timerHandle) clearInterval(timerHandle);
+  timerHandle = null;
+  timerDeadline = null;
+  const el = document.getElementById('pick-timer-el');
+  if (el) el.style.display = 'none';
+}
+
+let lastTickWholeSecond = -1;
+function tickTimer() {
+  if (!state || !timerDeadline) return;
+  const remainingMs = timerDeadline - Date.now();
+  const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+
+  // Render the timer widget
+  paintTimer(remainingSec);
+
+  // Play tick sounds on whole-second changes
+  if (remainingSec !== lastTickWholeSecond) {
+    lastTickWholeSecond = remainingSec;
+    // Only the person on-clock hears their own ticks (avoids everyone's browser dinging)
+    const onClockIdx = state.draftOrder[state.currentPick];
+    const iAmOnClock = onClockIdx === myCaptainIdx;
+    if (iAmOnClock) {
+      if (remainingSec > 0 && remainingSec <= TIMER_WARNING_AT) {
+        playTick(true);
+      } else if (remainingSec > 0 && remainingSec % 10 === 0 && remainingSec <= 30) {
+        playTick(false);
+      }
+    }
+  }
+
+  if (remainingMs <= 0) {
+    // Time's up! Only ONE client should auto-pick — use the on-clock captain if present,
+    // otherwise the first present captain, otherwise nobody (draft stalls until someone joins).
+    const onClockIdx = state.draftOrder[state.currentPick];
+    const onClockPresent = presence[onClockIdx];
+    const shouldIAutoPick =
+      (onClockPresent && myCaptainIdx === onClockIdx) ||
+      (!onClockPresent && myCaptainIdx !== null &&
+        // If on-clock is absent, only the LOWEST-index present captain triggers auto-pick
+        Object.keys(presence).map(Number).sort((a,b)=>a-b)[0] === myCaptainIdx);
+    stopPickTimer();
+    if (shouldIAutoPick) {
+      autoPickBestAvailable();
+    }
+  }
+}
+
+function paintTimer(remainingSec) {
+  let el = document.getElementById('pick-timer-el');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'pick-timer-el';
+    el.style.cssText = `
+      position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+      z-index: 900;
+      padding: 6px 20px;
+      border-radius: 16px;
+      font-family: 'Monaco', monospace;
+      font-weight: 900;
+      font-size: 1.4rem;
+      letter-spacing: 2px;
+      backdrop-filter: blur(6px);
+      transition: all 0.15s;
+    `;
+    document.body.appendChild(el);
+  }
+  el.style.display = 'block';
+  const urgent = remainingSec <= TIMER_WARNING_AT;
+  const critical = remainingSec <= 3;
+  el.textContent = `⏱ ${remainingSec}s`;
+  if (critical) {
+    el.style.background = 'rgba(239,68,68,0.95)';
+    el.style.color = '#fff';
+    el.style.boxShadow = '0 0 24px rgba(239,68,68,0.9)';
+    el.style.transform = 'translateX(-50%) scale(1.1)';
+  } else if (urgent) {
+    el.style.background = 'rgba(251,191,36,0.95)';
+    el.style.color = '#0f172a';
+    el.style.boxShadow = '0 0 16px rgba(251,191,36,0.6)';
+    el.style.transform = 'translateX(-50%) scale(1.0)';
+  } else {
+    el.style.background = 'rgba(30,41,59,0.9)';
+    el.style.color = '#e2e8f0';
+    el.style.boxShadow = 'none';
+    el.style.transform = 'translateX(-50%) scale(1.0)';
+  }
+}
+
+async function autoPickBestAvailable() {
+  if (!state) return;
+  const pickedIds = new Set((state.picks || []).map(p => p.playerId));
+  const available = (state.players || []).filter(p => !pickedIds.has(p.id));
+  if (!available.length) return;
+  // Highest OVR wins; ties broken by first in the display order
+  const displayOrder = state.displayOrder || available.map(p => p.id);
+  available.sort((a, b) => {
+    if (b.overall !== a.overall) return b.overall - a.overall;
+    return displayOrder.indexOf(a.id) - displayOrder.indexOf(b.id);
+  });
+  const auto = available[0];
+  await draftPlayer(auto.id, /*autoPick*/ true);
+  playTimesUp();
+}
 
 function subscribe() {
   const draftRef = ref(db, `drafts/${roomId}`);
@@ -174,6 +299,7 @@ function render() {
 
   // If complete, redirect to reveal
   if (state.status === 'complete' || state.currentPick >= state.draftOrder.length) {
+    stopPickTimer();
     location.href = `./reveal.html?room=${roomId}${myCaptainIdx !== null ? '&code=' + (state.captains[myCaptainIdx].code || '') : ''}${spectate ? '&spectate=1' : ''}`;
     return;
   }
@@ -185,6 +311,7 @@ function render() {
   const shouldShowLobby = noPicksYet && presentCount < totalCaptains && !spectate;
 
   if (shouldShowLobby) {
+    stopPickTimer();
     renderLobby();
     return;
   }
@@ -193,6 +320,25 @@ function render() {
   const onClock = state.captains[onClockIdx];
   const isMyTurn = myCaptainIdx !== null && onClockIdx === myCaptainIdx;
   const onClockPresent = presence[onClockIdx];
+
+  // Timer management: (re)start whenever a new pick is on the clock
+  if (state.currentPick !== timerLastPickIndex) {
+    timerLastPickIndex = state.currentPick;
+    // Only start timer if on-clock captain is present (draft-paused screens shouldn't run timer)
+    if (onClockPresent) startPickTimer();
+    else stopPickTimer();
+    // Play "your turn" chime the first time it becomes my turn
+    if (isMyTurn && lastAnnouncedMyTurn !== state.currentPick) {
+      lastAnnouncedMyTurn = state.currentPick;
+      playYourTurn();
+    }
+  } else if (!onClockPresent && timerHandle) {
+    // Captain dropped mid-pick — pause the timer
+    stopPickTimer();
+  } else if (onClockPresent && !timerHandle && state.status !== 'complete') {
+    // Captain came back — resume with fresh timer
+    startPickTimer();
+  }
 
   const whoAmIHtml = spectate
     ? `<span class="status-pill spectator">👀 Spectator</span>`
@@ -348,29 +494,33 @@ async function renderMyTurn(onClock, whoHtml) {
   });
 }
 
-async function draftPlayer(playerId) {
+async function draftPlayer(playerId, autoPick = false) {
   if (myCaptainIdx === null) return;
-  if (!confirm('Lock in this pick? You can\'t undo it.')) return;
+  if (!autoPick && !confirm('Lock in this pick? You can\'t undo it.')) return;
 
   const draftRef = ref(db, `drafts/${roomId}`);
   const expectedPickIdx = state.currentPick;
+  const autoPickerIdx = state.draftOrder[state.currentPick]; // who's on clock right now
 
   try {
-    await runTransaction(draftRef, (current) => {
+    const result = await runTransaction(draftRef, (current) => {
       if (!current) return current;
-      // Guard: same pick still on the clock, still my turn, player not yet taken
+      // Guard: same pick still on the clock, player not yet taken
       if (current.currentPick !== expectedPickIdx) return; // abort
       const onClockIdx = current.draftOrder[current.currentPick];
-      if (onClockIdx !== myCaptainIdx) return; // abort
+      // Normal: only the on-clock captain can pick.
+      // Auto-pick: any client can push a pick on behalf of the on-clock captain when timer expires.
+      if (!autoPick && onClockIdx !== myCaptainIdx) return; // abort
       const already = (current.picks || []).some(p => p.playerId === playerId);
       if (already) return; // abort
 
       current.picks = current.picks || [];
       current.picks.push({
-        captainIdx: myCaptainIdx,
+        captainIdx: onClockIdx,
         playerId,
         pickIndex: current.currentPick,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        auto: !!autoPick
       });
       current.currentPick = (current.currentPick || 0) + 1;
       if (current.currentPick >= current.draftOrder.length) {
@@ -378,9 +528,12 @@ async function draftPlayer(playerId) {
       }
       return current;
     });
+    if (result && result.committed) {
+      playPick();
+    }
   } catch (e) {
     console.error(e);
-    alert('Failed to lock in pick: ' + e.message);
+    if (!autoPick) alert('Failed to lock in pick: ' + e.message);
   }
 }
 
@@ -419,7 +572,7 @@ function renderPickHistory() {
     return `
       <div style="display:flex; justify-content:space-between; padding:8px 4px; border-bottom:1px solid #334155; font-size:0.9rem;">
         <span style="color:#64748b;">R${round} · #${pk.pickIndex + 1}</span>
-        <span><strong style="color:${cap.color}">${escapeHtml(cap.team)}</strong> selected <strong>${escapeHtml(p ? (p.nickname || p.name) : '?')}</strong></span>
+        <span><strong style="color:${cap.color}">${escapeHtml(cap.team)}</strong> ${pk.auto ? '⏰ auto-picked' : 'selected'} <strong>${escapeHtml(p ? (p.nickname || p.name) : '?')}</strong></span>
       </div>
     `;
   }).join('');

@@ -208,11 +208,16 @@ function showRoomCreated() {
       <span class="code-value">${c.code}</span>
     </div>
   `).join('');
+  const predUrl = new URL('./predictions.html', location.href);
+  const predLink = `${predUrl.origin}${predUrl.pathname}?room=${lastRoom.roomId}`;
+  const linkEl = document.getElementById('out-predictions-link');
+  if (linkEl) { linkEl.textContent = predLink; linkEl.href = predLink; }
   box.scrollIntoView({ behavior: 'smooth' });
 }
 
 window.copyInvites = () => {
   const url = new URL('./draft.html', location.href);
+  const predUrl = new URL('./predictions.html', location.href);
   const lines = [
     `🏐 Volleyball Blind Draft — Room: ${lastRoom.roomId}`,
     ``,
@@ -220,9 +225,11 @@ window.copyInvites = () => {
       `${c.name} (${c.team}): ${url.origin}${url.pathname}?room=${lastRoom.roomId}&code=${c.code}`
     ),
     ``,
-    `Spectator link: ${url.origin}${url.pathname}?room=${lastRoom.roomId}&spectate=1`
+    `Spectator link: ${url.origin}${url.pathname}?room=${lastRoom.roomId}&spectate=1`,
+    ``,
+    `🔮 Predictions (share publicly for hype!): ${predUrl.origin}${predUrl.pathname}?room=${lastRoom.roomId}`
   ].join('\n');
-  navigator.clipboard.writeText(lines).then(() => alert('Invites copied to clipboard!'));
+  navigator.clipboard.writeText(lines).then(() => alert('Invites + predictions link copied to clipboard!'));
 };
 
 window.openDraftAsCommissioner = () => {
