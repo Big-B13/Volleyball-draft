@@ -3,6 +3,7 @@ import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TE
 import { makeRoomId, makeCaptainCode, buildDraftOrder, shuffle, overall, saveLocal, loadLocal, escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge } from "./auth.js";
 import { listLeagues, getLeague, ensureGomiCupSeeded, currentLeagueId, GOMI_CUP_LEAGUE_ID } from "./leagues.js";
+import { getAllPlayers } from "./players.js";
 
 // Only commissioners can create draft rooms
 const { profile: __authProfile } = await guardPage({ requireRole: 'commissioner' });
@@ -23,18 +24,9 @@ await ensureGomiCupSeeded();
 let selectedLeagueId = currentLeagueId();
 let captains = [];
 
-// Load cached players from localStorage, but only if the data version matches.
-// If defaults have been updated (bumped PLAYER_DATA_VERSION), we auto-refresh.
-const savedVersion = loadLocal('vd_players_version');
-const cachedPlayers = loadLocal('vd_players');
-let players;
-if (cachedPlayers && savedVersion === PLAYER_DATA_VERSION) {
-  players = cachedPlayers;
-} else {
-  players = JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
-  saveLocal('vd_players', players);
-  saveLocal('vd_players_version', PLAYER_DATA_VERSION);
-}
+// Load the effective player list from Firebase (merges defaults + admin edits).
+// This means any nickname/stat/bio edits from the admin panel appear here immediately.
+let players = await getAllPlayers();
 
 async function loadLeagueCaptains() {
   const league = await getLeague(selectedLeagueId);
@@ -77,8 +69,8 @@ async function buildLeaguePicker() {
 }
 
 function persist() {
-  saveLocal('vd_players', players);
-  saveLocal('vd_players_version', PLAYER_DATA_VERSION);
+  // Setup-page-only player edits are transient (they only affect the draft
+  // room being created right now). Permanent player edits happen in /admin.html.
 }
 
 function buildCaptainInputs() {
@@ -140,12 +132,11 @@ window.removeLastPlayer = () => {
   persist();
 };
 window.resetDefaults = async () => {
-  if (!confirm('Reset all players + stats back to the pre-loaded defaults? This wipes any local edits.')) return;
-  players = JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
-  persist();
+  if (!confirm('Reload the player list from Firebase? This drops any unsaved local edits on this setup form.')) return;
+  players = await getAllPlayers();
   await loadLeagueCaptains();
   buildPlayerInputs();
-  alert('✅ Player list reset. You should now see ' + players.length + ' players in the pool.');
+  alert('✅ Player list reloaded from Firebase — showing ' + players.length + ' players.\n\nNote: to permanently edit players (nickname, stats, bio), use the Admin panel → Players section.');
 };
 
 let lastRoom = null;

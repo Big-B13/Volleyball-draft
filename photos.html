@@ -147,6 +147,7 @@
   import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, photoPathFor, getInitials } from "./js/data.js";
   import { CLUBS } from "./js/lore.js";
   import { photoOffsetY, photoZoom } from "./js/photo-config.js";
+  import { getAllPlayers } from "./js/players.js";
 
   function photoExists(url) {
     return new Promise(r => {
@@ -167,8 +168,10 @@
     };
   });
 
-  const players = DEFAULT_PLAYERS.map(p => ({
-    id: p.id, name: p.name, nickname: `"${p.nickname}"`, color: '#94a3b8'
+  // Effective players = defaults + admin overrides + custom players
+  const effectivePlayers = await getAllPlayers();
+  const players = effectivePlayers.map(p => ({
+    id: p.id, name: p.name, nickname: `"${p.nickname || ''}"`, color: '#94a3b8'
   }));
 
   function renderItem(item) {

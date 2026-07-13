@@ -112,6 +112,54 @@
     <h2>Registered Users (<span id="user-count">0</span>)</h2>
     <div id="user-list"></div>
   </div>
+
+  <div class="card">
+    <h2>🏐 Players (<span id="player-count">0</span>)</h2>
+    <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:14px;">
+      Edit nicknames, real names, stats and bios. Changes sync live to everyone. Click <strong>Save</strong> after editing a row.
+      <br>Filter or search below.
+    </p>
+    <input type="text" id="player-search" placeholder="🔎 Filter by name or nickname…" style="margin-bottom:12px;">
+    <div id="players-list"></div>
+    <hr style="margin: 24px 0; border-color: #334155;">
+    <h3 style="color:#fbbf24;">➕ Add a new player</h3>
+    <div class="grid-2">
+      <div>
+        <label>ID / slug (lowercase, no spaces)</label>
+        <input type="text" id="new-p-id" placeholder="e.g. new-friend">
+      </div>
+      <div>
+        <label>Real name</label>
+        <input type="text" id="new-p-name" placeholder="e.g. Alex">
+      </div>
+    </div>
+    <div style="margin-top: 10px;">
+      <label>Nickname</label>
+      <input type="text" id="new-p-nickname" placeholder="e.g. The Sniper">
+    </div>
+    <div class="grid-2" style="margin-top: 10px;">
+      <div><label>Attack</label><input type="number" id="new-p-attack" min="1" max="10" step="0.5" value="5"></div>
+      <div><label>Serve</label><input type="number" id="new-p-serve" min="1" max="10" step="0.5" value="5"></div>
+    </div>
+    <div class="grid-2" style="margin-top: 10px;">
+      <div><label>Defense</label><input type="number" id="new-p-defense" min="1" max="10" step="0.5" value="5"></div>
+      <div><label>Setting</label><input type="number" id="new-p-setting" min="1" max="10" step="0.5" value="5"></div>
+    </div>
+    <div class="grid-2" style="margin-top: 10px;">
+      <div><label>Athletic</label><input type="number" id="new-p-athletic" min="1" max="10" step="0.5" value="5"></div>
+      <div></div>
+    </div>
+    <div style="margin-top: 10px;">
+      <label>Bio (optional)</label>
+      <input type="text" id="new-p-bio" placeholder="e.g. Big personality, lets you know he's here.">
+    </div>
+    <div class="row-btns" style="justify-content:flex-start;">
+      <button onclick="createNewPlayer()">➕ Create player</button>
+    </div>
+    <p style="color:#94a3b8; font-size:0.8rem; margin-top:12px;">
+      💡 New players won't have a photo automatically — upload one to <code>assets/players/&lt;id&gt;.png</code> on GitHub after creating.
+    </p>
+  </div>
 </div>
 
 <script type="module">
@@ -120,6 +168,10 @@
     listUsers, deleteInviteCode, updateUserRole, resetUser
   } from "./js/auth.js";
   import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS } from "./js/data.js";
+  import {
+    subscribePlayers, savePlayer, resetPlayerToDefault, addCustomPlayer, deleteCustomPlayer, isPlayerEdited
+  } from "./js/players.js";
+  import { escapeHtml } from "./js/util.js";
 
   // Protect: only commissioners can be here
   const { profile } = await guardPage({ requireRole: 'commissioner' });
@@ -249,6 +301,138 @@ Then they can sign up fresh with the invite code above.`;
   }
 
   await refresh();
+
+  // ============ PLAYERS EDITOR ============
+  let allPlayers = [];
+  let playerFilter = '';
+
+  subscribePlayers((list) => {
+    allPlayers = list;
+    renderPlayers();
+  });
+
+  document.getElementById('player-search').addEventListener('input', (e) => {
+    playerFilter = e.target.value.toLowerCase();
+    renderPlayers();
+  });
+
+  function renderPlayers() {
+    const listEl = document.getElementById('players-list');
+    document.getElementById('player-count').textContent = allPlayers.length;
+    const filtered = playerFilter
+      ? allPlayers.filter(p =>
+          (p.name || '').toLowerCase().includes(playerFilter) ||
+          (p.nickname || '').toLowerCase().includes(playerFilter) ||
+          (p.id || '').toLowerCase().includes(playerFilter))
+      : allPlayers;
+    listEl.innerHTML = filtered.map(p => {
+      const edited = isPlayerEdited(p);
+      const badge = p.isCustom
+        ? '<span style="background:#22c55e; color:#052e16; padding:2px 6px; border-radius:8px; font-size:0.65rem; font-weight:700;">CUSTOM</span>'
+        : edited
+          ? '<span style="background:#fbbf24; color:#422006; padding:2px 6px; border-radius:8px; font-size:0.65rem; font-weight:700;">EDITED</span>'
+          : '';
+      return `
+        <div class="player-editor-row" data-pid="${p.id}" style="background:rgba(0,0,0,0.3); border-radius:8px; padding:12px; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <strong style="color:#fff;">${escapeHtml(p.name || '(no name)')}</strong>
+              <span style="color:#64748b; font-size:0.75rem;">${escapeHtml(p.id)}</span>
+              ${badge}
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="pe-save" style="background:#22c55e; color:#052e16; padding:4px 10px; font-size:0.75rem;">💾 Save</button>
+              ${p.isCustom
+                ? `<button class="pe-delete" style="background:#ef4444; color:#fff; padding:4px 10px; font-size:0.75rem;">🗑 Delete</button>`
+                : edited
+                  ? `<button class="pe-reset" style="background:#64748b; color:#fff; padding:4px 10px; font-size:0.75rem;">↺ Reset</button>`
+                  : ''}
+            </div>
+          </div>
+          <div class="grid-2" style="gap:8px;">
+            <div>
+              <label style="font-size:0.72rem;">Real name</label>
+              <input class="pe-name" type="text" value="${escapeHtml(p.name || '')}">
+            </div>
+            <div>
+              <label style="font-size:0.72rem;">Nickname</label>
+              <input class="pe-nickname" type="text" value="${escapeHtml(p.nickname || '')}">
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:8px;">
+            <div><label style="font-size:0.7rem;">ATT</label><input class="pe-attack"   type="number" min="1" max="10" step="0.5" value="${p.attack}"></div>
+            <div><label style="font-size:0.7rem;">SER</label><input class="pe-serve"    type="number" min="1" max="10" step="0.5" value="${p.serve}"></div>
+            <div><label style="font-size:0.7rem;">DEF</label><input class="pe-defense"  type="number" min="1" max="10" step="0.5" value="${p.defense}"></div>
+            <div><label style="font-size:0.7rem;">SET</label><input class="pe-setting"  type="number" min="1" max="10" step="0.5" value="${p.setting}"></div>
+            <div><label style="font-size:0.7rem;">ATH</label><input class="pe-athletic" type="number" min="1" max="10" step="0.5" value="${p.athletic}"></div>
+          </div>
+          <div style="margin-top:8px;">
+            <label style="font-size:0.72rem;">Bio (scouting report — shown on reveal)</label>
+            <input class="pe-bio" type="text" value="${escapeHtml(p.bio || '')}">
+          </div>
+        </div>
+      `;
+    }).join('') || '<div style="color:#64748b; padding:20px; text-align:center;">No players match the filter.</div>';
+
+    // Wire up buttons
+    listEl.querySelectorAll('.player-editor-row').forEach(row => {
+      const pid = row.dataset.pid;
+      const saveBtn = row.querySelector('.pe-save');
+      const resetBtn = row.querySelector('.pe-reset');
+      const delBtn = row.querySelector('.pe-delete');
+      if (saveBtn) saveBtn.addEventListener('click', async () => {
+        try {
+          const patch = {
+            name: row.querySelector('.pe-name').value.trim(),
+            nickname: row.querySelector('.pe-nickname').value.trim(),
+            attack: parseFloat(row.querySelector('.pe-attack').value) || 5,
+            serve: parseFloat(row.querySelector('.pe-serve').value) || 5,
+            defense: parseFloat(row.querySelector('.pe-defense').value) || 5,
+            setting: parseFloat(row.querySelector('.pe-setting').value) || 5,
+            athletic: parseFloat(row.querySelector('.pe-athletic').value) || 5,
+            bio: row.querySelector('.pe-bio').value.trim()
+          };
+          saveBtn.textContent = '⏳ Saving…';
+          await savePlayer(pid, patch);
+          saveBtn.textContent = '✅ Saved';
+          setTimeout(() => saveBtn.textContent = '💾 Save', 1500);
+        } catch (e) {
+          alert('❌ ' + e.message);
+          saveBtn.textContent = '💾 Save';
+        }
+      });
+      if (resetBtn) resetBtn.addEventListener('click', async () => {
+        if (!confirm(`Reset "${pid}" back to hardcoded defaults? This wipes any edits.`)) return;
+        await resetPlayerToDefault(pid);
+      });
+      if (delBtn) delBtn.addEventListener('click', async () => {
+        if (!confirm(`Delete custom player "${pid}"? This can't be undone.`)) return;
+        await deleteCustomPlayer(pid);
+      });
+    });
+  }
+
+  window.createNewPlayer = async () => {
+    try {
+      await addCustomPlayer({
+        id: document.getElementById('new-p-id').value,
+        name: document.getElementById('new-p-name').value,
+        nickname: document.getElementById('new-p-nickname').value,
+        attack: document.getElementById('new-p-attack').value,
+        serve: document.getElementById('new-p-serve').value,
+        defense: document.getElementById('new-p-defense').value,
+        setting: document.getElementById('new-p-setting').value,
+        athletic: document.getElementById('new-p-athletic').value,
+        bio: document.getElementById('new-p-bio').value
+      });
+      // Reset form
+      ['new-p-id','new-p-name','new-p-nickname','new-p-bio'].forEach(id =>
+        document.getElementById(id).value = '');
+      alert('✅ Player added!');
+    } catch (e) {
+      alert('❌ ' + e.message);
+    }
+  };
 </script>
 <script type="module" src="./js/back-button.js"></script>
 </body>

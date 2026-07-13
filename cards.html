@@ -444,6 +444,7 @@
   import { CLUBS, PLAYER_BIOS } from "./js/lore.js";
   import { db, ref, get } from "./js/firebase-init.js";
   import { photoOffsetY, photoZoom } from "./js/photo-config.js";
+  import { getAllPlayers } from "./js/players.js";
 
   // Check which photos exist so we can render either the photo or a placeholder
   async function photoExists(url) {
@@ -467,7 +468,8 @@
   // If ?room=XXXX, load real players/rosters from Firebase; else use defaults
   const params = new URLSearchParams(location.search);
   const roomId = params.get('room');
-  let players = DEFAULT_PLAYERS.map(p => ({
+  // Load effective players (defaults + any admin overrides)
+  let players = (await getAllPlayers()).map(p => ({
     ...p,
     overall: Math.round((p.attack+p.serve+p.defense+p.setting+p.athletic)/5 * 10) / 10
   }));
