@@ -1,5 +1,5 @@
 import { db, ref, set, serverTimestamp } from "./firebase-init.js";
-import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM } from "./data.js";
+import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM, PLAYER_DATA_VERSION } from "./data.js";
 import { makeRoomId, makeCaptainCode, buildDraftOrder, shuffle, overall, saveLocal, loadLocal, escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge } from "./auth.js";
 import { listLeagues, getLeague, ensureGomiCupSeeded, currentLeagueId, GOMI_CUP_LEAGUE_ID } from "./leagues.js";
@@ -22,7 +22,19 @@ await ensureGomiCupSeeded();
 
 let selectedLeagueId = currentLeagueId();
 let captains = [];
-let players  = loadLocal('vd_players') || JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
+
+// Load cached players from localStorage, but only if the data version matches.
+// If defaults have been updated (bumped PLAYER_DATA_VERSION), we auto-refresh.
+const savedVersion = loadLocal('vd_players_version');
+const cachedPlayers = loadLocal('vd_players');
+let players;
+if (cachedPlayers && savedVersion === PLAYER_DATA_VERSION) {
+  players = cachedPlayers;
+} else {
+  players = JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
+  saveLocal('vd_players', players);
+  saveLocal('vd_players_version', PLAYER_DATA_VERSION);
+}
 
 async function loadLeagueCaptains() {
   const league = await getLeague(selectedLeagueId);
@@ -66,6 +78,7 @@ async function buildLeaguePicker() {
 
 function persist() {
   saveLocal('vd_players', players);
+  saveLocal('vd_players_version', PLAYER_DATA_VERSION);
 }
 
 function buildCaptainInputs() {
@@ -127,11 +140,12 @@ window.removeLastPlayer = () => {
   persist();
 };
 window.resetDefaults = async () => {
-  if (!confirm('Reset players + stats back to the pre-loaded defaults? (Captains come from the selected league and aren\'t reset here.)')) return;
-  players  = JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
+  if (!confirm('Reset all players + stats back to the pre-loaded defaults? This wipes any local edits.')) return;
+  players = JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
   persist();
   await loadLeagueCaptains();
   buildPlayerInputs();
+  alert('✅ Player list reset. You should now see ' + players.length + ' players in the pool.');
 };
 
 let lastRoom = null;
