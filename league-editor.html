@@ -180,39 +180,51 @@
       .concat(BUILTIN_LOGOS.map(l => `<option value="${l}">${l}</option>`))
       .join('');
     box.innerHTML = captains.map((c, i) => `
-      <div class="cap-editor">
+      <div class="cap-editor" data-cap-idx="${i}">
         <div>
           <label>Captain name</label>
-          <input type="text" value="${escapeHtml(c.name)}" oninput="captains[${i}].name=this.value">
+          <input type="text" value="${escapeHtml(c.name)}" data-field="name">
         </div>
         <div>
           <label>Team name</label>
-          <input type="text" value="${escapeHtml(c.team)}" oninput="captains[${i}].team=this.value">
+          <input type="text" value="${escapeHtml(c.team)}" data-field="team">
         </div>
         <div>
           <label>Primary</label>
-          <input type="color" value="${c.color}" oninput="captains[${i}].color=this.value">
+          <input type="color" value="${c.color}" data-field="color">
         </div>
         <div>
           <label>Secondary</label>
-          <input type="color" value="${c.color2 || '#000000'}" oninput="captains[${i}].color2=this.value">
+          <input type="color" value="${c.color2 || '#000000'}" data-field="color2">
         </div>
         <div>
           <label>Role</label>
-          <input type="text" value="${escapeHtml(c.role || '')}" placeholder="Setter…" oninput="captains[${i}].role=this.value">
+          <input type="text" value="${escapeHtml(c.role || '')}" placeholder="Setter…" data-field="role">
         </div>
         <div>
           <label>Logo</label>
-          <select oninput="captains[${i}].logo=this.value">
+          <select data-field="logo">
             ${logoOpts.replace(`value="${c.logo}"`, `value="${c.logo}" selected`)}
           </select>
         </div>
         <div>
           <label>&nbsp;</label>
-          <button class="secondary" onclick="removeCaptain(${i})">🗑</button>
+          <button class="secondary" data-remove="${i}">🗑</button>
         </div>
       </div>
     `).join('') || '<div style="color:#64748b; padding:8px;">No captains yet — click "+ Add captain" below.</div>';
+
+    // Wire up proper event listeners (inline oninput doesn't see module scope)
+    box.querySelectorAll('[data-cap-idx]').forEach(row => {
+      const idx = parseInt(row.dataset.capIdx);
+      row.querySelectorAll('input, select').forEach(el => {
+        el.addEventListener('input', () => {
+          captains[idx][el.dataset.field] = el.value;
+        });
+      });
+      const removeBtn = row.querySelector('[data-remove]');
+      if (removeBtn) removeBtn.addEventListener('click', () => removeCaptain(idx));
+    });
   }
 
   document.getElementById('l-name').addEventListener('input', updateSlugPreview);
