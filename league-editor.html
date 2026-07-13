@@ -142,10 +142,9 @@
     document.getElementById('btn-save').textContent = '💾 Create league';
     updateSlugPreview();
     // Start with 3 default captains
-    captains = [blankCaptain(), blankCaptain(), blankCaptain()];
+    captains = [blankCaptain(), blankCaptain()];
     captains[0].color = '#dc2626';
     captains[1].color = '#16a34a';
-    captains[2].color = '#2563eb';
     renderCaptainsEditor();
   };
 
@@ -236,9 +235,15 @@
   window.saveLeague = async () => {
     const name = document.getElementById('l-name').value.trim();
     if (!name) return alert('Enter a league name.');
-    if (captains.length < 2) return alert('Add at least 2 captains.');
-    for (const c of captains) {
-      if (!c.name || !c.team) return alert(`Each captain needs a name AND a team.`);
+
+    // Auto-filter out completely blank captain rows (empty name AND empty team)
+    const filledCaptains = captains.filter(c => (c.name || '').trim() || (c.team || '').trim());
+
+    if (filledCaptains.length < 2) return alert('Add at least 2 captains (each needs a name + team).');
+    for (const c of filledCaptains) {
+      if (!(c.name || '').trim() || !(c.team || '').trim()) {
+        return alert(`Captain "${c.name || '(no name)'}" is missing a ${!c.name ? 'name' : 'team'}.`);
+      }
     }
     try {
       if (editingId) {
@@ -247,7 +252,7 @@
           tagline: document.getElementById('l-tagline').value,
           founded: parseInt(document.getElementById('l-year').value) || new Date().getFullYear(),
           setting: document.getElementById('l-setting').value,
-          captains
+          captains: filledCaptains
         });
         alert('✅ League updated!');
       } else {
@@ -256,7 +261,7 @@
           tagline: document.getElementById('l-tagline').value,
           founded: document.getElementById('l-year').value,
           setting: document.getElementById('l-setting').value,
-          captains,
+          captains: filledCaptains,
           createdBy: user.uid
         });
         alert('✅ League created!');
