@@ -50,11 +50,11 @@
   .photo-item.has-photo { border-color: #22c55e; }
   .photo-item.missing { border-color: #ef4444; opacity: 0.85; }
   .photo-avatar {
-    width: 100px;
-    height: 100px;
+    width: 110px;
+    height: 110px;
     border-radius: 50%;
     margin: 0 auto 10px;
-    background: #0f172a;
+    background: radial-gradient(circle at 50% 40%, rgba(255,255,255,0.05), rgba(0,0,0,0.3));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -62,7 +62,12 @@
     border: 3px solid;
     position: relative;
   }
-  .photo-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .photo-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 12%;
+  }
   .photo-avatar .initials { font-size: 36px; font-weight: 900; color: rgba(255,255,255,0.6); }
   .photo-item .name { font-weight: 700; color: #fff; font-size: 0.95rem; margin-bottom: 4px; }
   .photo-item .nickname { color: #94a3b8; font-size: 0.8rem; font-style: italic; margin-bottom: 6px; }
