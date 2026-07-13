@@ -409,7 +409,9 @@
   <div class="card-grid" id="grid"></div>
 </div>
 
-<!-- html2canvas for PNG export -->
+<!-- html-to-image handles object-fit correctly (unlike html2canvas) -->
+<script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
+<!-- html2canvas kept as fallback -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <!-- JSZip for bulk download -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -724,7 +726,7 @@
   }
 
   async function downloadCard(cardEl, filename) {
-    // Isolated 1080×1080 staging container, positioned ON-SCREEN but invisible.
+    // Isolated 1080×1080 staging container, on-screen but invisible.
     const stage = document.createElement('div');
     stage.style.cssText = [
       'position: fixed', 'top: 0', 'left: 0',
@@ -751,125 +753,37 @@
     document.body.appendChild(stage);
     try {
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      // Wait for all images to fully load (naturalWidth becomes available)
       const imgs = Array.from(clone.querySelectorAll('img'));
       await Promise.all(imgs.map(img => {
         if (img.complete && img.naturalWidth) return Promise.resolve();
-        return new Promise(res => {
-          img.onload = img.onerror = () => res();
-        });
+        return new Promise(res => { img.onload = img.onerror = () => res(); });
       }));
-
-      // ============ FIX: Manually compute "contain" sizing ============
-      // Replace .photo-container's <img> with an <img> that has EXPLICIT pixel
-      // dimensions (computed from natural aspect ratio to fit 640×480 container).
-      // This avoids html2canvas's broken object-fit handling entirely.
-      clone.querySelectorAll('.photo-container').forEach(pc => {
-        const img = pc.querySelector('img');
-        if (!img || !img.naturalWidth) return;
-        const containerW = 640, containerH = 480;
-        const nw = img.naturalWidth, nh = img.naturalHeight;
-        // "contain": scale so image fits fully inside container, preserving aspect
-        const scale = Math.min(containerW / nw, containerH / nh);
-        const finalW = Math.round(nw * scale);
-        const finalH = Math.round(nh * scale);
-        // Replace with an absolutely-positioned img at exact dimensions
-        const newImg = document.createElement('img');
-        newImg.src = img.src;
-        newImg.crossOrigin = 'anonymous';
-        newImg.style.cssText = [
-          'position: absolute',
-          `width: ${finalW}px`,
-          `height: ${finalH}px`,
-          // Center horizontally, align to bottom (matches CSS: align-items: flex-end)
-          `left: ${(containerW - finalW) / 2}px`,
-          `top: ${containerH - finalH}px`,
-          'max-width: none', 'max-height: none',
-          'object-fit: initial'
-        ].join(';');
-        // Preserve silhouette filter if the container has that class
-        if (pc.classList.contains('silhouette')) {
-          newImg.style.filter = 'brightness(0) contrast(1)';
-        }
-        // Clear the container's content and add the new img
-        pc.innerHTML = '';
-        pc.style.display = 'block';  // remove flex, since we're positioning absolutely
-        pc.style.position = 'absolute';
-        pc.appendChild(newImg);
-      });
-
-      // Small circular avatars in roster cards: also use explicit sizing.
-      // These use object-fit: cover — meaning fill the circle, cropping as needed.
-      // For cover, we need to scale so the SHORTER natural dimension fills the container,
-      // then position based on object-position.
-      clone.querySelectorAll('img[style*="object-fit"], img[style*="object-position"]').forEach(img => {
-        if (!img.naturalWidth || !img.parentElement) return;
-        // Skip if we already handled it above
-        if (img.closest('.photo-container')) return;
-        const parent = img.parentElement;
-        const parentRect = parent.getBoundingClientRect();
-        const pw = parentRect.width, ph = parentRect.height;
-        if (!pw || !ph) return;
-        const nw = img.naturalWidth, nh = img.naturalHeight;
-        // "cover": scale so image fully covers container, cropping excess
-        const scale = Math.max(pw / nw, ph / nh);
-        const finalW = nw * scale, finalH = nh * scale;
-        // Parse object-position (default: 50% 50%)
-        const s = img.getAttribute('style') || '';
-        const posMatch = s.match(/object-position:\s*([^;]+)/i);
-        let posY = 50; // percent from top
-        if (posMatch) {
-          const posStr = posMatch[1].trim();
-          // Handle "50% 15%" format
-          const parts = posStr.split(/\s+/);
-          if (parts.length >= 2) {
-            const yp = parts[1].replace('%', '');
-            posY = parseFloat(yp) || 50;
-          } else if (posStr === 'top') { posY = 0; }
-          else if (posStr === 'bottom') { posY = 100; }
-        }
-        // Preserve any transform (like scale for zoom)
-        const trMatch = s.match(/transform:\s*([^;]+)/i);
-        const transform = trMatch ? trMatch[1].trim() : 'none';
-        const trOrig = s.match(/transform-origin:\s*([^;]+)/i);
-        const trOrigin = trOrig ? trOrig[1].trim() : '50% 50%';
-
-        const newImg = document.createElement('img');
-        newImg.src = img.src;
-        newImg.crossOrigin = 'anonymous';
-        newImg.style.cssText = [
-          'position: absolute',
-          `width: ${finalW}px`,
-          `height: ${finalH}px`,
-          `left: ${(pw - finalW) / 2}px`,
-          // Position vertically based on object-position Y%
-          `top: ${(ph - finalH) * (posY / 100)}px`,
-          'max-width: none', 'max-height: none',
-          'object-fit: initial',
-          `transform: ${transform}`,
-          `transform-origin: ${trOrigin}`
-        ].join(';');
-        // Ensure parent clips overflow (so cover crop works)
-        parent.style.overflow = 'hidden';
-        parent.style.position = 'relative';
-        img.replaceWith(newImg);
-      });
-
-      // Another frame after DOM swaps
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-      const canvas = await html2canvas(clone, {
-        width: 1080, height: 1080,
-        windowWidth: 1200, windowHeight: 1200,
-        scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
-        backgroundColor: null,
-        useCORS: true, allowTaint: true,
-        logging: false,
-        foreignObjectRendering: false
-      });
+      // Use htmlToImage (handles object-fit correctly via SVG foreignObject).
+      // Fallback to html2canvas if htmlToImage failed to load.
+      let dataUrl;
+      if (window.htmlToImage && typeof window.htmlToImage.toPng === 'function') {
+        dataUrl = await window.htmlToImage.toPng(clone, {
+          width: 1080, height: 1080,
+          canvasWidth: 1080, canvasHeight: 1080,
+          pixelRatio: 1,
+          cacheBust: false,
+          skipFonts: false
+        });
+      } else {
+        const canvas = await html2canvas(clone, {
+          width: 1080, height: 1080,
+          windowWidth: 1200, windowHeight: 1200,
+          scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
+          backgroundColor: null, useCORS: true, allowTaint: true,
+          logging: false, foreignObjectRendering: false
+        });
+        dataUrl = canvas.toDataURL('image/png');
+      }
       const link = document.createElement('a');
       link.download = `${filename}.png`;
-      link.href = canvas.toDataURL('image/png');
+      link.href = dataUrl;
       link.click();
       showDownloadToast(`✅ Downloaded ${filename}.png`);
     } catch (e) {
@@ -944,58 +858,28 @@
           if (img.complete && img.naturalWidth) return Promise.resolve();
           return new Promise(res => { img.onload = img.onerror = () => res(); });
         }));
-
-        // Same explicit-sizing fix as single download
-        clone.querySelectorAll('.photo-container').forEach(pc => {
-          const img = pc.querySelector('img');
-          if (!img || !img.naturalWidth) return;
-          const cw = 640, ch = 480;
-          const nw = img.naturalWidth, nh = img.naturalHeight;
-          const scale = Math.min(cw / nw, ch / nh);
-          const fw = Math.round(nw * scale), fh = Math.round(nh * scale);
-          const newImg = document.createElement('img');
-          newImg.src = img.src;
-          newImg.style.cssText = `position:absolute;width:${fw}px;height:${fh}px;left:${(cw-fw)/2}px;top:${ch-fh}px;max-width:none;max-height:none;object-fit:initial`;
-          if (pc.classList.contains('silhouette')) newImg.style.filter = 'brightness(0) contrast(1)';
-          pc.innerHTML = ''; pc.style.display = 'block'; pc.style.position = 'absolute';
-          pc.appendChild(newImg);
-        });
-        clone.querySelectorAll('img[style*="object-fit"], img[style*="object-position"]').forEach(img => {
-          if (!img.naturalWidth || !img.parentElement) return;
-          if (img.closest('.photo-container')) return;
-          const p = img.parentElement;
-          const pr = p.getBoundingClientRect();
-          const pw = pr.width, ph = pr.height;
-          if (!pw || !ph) return;
-          const nw = img.naturalWidth, nh = img.naturalHeight;
-          const scale = Math.max(pw/nw, ph/nh);
-          const fw = nw*scale, fh = nh*scale;
-          const s = img.getAttribute('style') || '';
-          const posMatch = s.match(/object-position:\s*([^;]+)/i);
-          let posY = 50;
-          if (posMatch) {
-            const parts = posMatch[1].trim().split(/\s+/);
-            if (parts.length >= 2) posY = parseFloat(parts[1].replace('%','')) || 50;
-          }
-          const tr = (s.match(/transform:\s*([^;]+)/i) || [,'none'])[1].trim();
-          const to = (s.match(/transform-origin:\s*([^;]+)/i) || [,'50% 50%'])[1].trim();
-          const newImg = document.createElement('img');
-          newImg.src = img.src;
-          newImg.style.cssText = `position:absolute;width:${fw}px;height:${fh}px;left:${(pw-fw)/2}px;top:${(ph-fh)*(posY/100)}px;max-width:none;max-height:none;object-fit:initial;transform:${tr};transform-origin:${to}`;
-          p.style.overflow = 'hidden'; p.style.position = 'relative';
-          img.replaceWith(newImg);
-        });
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-        const canvas = await html2canvas(clone, {
-          width: 1080, height: 1080,
-          windowWidth: 1200, windowHeight: 1200,
-          scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
-          backgroundColor: null, useCORS: true, allowTaint: true, logging: false,
-          foreignObjectRendering: false
-        });
+        let dataUrl;
+        if (window.htmlToImage && typeof window.htmlToImage.toPng === 'function') {
+          dataUrl = await window.htmlToImage.toPng(clone, {
+            width: 1080, height: 1080,
+            canvasWidth: 1080, canvasHeight: 1080,
+            pixelRatio: 1,
+            cacheBust: false, skipFonts: false
+          });
+        } else {
+          const canvas = await html2canvas(clone, {
+            width: 1080, height: 1080,
+            windowWidth: 1200, windowHeight: 1200,
+            scale: 1, x: 0, y: 0, scrollX: 0, scrollY: 0,
+            backgroundColor: null, useCORS: true, allowTaint: true, logging: false,
+            foreignObjectRendering: false
+          });
+          dataUrl = canvas.toDataURL('image/png');
+        }
         stage.remove();
-        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        const blob = await (await fetch(dataUrl)).blob();
         zip.file(`${filename}.png`, blob);
         done++;
         btn.textContent = `⏳ Generating ${done}/${wraps.length}...`;
