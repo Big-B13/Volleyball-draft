@@ -759,6 +759,54 @@
       await Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
         new Promise(res => { img.onload = img.onerror = () => res(); })));
 
+      // FIX for html2canvas + object-fit bug:
+      // Replace each <img> inside .photo-container with a div using background-image
+      // (html2canvas renders background-size correctly, but breaks on object-fit).
+      clone.querySelectorAll('.photo-container').forEach(pc => {
+        const img = pc.querySelector('img');
+        if (!img || !img.src) return;
+        const replacement = document.createElement('div');
+        // Preserve any inline styling from the original img (transform/scale for the circle avatars)
+        const inline = img.getAttribute('style') || '';
+        replacement.setAttribute('style', inline + ';' + [
+          'width: 100%', 'height: 100%',
+          `background-image: url("${img.src}")`,
+          'background-size: contain',
+          'background-repeat: no-repeat',
+          'background-position: bottom center'
+        ].join(';'));
+        img.replaceWith(replacement);
+      });
+      // Same fix for small circular avatars (roster cards). These have inline styles
+      // like `object-fit:cover; object-position: 50% 15%; transform: scale(...)`
+      clone.querySelectorAll('img[style*="object-fit"], img[style*="object-position"]').forEach(img => {
+        if (!img.src) return;
+        const src = img.src;
+        const styleStr = img.getAttribute('style') || '';
+        // Extract object-position (default: 50% 50%)
+        const posMatch = styleStr.match(/object-position:\s*([^;]+)/i);
+        const bgPos = posMatch ? posMatch[1].trim() : 'center';
+        // Extract transform (scale)
+        const trMatch = styleStr.match(/transform:\s*([^;]+)/i);
+        const transform = trMatch ? trMatch[1].trim() : 'none';
+        const trOrig = styleStr.match(/transform-origin:\s*([^;]+)/i);
+        const trOrigin = trOrig ? trOrig[1].trim() : '50% 50%';
+        const replacement = document.createElement('div');
+        replacement.setAttribute('style', [
+          'width: 100%', 'height: 100%',
+          `background-image: url("${src}")`,
+          'background-size: cover',
+          'background-repeat: no-repeat',
+          `background-position: ${bgPos}`,
+          `transform: ${transform}`,
+          `transform-origin: ${trOrigin}`
+        ].join(';'));
+        img.replaceWith(replacement);
+      });
+
+      // Another layout frame after DOM swaps
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
       const canvas = await html2canvas(clone, {
         width: 1080,
         height: 1080,
@@ -779,12 +827,38 @@
       link.download = `${filename}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
+      showDownloadToast(`✅ Downloaded ${filename}.png`);
     } catch (e) {
       console.error(e);
       alert('Card download failed: ' + e.message);
     } finally {
       stage.remove();
     }
+  }
+
+  function showDownloadToast(msg) {
+    let toast = document.getElementById('dl-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'dl-toast';
+      toast.style.cssText = `
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        padding: 12px 20px; background: rgba(34,197,94,0.95); color: #052e16;
+        font-weight: 700; border-radius: 10px; z-index: 10000;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        transition: opacity 0.3s, transform 0.3s;
+        max-width: 90vw; text-align: center;
+      `;
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = `${msg}`;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(-50%) translateY(0)';
+    clearTimeout(showDownloadToast._t);
+    showDownloadToast._t = setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(-50%) translateY(20px)';
+    }, 5000);
   }
 
   window.downloadAll = async () => {
@@ -824,6 +898,30 @@
         const imgs = Array.from(clone.querySelectorAll('img'));
         await Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
           new Promise(res => { img.onload = img.onerror = () => res(); })));
+
+        // Same object-fit fix as single download
+        clone.querySelectorAll('.photo-container').forEach(pc => {
+          const img = pc.querySelector('img');
+          if (!img || !img.src) return;
+          const inline = img.getAttribute('style') || '';
+          const rep = document.createElement('div');
+          rep.setAttribute('style', inline + ';width:100%;height:100%;' +
+            `background-image:url("${img.src}");background-size:contain;background-repeat:no-repeat;background-position:bottom center`);
+          img.replaceWith(rep);
+        });
+        clone.querySelectorAll('img[style*="object-fit"], img[style*="object-position"]').forEach(img => {
+          if (!img.src) return;
+          const src = img.src;
+          const s = img.getAttribute('style') || '';
+          const pos = (s.match(/object-position:\s*([^;]+)/i) || [,'center'])[1].trim();
+          const tr = (s.match(/transform:\s*([^;]+)/i) || [,'none'])[1].trim();
+          const to = (s.match(/transform-origin:\s*([^;]+)/i) || [,'50% 50%'])[1].trim();
+          const rep = document.createElement('div');
+          rep.setAttribute('style', `width:100%;height:100%;background-image:url("${src}");background-size:cover;background-repeat:no-repeat;background-position:${pos};transform:${tr};transform-origin:${to}`);
+          img.replaceWith(rep);
+        });
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
         const canvas = await html2canvas(clone, {
           width: 1080, height: 1080,
           windowWidth: 1200, windowHeight: 1200,
