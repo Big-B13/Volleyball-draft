@@ -2,6 +2,7 @@ import { db, ref, set, serverTimestamp } from "./firebase-init.js";
 import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM } from "./data.js";
 import { makeRoomId, makeCaptainCode, buildDraftOrder, shuffle, overall, saveLocal, loadLocal, escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge } from "./auth.js";
+import { listLeagues, getLeague, ensureGomiCupSeeded, currentLeagueId, GOMI_CUP_LEAGUE_ID } from "./leagues.js";
 
 // Only commissioners can create draft rooms
 const { profile: __authProfile } = await guardPage({ requireRole: 'commissioner' });
@@ -16,11 +17,43 @@ setTimeout(() => {
   }
 }, 0);
 
-let captains = loadLocal('vd_captains') || JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
-let players  = loadLocal('vd_players')  || JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
+// Ensure gomi cup exists in DB and load available leagues
+await ensureGomiCupSeeded();
+
+let selectedLeagueId = currentLeagueId();
+let captains = [];
+let players  = loadLocal('vd_players') || JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
+
+async function loadLeagueCaptains() {
+  const league = await getLeague(selectedLeagueId);
+  if (league && league.captains && league.captains.length) {
+    captains = JSON.parse(JSON.stringify(league.captains));
+  } else {
+    captains = JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
+  }
+  buildCaptainInputs();
+}
+
+async function buildLeaguePicker() {
+  const leagues = await listLeagues();
+  const wrap = document.getElementById('league-picker');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <label>Which league is this draft for?</label>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap: wrap;">
+      <select id="league-select" style="flex: 1; min-width: 200px;">
+        ${leagues.map(l => `<option value="${l.id}" ${l.id === selectedLeagueId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+      </select>
+      <a href="./league-editor.html" style="color:#fbbf24; text-decoration:none; font-size:0.85rem;">➕ Create new league</a>
+    </div>
+  `;
+  document.getElementById('league-select').addEventListener('change', async (e) => {
+    selectedLeagueId = e.target.value;
+    await loadLeagueCaptains();
+  });
+}
 
 function persist() {
-  saveLocal('vd_captains', captains);
   saveLocal('vd_players', players);
 }
 
@@ -29,28 +62,16 @@ function buildCaptainInputs() {
   g.innerHTML = captains.map((c, i) => `
     <div>
       <label>Captain ${i + 1} name</label>
-      <input type="text" value="${escapeHtml(c.name)}" data-i="${i}" data-field="name">
+      <input type="text" value="${escapeHtml(c.name)}" data-i="${i}" data-field="name" readonly style="opacity:0.7; cursor:not-allowed;">
       <label style="margin-top:8px;">Team name</label>
-      <input type="text" value="${escapeHtml(c.team)}" data-i="${i}" data-field="team">
-      <div class="grid-2" style="margin-top:8px;">
-        <div>
-          <label>Primary color</label>
-          <input type="color" value="${c.color}" data-i="${i}" data-field="color">
-        </div>
-        <div>
-          <label>Secondary color</label>
-          <input type="color" value="${c.color2}" data-i="${i}" data-field="color2">
-        </div>
+      <input type="text" value="${escapeHtml(c.team)}" data-i="${i}" data-field="team" readonly style="opacity:0.7; cursor:not-allowed;">
+      <div style="font-size:0.72rem; color:#94a3b8; margin-top:6px; padding:4px 6px; background:rgba(0,0,0,0.3); border-radius:4px;">
+        <span style="display:inline-block; width:12px; height:12px; background:${c.color}; border-radius:3px; vertical-align:middle;"></span>
+        ${c.role ? '· '+escapeHtml(c.role) : ''}
+        · Edit in <a href="./league-editor.html" style="color:#fbbf24;">League Editor</a>
       </div>
     </div>
   `).join('');
-  g.querySelectorAll('input').forEach(el => {
-    el.addEventListener('input', () => {
-      const i = +el.dataset.i, f = el.dataset.field;
-      captains[i][f] = el.value;
-      persist();
-    });
-  });
 }
 
 function buildPlayerInputs() {
@@ -84,12 +105,11 @@ window.removeLastPlayer = () => {
   buildPlayerInputs();
   persist();
 };
-window.resetDefaults = () => {
-  if (!confirm('Reset captains + players + stats back to the pre-loaded defaults? This wipes any local edits.')) return;
-  captains = JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
+window.resetDefaults = async () => {
+  if (!confirm('Reset players + stats back to the pre-loaded defaults? (Captains come from the selected league and aren\'t reset here.)')) return;
   players  = JSON.parse(JSON.stringify(DEFAULT_PLAYERS));
   persist();
-  buildCaptainInputs();
+  await loadLeagueCaptains();
   buildPlayerInputs();
 };
 
@@ -117,6 +137,7 @@ window.createRoom = async () => {
   const draftData = {
     createdAt: Date.now(),
     picksPerTeam: PICKS_PER_TEAM,
+    leagueId: selectedLeagueId,
     captains: captainsWithCodes,
     players: playersWithOverall,
     displayOrder,
@@ -167,5 +188,7 @@ window.openDraftAsCommissioner = () => {
   location.href = `./draft.html?room=${lastRoom.roomId}&spectate=1`;
 };
 
-buildCaptainInputs();
+// Init
+await buildLeaguePicker();
+await loadLeagueCaptains();
 buildPlayerInputs();

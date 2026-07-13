@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>League Editor — The Gomi Cup Platform</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+  .league-row {
+    display: grid;
+    grid-template-columns: 1fr 100px auto;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 14px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    margin-bottom: 6px;
+  }
+  .league-row .name { font-weight: 700; color: #fff; }
+  .league-row .meta { font-size: 0.75rem; color: #94a3b8; }
+  .league-row .badge {
+    padding: 3px 8px; border-radius: 10px; font-size: 0.72rem;
+    background: #22c55e; color: #052e16;
+  }
+  .league-row .badge.locked { background: #fbbf24; color: #422006; }
+  .cap-editor {
+    display: grid;
+    grid-template-columns: 1fr 1fr 90px 90px 120px 100px 60px;
+    gap: 8px;
+    align-items: end;
+    padding: 8px 0;
+    border-bottom: 1px solid #334155;
+  }
+  .cap-editor label { font-size: 0.75rem; margin-bottom: 2px; }
+  @media (max-width: 720px) {
+    .cap-editor { grid-template-columns: 1fr 1fr; }
+    .cap-editor > *:nth-child(n) { grid-column: span 1; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./setup.html">🎬 Setup</a>
+    <a href="./admin.html">👑 Admin</a>
+    <a href="./league-editor.html" class="active">🏆 Leagues</a>
+  </nav>
+
+  <div id="auth-badge" style="text-align:right; margin-bottom: 12px;"></div>
+
+  <h1><span class="emoji">🏆</span> LEAGUES</h1>
+  <p class="tagline">Create new cups and manage existing ones.</p>
+
+  <div class="card">
+    <h2>Existing leagues</h2>
+    <div id="league-list"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="editor-title">Create a new league</h2>
+    <div class="grid-2">
+      <div>
+        <label>League name</label>
+        <input type="text" id="l-name" placeholder="e.g. Winter Cup 2027">
+        <div style="font-size:0.75rem; color:#64748b; margin-top:4px;">URL slug will be: <code id="l-slug-preview">winter-cup-2027</code></div>
+      </div>
+      <div>
+        <label>Founded (year)</label>
+        <input type="number" id="l-year" min="2020" max="2100" value="2026">
+      </div>
+    </div>
+    <div style="margin-top: 12px;">
+      <label>Tagline</label>
+      <input type="text" id="l-tagline" placeholder="e.g. Cold court. Warm rivalry.">
+    </div>
+    <div style="margin-top: 12px;">
+      <label>Setting</label>
+      <select id="l-setting">
+        <option>Indoor</option>
+        <option>Beach</option>
+        <option>Streetball</option>
+        <option>Mixed</option>
+      </select>
+    </div>
+
+    <h3 style="margin-top: 24px; color:#fbbf24;">Captains</h3>
+    <div id="captains-editor"></div>
+    <div class="row-btns" style="justify-content:flex-start;">
+      <button class="secondary" onclick="addCaptain()">+ Add captain</button>
+    </div>
+
+    <div class="row-btns" style="margin-top:20px;">
+      <button class="secondary" onclick="resetForm()">↺ Clear form</button>
+      <button id="btn-save" onclick="saveLeague()">💾 Create league</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { guardPage, renderAuthBadge } from "./js/auth.js";
+  import { listLeagues, getLeague, createLeague, updateLeague, deleteLeague, slugify, ensureGomiCupSeeded, BUILTIN_LOGOS, GOMI_CUP_LEAGUE_ID } from "./js/leagues.js";
+  import { escapeHtml } from "./js/util.js";
+
+  const { profile, user } = await guardPage({ requireRole: 'commissioner' });
+  renderAuthBadge(document.getElementById('auth-badge'), profile);
+
+  // Make sure the Gomi Cup exists in the DB
+  await ensureGomiCupSeeded();
+
+  let editingId = null;
+  let captains = [];
+
+  function blankCaptain() {
+    return {
+      id: 'c' + Math.random().toString(36).slice(2, 6),
+      name: '', team: '',
+      color: '#dc2626', color2: '#000000',
+      logo: '', role: ''
+    };
+  }
+
+  window.addCaptain = () => {
+    captains.push(blankCaptain());
+    renderCaptainsEditor();
+  };
+  window.removeCaptain = (idx) => {
+    captains.splice(idx, 1);
+    renderCaptainsEditor();
+  };
+  window.resetForm = () => {
+    editingId = null;
+    captains = [];
+    document.getElementById('l-name').value = '';
+    document.getElementById('l-tagline').value = '';
+    document.getElementById('l-year').value = new Date().getFullYear();
+    document.getElementById('l-setting').value = 'Indoor';
+    document.getElementById('editor-title').textContent = 'Create a new league';
+    document.getElementById('btn-save').textContent = '💾 Create league';
+    updateSlugPreview();
+    // Start with 3 default captains
+    captains = [blankCaptain(), blankCaptain(), blankCaptain()];
+    captains[0].color = '#dc2626';
+    captains[1].color = '#16a34a';
+    captains[2].color = '#2563eb';
+    renderCaptainsEditor();
+  };
+
+  window.editLeague = async (id) => {
+    const l = await getLeague(id);
+    if (!l) return alert('League not found');
+    editingId = id;
+    captains = (l.captains || []).map(c => ({ ...c }));
+    document.getElementById('l-name').value = l.name || '';
+    document.getElementById('l-tagline').value = l.tagline || '';
+    document.getElementById('l-year').value = l.founded || new Date().getFullYear();
+    document.getElementById('l-setting').value = l.setting || 'Indoor';
+    document.getElementById('editor-title').textContent = `Editing: ${l.name}`;
+    document.getElementById('btn-save').textContent = '💾 Save changes';
+    // Name field is read-only when editing (slug is the id, so shouldn't change)
+    document.getElementById('l-name').disabled = true;
+    document.getElementById('l-slug-preview').textContent = id + ' (cannot change)';
+    renderCaptainsEditor();
+    window.scrollTo({ top: document.getElementById('editor-title').offsetTop - 20, behavior: 'smooth' });
+  };
+
+  window.confirmDeleteLeague = async (id, name) => {
+    if (id === GOMI_CUP_LEAGUE_ID) return alert('The Gomi Cup cannot be deleted — it\'s the original league.');
+    if (!confirm(`Delete league "${name}"? This is permanent and can't be undone.`)) return;
+    await deleteLeague(id);
+    await refresh();
+  };
+
+  function renderCaptainsEditor() {
+    const box = document.getElementById('captains-editor');
+    const logoOpts = ['<option value="">(no logo)</option>']
+      .concat(BUILTIN_LOGOS.map(l => `<option value="${l}">${l}</option>`))
+      .join('');
+    box.innerHTML = captains.map((c, i) => `
+      <div class="cap-editor">
+        <div>
+          <label>Captain name</label>
+          <input type="text" value="${escapeHtml(c.name)}" oninput="captains[${i}].name=this.value">
+        </div>
+        <div>
+          <label>Team name</label>
+          <input type="text" value="${escapeHtml(c.team)}" oninput="captains[${i}].team=this.value">
+        </div>
+        <div>
+          <label>Primary</label>
+          <input type="color" value="${c.color}" oninput="captains[${i}].color=this.value">
+        </div>
+        <div>
+          <label>Secondary</label>
+          <input type="color" value="${c.color2 || '#000000'}" oninput="captains[${i}].color2=this.value">
+        </div>
+        <div>
+          <label>Role</label>
+          <input type="text" value="${escapeHtml(c.role || '')}" placeholder="Setter…" oninput="captains[${i}].role=this.value">
+        </div>
+        <div>
+          <label>Logo</label>
+          <select oninput="captains[${i}].logo=this.value">
+            ${logoOpts.replace(`value="${c.logo}"`, `value="${c.logo}" selected`)}
+          </select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="secondary" onclick="removeCaptain(${i})">🗑</button>
+        </div>
+      </div>
+    `).join('') || '<div style="color:#64748b; padding:8px;">No captains yet — click "+ Add captain" below.</div>';
+  }
+
+  document.getElementById('l-name').addEventListener('input', updateSlugPreview);
+  function updateSlugPreview() {
+    if (editingId) return;
+    document.getElementById('l-slug-preview').textContent = slugify(document.getElementById('l-name').value) || '(enter a name)';
+  }
+
+  window.saveLeague = async () => {
+    const name = document.getElementById('l-name').value.trim();
+    if (!name) return alert('Enter a league name.');
+    if (captains.length < 2) return alert('Add at least 2 captains.');
+    for (const c of captains) {
+      if (!c.name || !c.team) return alert(`Each captain needs a name AND a team.`);
+    }
+    try {
+      if (editingId) {
+        await updateLeague(editingId, {
+          name,
+          tagline: document.getElementById('l-tagline').value,
+          founded: parseInt(document.getElementById('l-year').value) || new Date().getFullYear(),
+          setting: document.getElementById('l-setting').value,
+          captains
+        });
+        alert('✅ League updated!');
+      } else {
+        await createLeague({
+          name,
+          tagline: document.getElementById('l-tagline').value,
+          founded: document.getElementById('l-year').value,
+          setting: document.getElementById('l-setting').value,
+          captains,
+          createdBy: user.uid
+        });
+        alert('✅ League created!');
+      }
+      // Re-enable name field for future creates
+      document.getElementById('l-name').disabled = false;
+      resetForm();
+      await refresh();
+    } catch (e) {
+      alert('❌ ' + e.message);
+    }
+  };
+
+  async function refresh() {
+    const leagues = await listLeagues();
+    document.getElementById('league-list').innerHTML = leagues.map(l => {
+      const isGomi = l.id === GOMI_CUP_LEAGUE_ID;
+      return `
+        <div class="league-row">
+          <div>
+            <div class="name">${escapeHtml(l.name)} ${isGomi ? '<span class="badge locked">ORIGINAL</span>' : ''}</div>
+            <div class="meta">
+              /${l.id} · ${l.captains?.length || 0} captains · founded ${l.founded || '?'}
+              ${l.tagline ? ` · <em>${escapeHtml(l.tagline)}</em>` : ''}
+            </div>
+          </div>
+          <div>
+            <a href="./index.html?league=${l.id}" style="font-size:0.8rem; color:#fbbf24; text-decoration:none;">View →</a>
+          </div>
+          <div class="row-btns" style="margin-top:0;">
+            <button class="secondary" onclick="editLeague('${l.id}')">✏️ Edit</button>
+            ${isGomi ? '' : `<button class="secondary" onclick="confirmDeleteLeague('${l.id}', '${escapeHtml(l.name).replace(/'/g, "\\'")}')">🗑</button>`}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  resetForm();
+  await refresh();
+</script>
+</body>
+</html>
