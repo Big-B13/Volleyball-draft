@@ -54,7 +54,9 @@
     height: 110px;
     border-radius: 50%;
     margin: 0 auto 10px;
-    background: radial-gradient(circle at 50% 40%, rgba(255,255,255,0.05), rgba(0,0,0,0.3));
+    background:
+      radial-gradient(circle at 50% 45%, rgba(251,191,36,0.08), rgba(15,23,42,0.9) 70%),
+      linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -66,7 +68,12 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: 50% 15%; /* overridden per-player via inline style */
+    object-position: 50% 15%; /* overridden per-player via inline + zoom */
+  }
+  /* zoom multiplier via CSS variable — set per-player inline */
+  .photo-avatar img[data-zoom] {
+    transform: scale(var(--zoom, 1));
+    transform-origin: 50% var(--zoom-origin-y, 30%);
   }
   .photo-avatar .initials { font-size: 36px; font-weight: 900; color: rgba(255,255,255,0.6); }
   .photo-item .name { font-weight: 700; color: #fff; font-size: 0.95rem; margin-bottom: 4px; }
@@ -139,7 +146,7 @@
 <script type="module">
   import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, photoPathFor, getInitials } from "./js/data.js";
   import { CLUBS } from "./js/lore.js";
-  import { photoOffsetY } from "./js/photo-config.js";
+  import { photoOffsetY, photoZoom } from "./js/photo-config.js";
 
   function photoExists(url) {
     return new Promise(r => {
@@ -187,7 +194,8 @@
       div.classList.remove('missing');
       const avatar = div.querySelector('.photo-avatar');
       const yOff = photoOffsetY(item.id);
-      avatar.innerHTML = `<img src="${url}" alt="${item.name}" style="object-position: 50% ${yOff}%;">`;
+      const zoom = photoZoom(item.id);
+      avatar.innerHTML = `<img src="${url}" alt="${item.name}" data-zoom style="object-position: 50% ${yOff}%; --zoom:${zoom}; --zoom-origin-y:${yOff}%;">`;
       div.querySelector('.status-badge').className = 'status-badge ok';
       div.querySelector('.status-badge').textContent = '✓ READY';
       return true;
