@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photo Checklist — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .progress-bar {
+    height: 24px;
+    background: #334155;
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 20px 0;
+    position: relative;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #fbbf24);
+    transition: width 0.4s;
+  }
+  .progress-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 14px;
+    margin-top: 20px;
+  }
+  .photo-item {
+    background: rgba(30, 41, 59, 0.7);
+    border-radius: 12px;
+    padding: 12px;
+    text-align: center;
+    position: relative;
+    border: 2px solid transparent;
+  }
+  .photo-item.has-photo { border-color: #22c55e; }
+  .photo-item.missing { border-color: #ef4444; opacity: 0.85; }
+  .photo-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    margin: 0 auto 10px;
+    background: #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 3px solid;
+    position: relative;
+  }
+  .photo-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .photo-avatar .initials { font-size: 36px; font-weight: 900; color: rgba(255,255,255,0.6); }
+  .photo-item .name { font-weight: 700; color: #fff; font-size: 0.95rem; margin-bottom: 4px; }
+  .photo-item .nickname { color: #94a3b8; font-size: 0.8rem; font-style: italic; margin-bottom: 6px; }
+  .photo-item .filename {
+    font-family: monospace; font-size: 0.72rem; color: #64748b;
+    background: rgba(0,0,0,0.4); padding: 3px 6px; border-radius: 4px;
+    word-break: break-all;
+  }
+  .status-badge {
+    position: absolute;
+    top: 6px; right: 6px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+  .status-badge.ok { background: #22c55e; color: #052e16; }
+  .status-badge.no { background: #ef4444; color: #fef2f2; }
+
+  h3.section-header {
+    color: #fbbf24;
+    margin: 30px 0 10px;
+    font-size: 1.1rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./league.html">🏆 League</a>
+    <a href="./clubs.html">🛡️ Clubs</a>
+    <a href="./cards.html">🃏 Cards</a>
+    <a href="./photos.html" class="active">📸 Photo Checklist</a>
+  </nav>
+
+  <h1>📸 PHOTO CHECKLIST</h1>
+  <p class="tagline">Track which players still need photos uploaded. Green = ready, red = missing.</p>
+
+  <div class="card">
+    <h3 style="color:#fbbf24; margin-bottom:10px;">Progress</h3>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+      <div class="progress-text" id="progress-text">0 / 32</div>
+    </div>
+
+    <div class="info-box">
+      📁 <strong>To add a photo:</strong> save it as a transparent PNG (use remove.bg first), name it exactly like the filename shown on each card (e.g. <code>nikita-brown.png</code>), and upload it to <code>assets/players/</code> in your GitHub repo. Refresh this page to see it appear.
+    </div>
+
+    <h3 class="section-header">🎖️ Captains (3)</h3>
+    <div class="photo-grid" id="grid-captains"></div>
+
+    <h3 class="section-header">🏐 Draft Pool (29)</h3>
+    <div class="photo-grid" id="grid-players"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, photoPathFor, getInitials } from "./js/data.js";
+  import { CLUBS } from "./js/lore.js";
+
+  function photoExists(url) {
+    return new Promise(r => {
+      const img = new Image();
+      img.onload = () => r(true);
+      img.onerror = () => r(false);
+      img.src = url;
+    });
+  }
+
+  const captains = DEFAULT_CAPTAINS.map(c => {
+    const club = Object.values(CLUBS).find(cl => cl.captain.name === c.name);
+    const id = c.id === 'c1' ? 'big-b' : c.id === 'c2' ? 'burla' : 'stratus';
+    return {
+      id, name: c.name,
+      nickname: club ? `"${club.captain.title}"` : c.role,
+      color: c.color
+    };
+  });
+
+  const players = DEFAULT_PLAYERS.map(p => ({
+    id: p.id, name: p.name, nickname: `"${p.nickname}"`, color: '#94a3b8'
+  }));
+
+  function renderItem(item) {
+    const div = document.createElement('div');
+    div.className = 'photo-item';
+    div.innerHTML = `
+      <div class="photo-avatar" style="border-color:${item.color}">
+        <div class="initials">${getInitials(item.name)}</div>
+      </div>
+      <div class="name">${item.name}</div>
+      <div class="nickname">${item.nickname}</div>
+      <div class="filename">${item.id}.png</div>
+      <div class="status-badge no">✕ MISSING</div>
+    `;
+    return div;
+  }
+
+  async function checkAndUpdate(item, div) {
+    const url = photoPathFor(item.id);
+    const exists = await photoExists(url);
+    if (exists) {
+      div.classList.add('has-photo');
+      div.classList.remove('missing');
+      const avatar = div.querySelector('.photo-avatar');
+      avatar.innerHTML = `<img src="${url}" alt="${item.name}">`;
+      div.querySelector('.status-badge').className = 'status-badge ok';
+      div.querySelector('.status-badge').textContent = '✓ READY';
+      return true;
+    } else {
+      div.classList.add('missing');
+      return false;
+    }
+  }
+
+  const capGrid = document.getElementById('grid-captains');
+  const playerGrid = document.getElementById('grid-players');
+
+  const allItems = [];
+  for (const c of captains) {
+    const div = renderItem(c);
+    capGrid.appendChild(div);
+    allItems.push({ item: c, div });
+  }
+  for (const p of players) {
+    const div = renderItem(p);
+    playerGrid.appendChild(div);
+    allItems.push({ item: p, div });
+  }
+
+  let readyCount = 0;
+  await Promise.all(allItems.map(async ({ item, div }) => {
+    const ok = await checkAndUpdate(item, div);
+    if (ok) readyCount++;
+  }));
+
+  const pct = Math.round(readyCount / allItems.length * 100);
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = `${readyCount} / ${allItems.length} photos ready (${pct}%)`;
+</script>
+</body>
+</html>
