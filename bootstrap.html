@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bootstrap Commissioner — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div class="container" style="max-width: 500px;">
+  <h1>🚀 BOOTSTRAP</h1>
+  <p class="tagline">First-time setup: create the very first commissioner account.</p>
+
+  <div class="card">
+    <div class="warning">
+      ⚠️ This page ONLY works if no users exist yet. Once one commissioner is created, this page becomes unusable.
+      <br><br>
+      <strong>Delete this file from your GitHub repo after using it once</strong> — for extra safety.
+    </div>
+
+    <div id="msg" style="padding:10px 14px; border-radius:6px; font-size:0.9rem; margin-bottom:14px; display:none;"></div>
+
+    <label>Choose a username</label>
+    <input type="text" id="bs-username" placeholder="e.g. big-b" style="margin-bottom: 12px;">
+
+    <label>Choose a password (min 6 chars)</label>
+    <input type="password" id="bs-password" placeholder="••••••••" style="margin-bottom: 12px;">
+
+    <label>Display name</label>
+    <input type="text" id="bs-displayname" placeholder="e.g. Big-B" style="margin-bottom: 20px;">
+
+    <button class="big" onclick="bootstrap()">Create commissioner account →</button>
+  </div>
+</div>
+
+<script type="module">
+  import { auth, db, ref, get, set, createUserWithEmailAndPassword } from "./js/firebase-init.js";
+  import { usernameToEmail } from "./js/auth.js";
+
+  function setMsg(text, kind = 'err') {
+    const el = document.getElementById('msg');
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+    if (kind === 'err') {
+      el.style.background = 'rgba(239,68,68,0.15)'; el.style.border = '1px solid #ef4444'; el.style.color = '#fecaca';
+    } else {
+      el.style.background = 'rgba(34,197,94,0.15)'; el.style.border = '1px solid #22c55e'; el.style.color = '#bbf7d0';
+    }
+  }
+
+  // Refuse to run if any users already exist
+  const existingUsers = await get(ref(db, 'users'));
+  if (existingUsers.exists()) {
+    setMsg('❌ Users already exist. Bootstrap is disabled. Log in via /login.html instead, or ask an existing commissioner to make you one via /admin.html.');
+    document.querySelector('button').disabled = true;
+  }
+
+  window.bootstrap = async () => {
+    const u = document.getElementById('bs-username').value.trim();
+    const p = document.getElementById('bs-password').value;
+    const d = document.getElementById('bs-displayname').value.trim() || u;
+    if (!u || !p) return setMsg('Fill in username and password.');
+    if (p.length < 6) return setMsg('Password must be at least 6 characters.');
+
+    // Double-check no users exist right before creating
+    const check = await get(ref(db, 'users'));
+    if (check.exists()) return setMsg('❌ A user was created while you were typing. Refresh and use /login.html.');
+
+    try {
+      setMsg('Creating account…', 'ok');
+      const email = usernameToEmail(u);
+      const cred = await createUserWithEmailAndPassword(auth, email, p);
+      await set(ref(db, `users/${cred.user.uid}`), {
+        username: u, email, role: 'commissioner', captainId: null,
+        displayName: d, createdAt: Date.now()
+      });
+      setMsg('✅ Commissioner account created! Redirecting to admin panel…', 'ok');
+      setTimeout(() => { location.href = './admin.html'; }, 1200);
+    } catch (e) {
+      setMsg('❌ ' + e.message);
+    }
+  };
+</script>
+</body>
+</html>

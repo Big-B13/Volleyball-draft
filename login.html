@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log In — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  .auth-wrap {
+    max-width: 440px;
+    margin: 60px auto;
+  }
+  .auth-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .auth-tabs button {
+    flex: 1;
+    background: #334155;
+    color: #cbd5e1;
+    padding: 10px;
+    font-weight: 700;
+  }
+  .auth-tabs button.active {
+    background: linear-gradient(90deg, #f97316, #ef4444);
+    color: #fff;
+  }
+  .field { margin-bottom: 14px; }
+  .field label { font-size: 0.85rem; color: #cbd5e1; margin-bottom: 4px; display: block; }
+  .msg {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin-bottom: 14px;
+    display: none;
+  }
+  .msg.err { background: rgba(239,68,68,0.15); border: 1px solid #ef4444; color: #fecaca; display: block; }
+  .msg.ok { background: rgba(34,197,94,0.15); border: 1px solid #22c55e; color: #bbf7d0; display: block; }
+  .hint {
+    color: #94a3b8; font-size: 0.82rem; margin-top: 8px;
+  }
+  .hint a { color: #fbbf24; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔐 THE GOMI CUP</h1>
+  <p class="tagline">Log in to view player cards, join drafts, and see the big reveal.</p>
+
+  <div class="auth-wrap">
+    <div class="auth-tabs">
+      <button id="tab-login" class="active" onclick="showTab('login')">Log In</button>
+      <button id="tab-signup" onclick="showTab('signup')">Sign Up</button>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <div id="form-login" class="card">
+      <div class="field">
+        <label>Username</label>
+        <input type="text" id="login-username" placeholder="e.g. big-b" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="big" onclick="doLogin()">Log in →</button>
+      <div class="hint">Forgot your password? Ask the commissioner (Big-B) to reset it.</div>
+    </div>
+
+    <div id="form-signup" class="card hidden">
+      <div class="field">
+        <label>Invite code</label>
+        <input type="text" id="signup-code" placeholder="e.g. GOMI-ABC123" style="text-transform:uppercase;">
+      </div>
+      <div class="field">
+        <label>Choose a username</label>
+        <input type="text" id="signup-username" placeholder="e.g. nikita-brown" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Choose a password (min 6 chars)</label>
+        <input type="password" id="signup-password" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <button class="big" onclick="doSignup()">Create account →</button>
+      <div class="hint">Don't have an invite code? Ask Big-B (commissioner) for one.</div>
+    </div>
+
+    <div style="text-align:center; margin-top: 24px;">
+      <a href="./index.html" style="color:#94a3b8; text-decoration:none;">← Back to home</a>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { login, signUpWithInvite, watchAuth } from "./js/auth.js";
+
+  // If already logged in, redirect
+  watchAuth((session) => {
+    if (session && session.profile) {
+      const params = new URLSearchParams(location.search);
+      const next = params.get('next') || './index.html';
+      location.replace(next);
+    }
+  });
+
+  window.showTab = (which) => {
+    document.getElementById('tab-login').classList.toggle('active', which === 'login');
+    document.getElementById('tab-signup').classList.toggle('active', which === 'signup');
+    document.getElementById('form-login').classList.toggle('hidden', which !== 'login');
+    document.getElementById('form-signup').classList.toggle('hidden', which !== 'signup');
+    setMsg('', '');
+  };
+
+  function setMsg(text, kind) {
+    const el = document.getElementById('msg');
+    el.className = 'msg' + (kind ? ' ' + kind : '');
+    el.textContent = text;
+    if (!text) el.style.display = 'none';
+  }
+
+  window.doLogin = async () => {
+    const u = document.getElementById('login-username').value.trim();
+    const p = document.getElementById('login-password').value;
+    if (!u || !p) return setMsg('Fill in both fields.', 'err');
+    try {
+      setMsg('Signing in…', 'ok');
+      await login(u, p);
+      // watchAuth will handle redirect
+    } catch (e) {
+      const readable = e.message.includes('invalid-credential') || e.message.includes('wrong-password') || e.message.includes('user-not-found')
+        ? 'Wrong username or password.'
+        : e.message;
+      setMsg('❌ ' + readable, 'err');
+    }
+  };
+
+  window.doSignup = async () => {
+    const code = document.getElementById('signup-code').value.trim().toUpperCase();
+    const u    = document.getElementById('signup-username').value.trim();
+    const p    = document.getElementById('signup-password').value;
+    if (!code || !u || !p) return setMsg('Fill in all three fields.', 'err');
+    if (p.length < 6)      return setMsg('Password must be at least 6 characters.', 'err');
+    try {
+      setMsg('Creating account…', 'ok');
+      await signUpWithInvite(u, p, code);
+      // watchAuth handles redirect
+    } catch (e) {
+      const readable = e.message.includes('email-already-in-use') ? 'That username is already taken.'
+                      : e.message.includes('Invalid or already-used invite') ? '❌ Invite code invalid or already used.'
+                      : e.message;
+      setMsg('❌ ' + readable, 'err');
+    }
+  };
+</script>
+</body>
+</html>

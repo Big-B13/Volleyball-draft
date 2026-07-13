@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .invite-row {
+    display: grid;
+    grid-template-columns: 140px 130px 1fr 60px;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+  }
+  .invite-row .code { font-family: monospace; color: #fbbf24; font-weight: 700; letter-spacing: 2px; }
+  .invite-row .role-badge {
+    display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 700;
+  }
+  .invite-row .role-badge.viewer { background: #64748b; color: #fff; }
+  .invite-row .role-badge.captain { background: #fbbf24; color: #422006; }
+  .invite-row .role-badge.commissioner { background: #dc2626; color: #fff; }
+  .invite-row .status { font-size: 0.75rem; }
+  .invite-row .status.free { color: #22c55e; }
+  .invite-row .status.used { color: #64748b; }
+  .invite-row button {
+    padding: 4px 8px; font-size: 0.75rem; background: #334155; color:#cbd5e1;
+  }
+  .quick-btn {
+    background: #334155; padding: 8px 14px; font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./setup.html">🎬 Setup</a>
+    <a href="./admin.html" class="active">👑 Admin</a>
+  </nav>
+
+  <div id="auth-badge" style="text-align:right; margin-bottom: 12px;"></div>
+
+  <h1>👑 COMMISSIONER PANEL</h1>
+  <p class="tagline">Create invite codes and manage users.</p>
+
+  <div class="card">
+    <h2>Create Invite Code</h2>
+    <div class="grid-2">
+      <div>
+        <label>Code (or generate)</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="new-code" placeholder="e.g. GOMI-ABC" style="text-transform:uppercase; flex:1;">
+          <button class="quick-btn" onclick="genCode()">🎲 Generate</button>
+        </div>
+      </div>
+      <div>
+        <label>Role</label>
+        <select id="new-role">
+          <option value="viewer">👀 Viewer</option>
+          <option value="captain">🎖️ Captain</option>
+          <option value="commissioner">👑 Commissioner</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top: 12px;">
+      <div>
+        <label>Display name (optional)</label>
+        <input type="text" id="new-displayname" placeholder="e.g. Nikita Brown">
+      </div>
+      <div id="captain-select-wrap" class="hidden">
+        <label>Link to captain slot (captains only)</label>
+        <select id="new-captain">
+          <option value="">— select —</option>
+          <option value="c1">Big-B / Strigidae</option>
+          <option value="c2">Burla / Kòrsou Otters</option>
+          <option value="c3">Stratus / Shizuka</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-btns" style="justify-content:flex-start;">
+      <button onclick="createCode()">➕ Create invite code</button>
+      <button class="quick-btn" onclick="createAllStandardCodes()">🚀 Bulk-create codes for all 32 people</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Invite Codes (<span id="code-count">0</span>)</h2>
+    <div id="msg-invite" style="display:none;"></div>
+    <div id="invite-list"></div>
+  </div>
+
+  <div class="card">
+    <h2>Registered Users (<span id="user-count">0</span>)</h2>
+    <div id="user-list"></div>
+  </div>
+</div>
+
+<script type="module">
+  import {
+    guardPage, renderAuthBadge, createInviteCode, listInviteCodes,
+    listUsers, deleteInviteCode, updateUserRole
+  } from "./js/auth.js";
+  import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS } from "./js/data.js";
+
+  // Protect: only commissioners can be here
+  const { profile } = await guardPage({ requireRole: 'commissioner' });
+  renderAuthBadge(document.getElementById('auth-badge'), profile);
+
+  window.genCode = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const rand = Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+    document.getElementById('new-code').value = 'GOMI-' + rand;
+  };
+
+  document.getElementById('new-role').addEventListener('change', (e) => {
+    document.getElementById('captain-select-wrap').classList.toggle('hidden', e.target.value !== 'captain');
+  });
+
+  window.createCode = async () => {
+    const code = document.getElementById('new-code').value.trim().toUpperCase();
+    const role = document.getElementById('new-role').value;
+    const displayName = document.getElementById('new-displayname').value.trim();
+    const captainId = role === 'captain' ? document.getElementById('new-captain').value : null;
+    if (!code) return alert('Enter or generate a code.');
+    if (role === 'captain' && !captainId) return alert('Pick which captain slot.');
+    try {
+      await createInviteCode({ code, role, captainId, displayName });
+      document.getElementById('new-code').value = '';
+      document.getElementById('new-displayname').value = '';
+      await refresh();
+    } catch (e) { alert('Failed: ' + e.message); }
+  };
+
+  window.createAllStandardCodes = async () => {
+    if (!confirm('Bulk-create 32 invite codes (3 captains + 29 players)? Existing codes with the same names will be overwritten.')) return;
+    const captainMap = { c1:'big-b', c2:'burla', c3:'stratus' };
+    let created = 0;
+    for (const cap of DEFAULT_CAPTAINS) {
+      const shortId = captainMap[cap.id] || cap.name.toLowerCase();
+      await createInviteCode({
+        code: 'GOMI-' + shortId.toUpperCase(),
+        role: 'captain',
+        captainId: cap.id,
+        displayName: cap.name
+      });
+      created++;
+    }
+    for (const p of DEFAULT_PLAYERS) {
+      await createInviteCode({
+        code: 'GOMI-' + p.id.toUpperCase().replace('-', ''),
+        role: 'viewer',
+        displayName: p.name
+      });
+      created++;
+    }
+    alert(`Created ${created} codes!`);
+    await refresh();
+  };
+
+  window.deleteCode = async (code) => {
+    if (!confirm(`Delete code ${code}?`)) return;
+    await deleteInviteCode(code);
+    await refresh();
+  };
+
+  window.changeRole = async (uid, newRole) => {
+    await updateUserRole(uid, { role: newRole });
+    await refresh();
+  };
+
+  async function refresh() {
+    const codes = await listInviteCodes();
+    document.getElementById('code-count').textContent = codes.length;
+    codes.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    document.getElementById('invite-list').innerHTML = codes.map(c => `
+      <div class="invite-row">
+        <div class="code">${c.code}</div>
+        <div>
+          <span class="role-badge ${c.role||'viewer'}">${c.role||'viewer'}</span>
+          ${c.captainId ? `<span style="font-size:0.7rem;color:#94a3b8;"> · ${c.captainId}</span>` : ''}
+        </div>
+        <div>
+          <div style="color:#e2e8f0;">${c.displayName || '<em style="color:#64748b">no name</em>'}</div>
+          <div class="status ${c.consumed?'used':'free'}">${c.consumed ? '✓ used' : '● unused'}</div>
+        </div>
+        <button onclick="deleteCode('${c.code}')">🗑</button>
+      </div>
+    `).join('') || '<div style="color:#64748b;">No codes yet. Create one above or bulk-generate.</div>';
+
+    const users = await listUsers();
+    document.getElementById('user-count').textContent = users.length;
+    document.getElementById('user-list').innerHTML = users.map(u => `
+      <div class="invite-row" style="grid-template-columns: 1fr 130px 1fr 130px;">
+        <div><strong>${u.displayName || u.username}</strong> <span style="color:#64748b; font-size:0.8rem;">@${u.username}</span></div>
+        <div><span class="role-badge ${u.role||'viewer'}">${u.role||'viewer'}</span></div>
+        <div style="color:#64748b; font-size:0.75rem;">${u.captainId ? 'linked: '+u.captainId : ''}</div>
+        <select onchange="changeRole('${u.uid}', this.value)">
+          <option value="viewer" ${u.role==='viewer'?'selected':''}>viewer</option>
+          <option value="captain" ${u.role==='captain'?'selected':''}>captain</option>
+          <option value="commissioner" ${u.role==='commissioner'?'selected':''}>commissioner</option>
+        </select>
+      </div>
+    `).join('') || '<div style="color:#64748b;">No registered users yet.</div>';
+  }
+
+  await refresh();
+</script>
+</body>
+</html>

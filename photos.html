@@ -124,6 +124,14 @@
 </div>
 
 <script type="module">
+  import { guardPage, renderAuthBadge } from "./js/auth.js";
+  const { profile } = await guardPage({ requireRole: 'viewer' });
+  const badgeEl = document.createElement('div');
+  badgeEl.style.cssText = 'text-align:right; margin-bottom:12px;';
+  document.querySelector('.container').insertBefore(badgeEl, document.querySelector('.container').firstChild);
+  renderAuthBadge(badgeEl, profile);
+</script>
+<script type="module">
   import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, photoPathFor, getInitials } from "./js/data.js";
   import { CLUBS } from "./js/lore.js";
 

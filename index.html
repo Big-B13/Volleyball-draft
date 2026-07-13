@@ -8,6 +8,7 @@
 </head>
 <body>
 <div class="container">
+  <div id="auth-strip" style="text-align:right; margin-bottom: 8px; min-height: 34px;"></div>
   <h1>🏐 THE GOMI CUP</h1>
   <p class="tagline">3 captains. 29 players. 15 spots. One trophy.</p>
 
@@ -16,6 +17,8 @@
     <a href="./clubs.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🛡️ The clubs</a>
     <a href="./cards.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🃏 Cards</a>
     <a href="./photos.html" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">📸 Photos</a>
+    <a href="./login.html" id="nav-login" style="color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem;">🔐 Log in</a>
+    <a href="./admin.html" id="nav-admin" style="display:none; color:#fbbf24; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(251,191,36,0.15); font-size:0.9rem;">👑 Admin</a>
   </nav>
 
   <div class="landing-choice">
@@ -64,6 +67,19 @@ function joinAsSpectator() {
   if (!room) { alert('Enter a room ID'); return; }
   location.href = `./draft.html?room=${encodeURIComponent(room)}&spectate=1`;
 }
+</script>
+
+<script type="module">
+  import { watchAuth, renderAuthBadge } from "./js/auth.js";
+  watchAuth((session) => {
+    if (session && session.profile) {
+      renderAuthBadge(document.getElementById('auth-strip'), session.profile);
+      document.getElementById('nav-login').style.display = 'none';
+      if (session.profile.role === 'commissioner') {
+        document.getElementById('nav-admin').style.display = '';
+      }
+    }
+  });
 </script>
 </body>
 </html>

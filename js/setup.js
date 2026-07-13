@@ -1,6 +1,20 @@
 import { db, ref, set, serverTimestamp } from "./firebase-init.js";
 import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM } from "./data.js";
 import { makeRoomId, makeCaptainCode, buildDraftOrder, shuffle, overall, saveLocal, loadLocal, escapeHtml } from "./util.js";
+import { guardPage, renderAuthBadge } from "./auth.js";
+
+// Only commissioners can create draft rooms
+const { profile: __authProfile } = await guardPage({ requireRole: 'commissioner' });
+setTimeout(() => {
+  const container = document.querySelector('.container');
+  if (container && !document.getElementById('auth-badge-el')) {
+    const b = document.createElement('div');
+    b.id = 'auth-badge-el';
+    b.style.cssText = 'text-align:right; margin-bottom:12px;';
+    container.insertBefore(b, container.firstChild);
+    renderAuthBadge(b, __authProfile);
+  }
+}, 0);
 
 let captains = loadLocal('vd_captains') || JSON.parse(JSON.stringify(DEFAULT_CAPTAINS));
 let players  = loadLocal('vd_players')  || JSON.parse(JSON.stringify(DEFAULT_PLAYERS));

@@ -2,6 +2,21 @@ import { db, ref, onValue } from "./firebase-init.js";
 import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./data.js";
 import { CLUBS, PLAYER_BIOS } from "./lore.js";
 import { escapeHtml } from "./util.js";
+import { guardPage, renderAuthBadge } from "./auth.js";
+
+// Require at least a viewer login before showing the reveal
+const { profile: __authProfile } = await guardPage({ requireRole: 'viewer' });
+// Render badge after the page's DOM is ready
+setTimeout(() => {
+  const container = document.querySelector('.container');
+  if (container && !document.getElementById('auth-badge-el')) {
+    const b = document.createElement('div');
+    b.id = 'auth-badge-el';
+    b.style.cssText = 'text-align:right; margin-bottom:12px;';
+    container.insertBefore(b, container.firstChild);
+    renderAuthBadge(b, __authProfile);
+  }
+}, 0);
 
 // Mini trading card renderer — used on reveal + optional other pages
 function miniCardHtml({ player, teamColor, pickNum, badgeText, isCut, isCaptain }) {
@@ -182,7 +197,7 @@ async function render() {
 
     return `
       <div class="reveal-team" style="border-top-color:${cap.color}; background:linear-gradient(135deg, ${cap.color}22, #1e293b);">
-        ${headerVisuals}
+        ${logo}
         <h2 style="color:${cap.color}">${escapeHtml(cap.team)}</h2>
         <div class="captain-line">Captain: ${escapeHtml(cap.name)}${club ? ` · <em>${club.captain.role} · "${club.captain.title}"</em>` : ''} · Avg OVR: ${teamOvr}</div>
         ${loreHtml}
