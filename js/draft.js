@@ -1,20 +1,43 @@
 import { db, ref, onValue, runTransaction } from "./firebase-init.js";
 import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./data.js";
 import { escapeHtml } from "./util.js";
-import { guardPage, renderAuthBadge } from "./auth.js";
+import { guardPage, renderAuthBadge, watchAuth } from "./auth.js";
 
-// Require login. Auto-fill captain code from profile if user is a linked captain.
-const { profile: __authProfile } = await guardPage({ requireRole: 'viewer' });
-setTimeout(() => {
-  const container = document.querySelector('.container');
-  if (container && !document.getElementById('auth-badge-el')) {
-    const b = document.createElement('div');
-    b.id = 'auth-badge-el';
-    b.style.cssText = 'text-align:right; margin-bottom:12px;';
-    container.insertBefore(b, container.firstChild);
-    renderAuthBadge(b, __authProfile);
-  }
-}, 0);
+// Spectator mode? Then login is NOT required (public watching)
+const __params = new URLSearchParams(location.search);
+const __isSpectate = __params.get('spectate') === '1';
+
+let __authProfile = null;
+if (__isSpectate) {
+  // Just watch for login state to render badge if user is logged in
+  watchAuth((session) => {
+    if (session && session.profile) {
+      __authProfile = session.profile;
+      const container = document.querySelector('.container');
+      if (container && !document.getElementById('auth-badge-el')) {
+        const b = document.createElement('div');
+        b.id = 'auth-badge-el';
+        b.style.cssText = 'text-align:right; margin-bottom:12px;';
+        container.insertBefore(b, container.firstChild);
+        renderAuthBadge(b, __authProfile);
+      }
+    }
+  });
+} else {
+  // Non-spectator (captain trying to pick, or commissioner watching): login required
+  const { profile } = await guardPage({ requireRole: 'viewer' });
+  __authProfile = profile;
+  setTimeout(() => {
+    const container = document.querySelector('.container');
+    if (container && !document.getElementById('auth-badge-el')) {
+      const b = document.createElement('div');
+      b.id = 'auth-badge-el';
+      b.style.cssText = 'text-align:right; margin-bottom:12px;';
+      container.insertBefore(b, container.firstChild);
+      renderAuthBadge(b, __authProfile);
+    }
+  }, 0);
+}
 
 // Async photo existence check with cache
 function photoExists(url) {
@@ -67,7 +90,7 @@ function subscribe() {
       const idx = state.captains.findIndex(c => (c.code || '').toUpperCase() === codeGiven);
       if (idx < 0) { showError('Invalid captain code for this room.'); return; }
       myCaptainIdx = idx;
-    } else if (__authProfile && __authProfile.role === 'captain' && __authProfile.captainId) {
+    } else if (!__isSpectate && __authProfile && __authProfile.role === 'captain' && __authProfile.captainId) {
       // Auto-link: match user's linked captainId to a captain in this room
       const idx = state.captains.findIndex(c => c.id === __authProfile.captainId);
       if (idx >= 0) myCaptainIdx = idx;

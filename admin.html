@@ -21,6 +21,15 @@
     margin-bottom: 6px;
     font-size: 0.9rem;
   }
+  @media (max-width: 720px) {
+    .invite-row {
+      grid-template-columns: 1fr auto !important;
+      gap: 6px;
+      padding: 10px;
+      font-size: 0.85rem;
+    }
+    .invite-row .code { grid-column: 1 / -1; }
+  }
   .invite-row .code { font-family: monospace; color: #fbbf24; font-weight: 700; letter-spacing: 2px; }
   .invite-row .role-badge {
     display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 700;

@@ -21,30 +21,23 @@
     <a href="./admin.html" id="nav-admin" style="display:none; color:#fbbf24; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(251,191,36,0.15); font-size:0.9rem;">👑 Admin</a>
   </nav>
 
-  <div class="landing-choice">
-    <a href="./setup.html">
-      <div class="emoji">🎬</div>
-      <h3>Commissioner Setup</h3>
-      <p>Create a new draft room, enter captains & players, get invite codes for the 3 captains.</p>
-    </a>
-    <a href="#" onclick="showJoin(); return false;">
-      <div class="emoji">🎯</div>
-      <h3>Join as Captain</h3>
-      <p>Enter your room ID + captain code to join a draft that a commissioner already created.</p>
-    </a>
+  <div class="landing-choice" id="landing-choice">
+    <!-- Rendered dynamically based on login state -->
   </div>
 
   <div id="join-card" class="card hidden" style="margin-top: 24px;">
-    <h2>Join a draft</h2>
+    <h2 id="join-title">Join a draft</h2>
     <label>Room ID</label>
     <input type="text" id="join-room" placeholder="e.g. ABC123" style="text-transform:uppercase;" maxlength="6">
-    <label style="margin-top: 12px;">Captain code</label>
-    <input type="text" id="join-code" placeholder="e.g. XY7Q" style="text-transform:uppercase;" maxlength="4">
+    <div id="captain-code-wrap">
+      <label style="margin-top: 12px;">Captain code</label>
+      <input type="text" id="join-code" placeholder="e.g. XY7Q" style="text-transform:uppercase;" maxlength="4">
+    </div>
     <div class="row-btns">
-      <button onclick="joinDraft()">Enter draft →</button>
+      <button id="btn-enter" onclick="joinDraft()">Enter draft →</button>
       <button class="secondary" onclick="joinAsSpectator()">👀 Spectator only</button>
     </div>
-    <p style="color:#94a3b8; font-size:0.85rem; margin-top: 12px;">
+    <p style="color:#94a3b8; font-size:0.85rem; margin-top: 12px;" id="join-hint">
       Spectator mode lets you watch the draft live without picking. Leave the captain code blank.
     </p>
   </div>
@@ -57,8 +50,9 @@ function showJoin() {
 }
 function joinDraft() {
   const room = document.getElementById('join-room').value.trim().toUpperCase();
-  const code = document.getElementById('join-code').value.trim().toUpperCase();
+  const code = (document.getElementById('join-code') || {}).value?.trim().toUpperCase() || '';
   if (!room) { alert('Enter a room ID'); return; }
+  // For non-captains this button is hidden, so only captains reach here (or someone who typed a code)
   if (!code) { alert('Enter your captain code (or use spectator mode)'); return; }
   location.href = `./draft.html?room=${encodeURIComponent(room)}&code=${encodeURIComponent(code)}`;
 }
@@ -67,10 +61,108 @@ function joinAsSpectator() {
   if (!room) { alert('Enter a room ID'); return; }
   location.href = `./draft.html?room=${encodeURIComponent(room)}&spectate=1`;
 }
+function joinAsMyCaptain() {
+  const room = document.getElementById('join-room').value.trim().toUpperCase();
+  if (!room) { alert('Enter a room ID'); return; }
+  // Captain identity comes from their logged-in profile — no code needed
+  location.href = `./draft.html?room=${encodeURIComponent(room)}`;
+}
 </script>
 
 <script type="module">
   import { watchAuth, renderAuthBadge } from "./js/auth.js";
+
+  const CHOICES = {
+    loggedOut: `
+      <a href="./login.html">
+        <div class="emoji">🔐</div>
+        <h3>Log in / Sign up</h3>
+        <p>Members can see the full trading cards, real player names, live drafts, and the big reveal.</p>
+      </a>
+      <a href="#" onclick="showSpectator(); return false;">
+        <div class="emoji">👀</div>
+        <h3>Watch a draft (spectator)</h3>
+        <p>No account needed. Enter a live draft room ID to watch a draft happen in real time.</p>
+      </a>`,
+    viewer: `
+      <a href="./cards.html">
+        <div class="emoji">🃏</div>
+        <h3>View trading cards</h3>
+        <p>Browse the full-reveal player cards, download shareable PNGs.</p>
+      </a>
+      <a href="#" onclick="showSpectator(); return false;">
+        <div class="emoji">👀</div>
+        <h3>Watch a live draft</h3>
+        <p>Enter a room ID to spectate a draft in real-time.</p>
+      </a>`,
+    captain: `
+      <a href="#" onclick="showCaptainJoin(); return false;">
+        <div class="emoji">🎖️</div>
+        <h3>Join a draft as captain</h3>
+        <p>Enter your room ID — you'll be auto-recognized as your captain slot.</p>
+      </a>
+      <a href="#" onclick="showSpectator(); return false;">
+        <div class="emoji">👀</div>
+        <h3>Watch as spectator</h3>
+        <p>Enter a room ID to spectate a draft in real-time.</p>
+      </a>`,
+    commissioner: `
+      <a href="./setup.html">
+        <div class="emoji">🎬</div>
+        <h3>Commissioner Setup</h3>
+        <p>Create a new draft room, get invite codes for the 3 captains.</p>
+      </a>
+      <a href="./admin.html">
+        <div class="emoji">👑</div>
+        <h3>Admin panel</h3>
+        <p>Manage users, invite codes, and clean up test drafts.</p>
+      </a>
+      <a href="#" onclick="showSpectator(); return false;">
+        <div class="emoji">👀</div>
+        <h3>Watch as spectator</h3>
+        <p>Enter a room ID to spectate any draft.</p>
+      </a>`
+  };
+
+  window.showSpectator = () => {
+    document.getElementById('join-card').classList.remove('hidden');
+    document.getElementById('join-title').textContent = 'Watch a draft (spectator)';
+    document.getElementById('captain-code-wrap').style.display = 'none';
+    document.getElementById('btn-enter').style.display = 'none';
+    document.getElementById('join-hint').textContent = 'Enter a room ID that someone shared with you. You can watch every pick live.';
+    document.getElementById('join-room').focus();
+  };
+  window.showCaptainJoin = () => {
+    document.getElementById('join-card').classList.remove('hidden');
+    document.getElementById('join-title').textContent = 'Join a draft as captain';
+    document.getElementById('captain-code-wrap').style.display = 'none';
+    document.getElementById('btn-enter').style.display = 'none';
+    document.getElementById('join-hint').innerHTML = 'You\'ll be auto-recognized as your captain slot from your account.';
+    // Swap the "spectator" button label so this flow is a "join as captain" button
+    const btns = document.querySelector('#join-card .row-btns');
+    btns.innerHTML = `
+      <button onclick="joinAsMyCaptain()">🎖️ Join as my captain →</button>
+      <button class="secondary" onclick="joinAsSpectator()">👀 Or just spectate</button>
+    `;
+    document.getElementById('join-room').focus();
+  };
+
+  function renderLanding(profile) {
+    const container = document.getElementById('landing-choice');
+    if (!profile) {
+      container.innerHTML = CHOICES.loggedOut;
+    } else if (profile.role === 'commissioner') {
+      container.innerHTML = CHOICES.commissioner;
+    } else if (profile.role === 'captain') {
+      container.innerHTML = CHOICES.captain;
+    } else {
+      container.innerHTML = CHOICES.viewer;
+    }
+    // Cap the grid to 2 or 3 columns nicely
+    const count = container.children.length;
+    container.style.gridTemplateColumns = count >= 3 ? 'repeat(3, 1fr)' : '1fr 1fr';
+  }
+
   watchAuth((session) => {
     if (session && session.profile) {
       renderAuthBadge(document.getElementById('auth-strip'), session.profile);
@@ -78,6 +170,9 @@ function joinAsSpectator() {
       if (session.profile.role === 'commissioner') {
         document.getElementById('nav-admin').style.display = '';
       }
+      renderLanding(session.profile);
+    } else {
+      renderLanding(null);
     }
   });
 </script>
