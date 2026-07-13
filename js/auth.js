@@ -118,6 +118,36 @@ export async function updateUserRole(uid, patch) {
   await update(ref(db, `users/${uid}`), patch);
 }
 
+/** Commissioner: delete a user's DB profile AND free up their invite code.
+ *  Note: this does NOT delete the Firebase Auth entry (requires admin SDK).
+ *  Returns { authUid, freedCode } so caller can show the manual step. */
+export async function resetUser(uid) {
+  // Fetch user first
+  const snap = await get(ref(db, `users/${uid}`));
+  const userData = snap.val();
+  if (!userData) throw new Error('User not found in database.');
+
+  // Find the invite code they used (search for consumedBy === uid)
+  const invSnap = await get(ref(db, 'inviteCodes'));
+  const codes = invSnap.val() || {};
+  let freedCode = null;
+  for (const [code, data] of Object.entries(codes)) {
+    if (data.consumedBy === uid) {
+      await update(ref(db, `inviteCodes/${code}`), {
+        consumed: false,
+        consumedBy: null,
+        consumedAt: null
+      });
+      freedCode = code;
+    }
+  }
+
+  // Delete their user profile
+  await remove(ref(db, `users/${uid}`));
+
+  return { authUid: uid, freedCode, username: userData.username, displayName: userData.displayName };
+}
+
 // ============ PAGE GUARD ============
 /**
  * Redirect to login if not signed in. Call at the top of a protected page.

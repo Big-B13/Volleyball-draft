@@ -63,6 +63,7 @@ const params = new URLSearchParams(location.search);
 const roomId    = (params.get('room')  || '').toUpperCase();
 const codeGiven = (params.get('code')  || '').toUpperCase();
 const spectate  = params.get('spectate') === '1';
+const impersonate = params.get('impersonate') || ''; // e.g. 'c1' — commissioner-only
 
 document.getElementById('loading-room').textContent = roomId || '(no room)';
 
@@ -86,6 +87,11 @@ function subscribe() {
     // Resolve who am I
     if (spectate) {
       myCaptainIdx = null;
+    } else if (impersonate && __authProfile && __authProfile.role === 'commissioner') {
+      // Commissioner impersonating a captain slot (for testing)
+      const idx = state.captains.findIndex(c => c.id === impersonate);
+      if (idx < 0) { showError('That captain slot doesn\'t exist in this room.'); return; }
+      myCaptainIdx = idx;
     } else if (codeGiven) {
       const idx = state.captains.findIndex(c => (c.code || '').toUpperCase() === codeGiven);
       if (idx < 0) { showError('Invalid captain code for this room.'); return; }

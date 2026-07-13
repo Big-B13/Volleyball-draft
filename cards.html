@@ -391,7 +391,7 @@
     <a href="./cards.html" class="active">🃏 Cards</a>
   </nav>
 
-  <h1>🃏 TRADING CARDS</h1>
+  <h1><span class="emoji">🃏</span> TRADING CARDS</h1>
   <p class="tagline">Player cards for hype. Click any card to download it as a 1080×1080 PNG for Instagram/Discord/WhatsApp.</p>
 
   <div class="mode-toggle">
@@ -724,15 +724,24 @@
   }
 
   async function downloadCard(cardEl, filename) {
-    // Render the card at native 1080x1080 by temporarily un-scaling
-    const original = cardEl.style.transform;
-    const originalParentOverflow = cardEl.parentElement.style.overflow;
-    cardEl.style.transform = 'none';
-    cardEl.parentElement.style.overflow = 'visible';
-    // Move offscreen to avoid layout jump
-    const originalPos = cardEl.style.position;
+    // Clone the card and render it at native 1080x1080 in a hidden off-screen container.
+    // This avoids scaling issues from the .card-thumb wrapper.
+    const clone = cardEl.cloneNode(true);
+    const stage = document.createElement('div');
+    stage.style.cssText = 'position: fixed; left: -20000px; top: 0; width: 1080px; height: 1080px; overflow: visible; z-index: -1;';
+    clone.style.transform = 'none';
+    clone.style.width = '1080px';
+    clone.style.height = '1080px';
+    stage.appendChild(clone);
+    document.body.appendChild(stage);
     try {
-      const canvas = await html2canvas(cardEl, { width: 1080, height: 1080, scale: 1, backgroundColor: null, useCORS: true, logging: false });
+      // Wait one frame so the browser lays out the clone
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const canvas = await html2canvas(clone, {
+        width: 1080, height: 1080,
+        windowWidth: 1080, windowHeight: 1080,
+        scale: 1, backgroundColor: null, useCORS: true, logging: false, allowTaint: true
+      });
       const link = document.createElement('a');
       link.download = `${filename}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -741,9 +750,7 @@
       console.error(e);
       alert('Card download failed: ' + e.message);
     } finally {
-      cardEl.style.transform = original;
-      cardEl.parentElement.style.overflow = originalParentOverflow;
-      cardEl.style.position = originalPos;
+      stage.remove();
     }
   }
 
@@ -758,15 +765,24 @@
       let done = 0;
       for (const wrap of wraps) {
         const cardEl = wrap.querySelector('.tcg-card');
-        const filename = wrap.querySelector('.download-btn').dataset.filename ||
-          `card-${done}`;
-        const original = cardEl.style.transform;
-        cardEl.style.transform = 'none';
-        cardEl.parentElement.style.overflow = 'visible';
-        const canvas = await html2canvas(cardEl, { width: 1080, height: 1080, scale: 1, backgroundColor: null, useCORS: true, logging: false });
-        cardEl.style.transform = original;
+        const filename = wrap.querySelector('.download-btn').dataset.filename || `card-${done}`;
+        const clone = cardEl.cloneNode(true);
+        const stage = document.createElement('div');
+        stage.style.cssText = 'position: fixed; left: -20000px; top: 0; width: 1080px; height: 1080px; overflow: visible; z-index: -1;';
+        clone.style.transform = 'none';
+        clone.style.width = '1080px';
+        clone.style.height = '1080px';
+        stage.appendChild(clone);
+        document.body.appendChild(stage);
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const canvas = await html2canvas(clone, {
+          width: 1080, height: 1080,
+          windowWidth: 1080, windowHeight: 1080,
+          scale: 1, backgroundColor: null, useCORS: true, logging: false, allowTaint: true
+        });
+        stage.remove();
         const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-        zip.file(`${currentMode}-${done+1}.png`, blob);
+        zip.file(`${filename}.png`, blob);
         done++;
         btn.textContent = `⏳ Generating ${done}/${wraps.length}...`;
       }

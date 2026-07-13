@@ -49,7 +49,7 @@
 </head>
 <body>
 <div class="container">
-  <h1>🔐 THE GOMI CUP</h1>
+  <h1><span class="emoji">🔐</span> THE GOMI CUP</h1>
   <p class="tagline">Log in to view player cards, join drafts, and see the big reveal.</p>
 
   <div class="auth-wrap">
@@ -97,15 +97,18 @@
 </div>
 
 <script type="module">
-  import { login, signUpWithInvite, watchAuth } from "./js/auth.js";
+  import { login, signUpWithInvite, watchAuth, getUserProfile } from "./js/auth.js";
+  import { auth } from "./js/firebase-init.js";
 
-  // If already logged in, redirect
+  function redirectAfterAuth() {
+    const params = new URLSearchParams(location.search);
+    const next = params.get('next') || './index.html';
+    location.replace(next);
+  }
+
+  // If already logged in (with a profile), redirect
   watchAuth((session) => {
-    if (session && session.profile) {
-      const params = new URLSearchParams(location.search);
-      const next = params.get('next') || './index.html';
-      location.replace(next);
-    }
+    if (session && session.profile) redirectAfterAuth();
   });
 
   window.showTab = (which) => {
@@ -123,16 +126,32 @@
     if (!text) el.style.display = 'none';
   }
 
+  // Retry profile fetch a few times, since Firebase may race between auth + DB write
+  async function waitForProfile(uid, tries = 8) {
+    for (let i = 0; i < tries; i++) {
+      const p = await getUserProfile(uid);
+      if (p) return p;
+      await new Promise(r => setTimeout(r, 250));
+    }
+    return null;
+  }
+
   window.doLogin = async () => {
     const u = document.getElementById('login-username').value.trim();
     const p = document.getElementById('login-password').value;
     if (!u || !p) return setMsg('Fill in both fields.', 'err');
     try {
       setMsg('Signing in…', 'ok');
-      await login(u, p);
-      // watchAuth will handle redirect
+      const user = await login(u, p);
+      // Wait for profile, then redirect explicitly
+      const profile = await waitForProfile(user.uid);
+      if (!profile) return setMsg('❌ Signed in but no profile found. Ask the commissioner to check your account.', 'err');
+      setMsg('✅ Welcome back!', 'ok');
+      redirectAfterAuth();
     } catch (e) {
-      const readable = e.message.includes('invalid-credential') || e.message.includes('wrong-password') || e.message.includes('user-not-found')
+      console.error('Login error:', e);
+      const raw = (e.message || '') + ' ' + (e.code || '');
+      const readable = raw.includes('invalid-credential') || raw.includes('wrong-password') || raw.includes('user-not-found') || raw.includes('INVALID_LOGIN_CREDENTIALS')
         ? 'Wrong username or password.'
         : e.message;
       setMsg('❌ ' + readable, 'err');
@@ -147,12 +166,26 @@
     if (p.length < 6)      return setMsg('Password must be at least 6 characters.', 'err');
     try {
       setMsg('Creating account…', 'ok');
-      await signUpWithInvite(u, p, code);
-      // watchAuth handles redirect
+      const user = await signUpWithInvite(u, p, code);
+      // Give the profile a moment to be readable, then redirect
+      await waitForProfile(user.uid);
+      setMsg('✅ Account created! Redirecting…', 'ok');
+      redirectAfterAuth();
     } catch (e) {
-      const readable = e.message.includes('email-already-in-use') ? 'That username is already taken.'
-                      : e.message.includes('Invalid or already-used invite') ? '❌ Invite code invalid or already used.'
-                      : e.message;
+      console.error('Signup error:', e);
+      const raw = (e.message || '') + ' ' + (e.code || '');
+      let readable;
+      if (raw.includes('email-already-in-use') || raw.includes('EMAIL_EXISTS')) {
+        readable = `That username is already taken in the system. Try a different username, or ask the commissioner to delete the old account in Firebase Console → Authentication → Users.`;
+      } else if (raw.includes('Invalid or already-used invite')) {
+        readable = 'Invite code is invalid or already used. Ask the commissioner for a fresh code.';
+      } else if (raw.includes('weak-password') || raw.includes('WEAK_PASSWORD')) {
+        readable = 'Password too weak. Use at least 6 characters.';
+      } else if (raw.includes('operation-not-allowed')) {
+        readable = 'Email/Password sign-up is not enabled in Firebase. Ask the commissioner to enable it.';
+      } else {
+        readable = e.message;
+      }
       setMsg('❌ ' + readable, 'err');
     }
   };

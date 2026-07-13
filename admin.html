@@ -58,7 +58,7 @@
 
   <div id="auth-badge" style="text-align:right; margin-bottom: 12px;"></div>
 
-  <h1>👑 COMMISSIONER PANEL</h1>
+  <h1><span class="emoji">👑</span> COMMISSIONER PANEL</h1>
   <p class="tagline">Create invite codes and manage users.</p>
 
   <div class="card">
@@ -116,7 +116,7 @@
 <script type="module">
   import {
     guardPage, renderAuthBadge, createInviteCode, listInviteCodes,
-    listUsers, deleteInviteCode, updateUserRole
+    listUsers, deleteInviteCode, updateUserRole, resetUser
   } from "./js/auth.js";
   import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS } from "./js/data.js";
 
@@ -186,6 +186,29 @@
     await refresh();
   };
 
+  window.resetUserAccount = async (uid, name) => {
+    if (!confirm(`Reset account for "${name}"?\n\nThis will:\n• Delete their profile from the database\n• Free up their invite code so they can re-sign-up with a new password\n\nYou'll then need to manually delete their Firebase Auth entry (I'll show you the UID).`)) return;
+    try {
+      const result = await resetUser(uid);
+      const msg = `✅ Reset complete for ${result.displayName || result.username}!
+
+Freed invite code: ${result.freedCode || '(none found — you may need to create a new one)'}
+
+⚠️ ONE MORE STEP — Delete their Firebase Auth entry:
+1. Firebase Console → Authentication → Users
+2. Find their email and delete
+3. Their Auth UID is: ${result.authUid}
+
+Then they can sign up fresh with the invite code above.`;
+      alert(msg);
+      // Copy the auth UID to clipboard for convenience
+      try { await navigator.clipboard.writeText(result.authUid); } catch (e) {}
+      await refresh();
+    } catch (e) {
+      alert('❌ Reset failed: ' + e.message);
+    }
+  };
+
   async function refresh() {
     const codes = await listInviteCodes();
     document.getElementById('code-count').textContent = codes.length;
@@ -207,8 +230,10 @@
 
     const users = await listUsers();
     document.getElementById('user-count').textContent = users.length;
-    document.getElementById('user-list').innerHTML = users.map(u => `
-      <div class="invite-row" style="grid-template-columns: 1fr 130px 1fr 130px;">
+    document.getElementById('user-list').innerHTML = users.map(u => {
+      const safeName = (u.displayName || u.username || '').replace(/'/g, "\\'");
+      return `
+      <div class="invite-row" style="grid-template-columns: 1fr 130px 1fr 130px 80px;">
         <div><strong>${u.displayName || u.username}</strong> <span style="color:#64748b; font-size:0.8rem;">@${u.username}</span></div>
         <div><span class="role-badge ${u.role||'viewer'}">${u.role||'viewer'}</span></div>
         <div style="color:#64748b; font-size:0.75rem;">${u.captainId ? 'linked: '+u.captainId : ''}</div>
@@ -217,8 +242,9 @@
           <option value="captain" ${u.role==='captain'?'selected':''}>captain</option>
           <option value="commissioner" ${u.role==='commissioner'?'selected':''}>commissioner</option>
         </select>
+        <button onclick="resetUserAccount('${u.uid}', '${safeName}')" title="Reset password / delete account" style="background:#7c2d12; color:#fed7aa;">🔄 Reset</button>
       </div>
-    `).join('') || '<div style="color:#64748b;">No registered users yet.</div>';
+    `;}).join('') || '<div style="color:#64748b;">No registered users yet.</div>';
   }
 
   await refresh();

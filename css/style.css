@@ -20,6 +20,16 @@ h1 {
   background-clip: text;
   letter-spacing: 1px;
 }
+/* Emojis inside h1 shouldn't get the text-gradient blob.
+   Wrap them in <span class="emoji"> OR just use this fallback trick.
+   Text-shadow gives fallback rendering; the pseudo emoji-restore. */
+h1 .emoji, h1 > .noclip {
+  -webkit-text-fill-color: initial;
+  background: none;
+  -webkit-background-clip: initial;
+          background-clip: initial;
+  color: initial;
+}
 
 .tagline { text-align: center; color: #94a3b8; margin-bottom: 30px; font-size: 0.95rem; }
 
