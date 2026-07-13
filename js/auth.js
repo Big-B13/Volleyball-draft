@@ -191,7 +191,9 @@ export function renderAuthBadge(el, profile) {
     </div>
   `;
   window.__logout = async () => {
+    if (!confirm('Log out?')) return;
     await logout();
-    location.href = './index.html';
+    // Hard reload to bust any cached content
+    location.href = './login.html';
   };
 }

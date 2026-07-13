@@ -13,6 +13,8 @@
   .mode-toggle { display:flex; gap:8px; justify-content:center; margin: 24px 0; flex-wrap:wrap; }
   .mode-btn { padding: 10px 18px; background:#334155; border:none; color:#cbd5e1; border-radius:8px; cursor:pointer; font-weight:600; }
   .mode-btn.active { background:linear-gradient(90deg,#f97316,#ef4444); color:#fff; }
+  .lock-icon { font-size: 0.75rem; opacity: 0.7; }
+  body.logged-in .lock-icon { display: none; }
 
   .card-grid {
     display: grid;
@@ -380,6 +382,8 @@
 </head>
 <body>
 <div class="container">
+  <div id="auth-badge-top" style="text-align:right; margin-bottom: 12px; min-height: 34px;"></div>
+
   <nav class="topnav">
     <a href="./index.html">🏠 Home</a>
     <a href="./league.html">🏆 League</a>
@@ -391,14 +395,14 @@
   <p class="tagline">Player cards for hype. Click any card to download it as a 1080×1080 PNG for Instagram/Discord/WhatsApp.</p>
 
   <div class="mode-toggle">
-    <button class="mode-btn active" data-mode="blind">🖤 Pre-draft (silhouette + hidden names)</button>
-    <button class="mode-btn" data-mode="full">🎬 Full reveal (real names + photos)</button>
-    <button class="mode-btn" data-mode="rosters">🏆 Team roster cards</button>
+    <button class="mode-btn active" data-mode="blind">🖤 Pre-draft (public)</button>
+    <button class="mode-btn" data-mode="full"><span class="lock-icon">🔒</span> 🎬 Full reveal</button>
+    <button class="mode-btn" data-mode="rosters"><span class="lock-icon">🔒</span> 🏆 Team rosters</button>
   </div>
 
   <div class="info-box" id="mode-info"></div>
 
-  <div style="text-align:center; margin: 20px 0;">
+  <div id="dl-all-wrap" style="text-align:center; margin: 20px 0;">
     <button class="download-btn all" onclick="downloadAll()">📥 Download all visible cards as ZIP</button>
   </div>
 
@@ -411,12 +415,27 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <script type="module">
-  import { guardPage, renderAuthBadge } from "./js/auth.js";
-  const { profile } = await guardPage({ requireRole: 'viewer' });
-  const badgeEl = document.createElement('div');
-  badgeEl.style.cssText = 'text-align:right; margin-bottom:12px;';
-  document.querySelector('.container').insertBefore(badgeEl, document.querySelector('.container').firstChild);
-  renderAuthBadge(badgeEl, profile);
+  import { watchAuth, renderAuthBadge } from "./js/auth.js";
+  // Cards page: public for blind mode, login required for full reveal & rosters
+  window.__cardsSession = null;
+  watchAuth((session) => {
+    window.__cardsSession = session;
+    // Toggle body class for CSS state
+    document.body.classList.toggle('logged-in', !!(session && session.profile));
+    // If user just logged in and they're on a locked mode, refresh
+    if (session && session.profile && document.getElementById('login-gate')) {
+      if (typeof window.__renderCards === 'function') window.__renderCards();
+    }
+    // Render auth badge or "Log in" link
+    const badge = document.getElementById('auth-badge-top');
+    if (badge) {
+      if (session && session.profile) {
+        renderAuthBadge(badge, session.profile);
+      } else {
+        badge.innerHTML = '<a href="./login.html" style="color:#fbbf24; text-decoration:none; padding:6px 14px; background:rgba(251,191,36,0.15); border-radius:20px; font-size:0.85rem;">🔐 Log in for full reveal</a>';
+      }
+    }
+  });
 </script>
 <script type="module">
   import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM, LOGO_URLS, photoPathFor, getInitials } from "./js/data.js";
@@ -588,20 +607,49 @@
     };
   });
 
+  function showLoginGate(modeLabel) {
+    const grid = document.getElementById('grid');
+    const info = document.getElementById('mode-info');
+    const dlWrap = document.getElementById('dl-all-wrap');
+    if (dlWrap) dlWrap.style.display = 'none';
+    info.innerHTML = '';
+    grid.innerHTML = `
+      <div id="login-gate" style="grid-column: 1 / -1; text-align:center; padding: 60px 24px; background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(239,68,68,0.05)); border: 2px dashed #fbbf24; border-radius: 16px;">
+        <div style="font-size: 4rem; margin-bottom: 16px;">🔒</div>
+        <h2 style="color: #fbbf24; margin-bottom: 12px;">${modeLabel} is for members only</h2>
+        <p style="color: #cbd5e1; max-width: 500px; margin: 0 auto 24px; line-height: 1.6;">
+          The silhouette cards are public — anyone can see them.<br>
+          The real identities, photos and rosters are exclusive to registered members of The Gomi Cup.
+        </p>
+        <a href="./login.html?next=${encodeURIComponent(location.pathname + location.search)}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(90deg, #f97316, #ef4444); color: #fff; font-weight: 700; text-decoration: none; border-radius: 8px; font-size: 1rem;">
+          🔐 Log in to unlock
+        </a>
+        <div style="margin-top: 12px; font-size: 0.85rem; color: #94a3b8;">
+          Don't have an account? Ask Big-B for an invite code.
+        </div>
+      </div>
+    `;
+  }
+
   async function render() {
     const grid = document.getElementById('grid');
     const info = document.getElementById('mode-info');
+    const dlWrap = document.getElementById('dl-all-wrap');
+    if (dlWrap) dlWrap.style.display = '';
     grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;">Rendering cards…</div>';
 
+    const isLoggedIn = window.__cardsSession && window.__cardsSession.profile;
+
     if (currentMode === 'blind') {
-      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. Captains excluded from blind set (identities already known).';
+      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. <strong>Public — no login needed.</strong>';
       grid.innerHTML = '';
       for (const p of players) {
         const wrap = await makeCardWrap(p, 'blind', playerCardHtml, `blind-${p.id}`, false);
         grid.appendChild(wrap);
       }
     } else if (currentMode === 'full') {
-      info.innerHTML = '🎬 <strong>Full reveal cards</strong> — nickname + real name + photo + stats. Includes the 3 captains at the top. Share these to show off your league.';
+      if (!isLoggedIn) { showLoginGate('Full reveal'); return; }
+      info.innerHTML = '🎬 <strong>Full reveal cards</strong> — nickname + real name + photo + stats. Includes the 3 captains at the top.';
       grid.innerHTML = '';
       for (const c of captainsAsPlayers) {
         const wrap = await makeCardWrap(c, 'full', (p, m) => playerCardHtml(p, m, c.teamColor), `captain-${c.id}`, false);
@@ -612,6 +660,7 @@
         grid.appendChild(wrap);
       }
     } else if (currentMode === 'rosters') {
+      if (!isLoggedIn) { showLoginGate('Team roster cards'); return; }
       if (liveDraft) {
         info.innerHTML = `🏆 <strong>Team roster cards</strong> — pulling live results from room <strong>${roomId}</strong>. These show the actual drafted teams!`;
       } else {
@@ -627,6 +676,9 @@
       }
     }
   }
+
+  // Expose so the auth watcher can re-render if login state changes while page is open
+  window.__renderCards = render;
 
   async function makeCardWrap(entity, mode, htmlFn, filename, isRoster) {
     const wrap = document.createElement('div');
