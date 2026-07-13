@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clubs — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; transition:all 0.2s; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .club-hero {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 24px;
+    align-items: center;
+    padding: 28px;
+    border-radius: 14px;
+    margin-bottom: 24px;
+    border-top: 6px solid;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.2s;
+  }
+  .club-hero:hover { transform: translateY(-3px); }
+  .club-hero img.logo { max-width: 180px; max-height: 180px; filter: drop-shadow(0 0 20px currentColor); }
+  .club-hero h2 { font-size: 2rem; margin-bottom: 4px; color: #fff; }
+  .club-hero .tagline { color: #cbd5e1; font-style: italic; margin-bottom: 10px; }
+  .club-hero .motto {
+    display: inline-block;
+    padding: 6px 12px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+    letter-spacing: 2px;
+  }
+  .club-hero .snippet { color: #e2e8f0; line-height: 1.6; }
+  .club-hero .arrow { color: #fbbf24; margin-top: 12px; display: inline-block; font-weight: 700; }
+  @media (max-width: 720px) {
+    .club-hero { grid-template-columns: 1fr; text-align: center; }
+    .club-hero img.logo { margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./league.html">🏆 League</a>
+    <a href="./clubs.html" class="active">🛡️ Clubs</a>
+  </nav>
+
+  <h1>🛡️ THE THREE HOUSES</h1>
+  <p class="tagline">Three teams. Three philosophies. One court to prove them on.</p>
+
+  <div id="club-list"></div>
+</div>
+
+<script type="module">
+  import { CLUBS } from "./js/lore.js";
+  document.getElementById('club-list').innerHTML = Object.values(CLUBS).map(c => `
+    <a class="club-hero" href="./clubs/${c.id}.html"
+       style="border-top-color:${c.colorPrimary}; background:linear-gradient(135deg, ${c.colorPrimary}22, #1e293b); color:${c.colorPrimary};">
+      <div><img class="logo" src="${c.logoUrl}" alt="${c.name}"></div>
+      <div>
+        <h2 style="color:${c.colorPrimary}">${c.name}</h2>
+        <div class="tagline">${c.tagline}</div>
+        <div class="motto" style="color:${c.colorPrimary};">${c.motto.kanji} · ${c.motto.english}</div>
+        <div class="snippet">${c.identity}</div>
+        <div class="arrow">Read full history →</div>
+      </div>
+    </a>
+  `).join('');
+</script>
+</body>
+</html>

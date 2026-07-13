@@ -91,20 +91,32 @@ volleyball-draft-online/
 ├── index.html              # Landing page (join / commissioner)
 ├── setup.html              # Commissioner setup screen
 ├── draft.html              # Live draft screen (captains + spectators)
-├── reveal.html             # Big reveal screen
+├── reveal.html             # Big reveal screen (with team lore + player bios)
+├── league.html             # The Gomi Cup founding story
+├── clubs.html              # Overview of all 3 clubs
+├── clubs/
+│   ├── strigidae.html      # Strigidae 🦉 full page
+│   ├── otters.html         # Kòrsou Otters 🦦 full page
+│   ├── shizuka.html        # Shizuka ☁️ full page
+│   └── _template.html      # Shared template (source of the club pages)
 ├── css/style.css           # Shared styles
 ├── js/
 │   ├── firebase-config.js  # YOUR Firebase config (edit this!)
 │   ├── firebase-init.js    # Firebase SDK loader
 │   ├── data.js             # 29 default players + captain defaults
+│   ├── lore.js             # League + club history + player bios
 │   ├── setup.js            # Commissioner setup logic
 │   ├── draft.js            # Live draft logic (real-time)
 │   ├── reveal.js           # Reveal screen logic
 │   └── util.js             # Shared helpers (snake draft order, etc.)
 └── assets/
-    ├── strigidae.png
+    ├── strigidae.png       # Club logos
     ├── otters.png
-    └── shizuka.png
+    ├── shizuka.png
+    └── jerseys/
+        ├── strigidae.png   # Jersey mockups
+        ├── otters.png
+        └── shizuka.png
 ```
 
 ## License

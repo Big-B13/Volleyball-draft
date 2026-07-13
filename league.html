@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Gomi Cup — History</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  .hero {
+    text-align: center;
+    padding: 60px 20px 40px;
+    background: radial-gradient(ellipse at top, rgba(251,191,36,0.15), transparent 60%);
+    border-radius: 14px;
+    margin-bottom: 30px;
+  }
+  .hero h1 { font-size: 3rem; margin-bottom: 12px; }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: #cbd5e1;
+    font-style: italic;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+  .hero .founded { color: #64748b; font-size: 0.9rem; letter-spacing: 4px; text-transform: uppercase; }
+  .chapter {
+    padding: 24px 28px;
+    background: rgba(30, 41, 59, 0.7);
+    border-left: 4px solid #fbbf24;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  .chapter h2 {
+    color: #fbbf24;
+    font-size: 1.3rem;
+    margin-bottom: 12px;
+    letter-spacing: 1px;
+  }
+  .chapter p {
+    color: #e2e8f0;
+    line-height: 1.7;
+    font-size: 1.02rem;
+  }
+  .three-clubs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 40px 0 20px;
+  }
+  .club-mini {
+    text-align: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, 0.7);
+    border-radius: 12px;
+    border-top: 4px solid;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.2s;
+  }
+  .club-mini:hover { transform: translateY(-3px); }
+  .club-mini img { height: 90px; margin-bottom: 12px; filter: drop-shadow(0 0 12px currentColor); }
+  .club-mini h3 { color: #fff; margin-bottom: 4px; font-size: 1.1rem; }
+  .club-mini .role { color: #94a3b8; font-size: 0.85rem; }
+  nav.topnav {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  nav.topnav a {
+    color: #cbd5e1;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    background: rgba(30,41,59,0.6);
+    font-size: 0.9rem;
+    transition: all 0.2s;
+  }
+  nav.topnav a:hover, nav.topnav a.active { background: #fbbf24; color: #0f172a; }
+  @media (max-width: 720px) {
+    .three-clubs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./league.html" class="active">🏆 League</a>
+    <a href="./clubs.html">🛡️ Clubs</a>
+  </nav>
+
+  <div class="hero">
+    <div class="founded">Founded 2026 · Indoor</div>
+    <h1 id="league-title"></h1>
+    <p class="subtitle" id="league-tagline"></p>
+  </div>
+
+  <div id="chapters"></div>
+
+  <h2 style="text-align:center; margin-top:40px; color:#fbbf24;">The Three Houses</h2>
+  <div class="three-clubs" id="three-clubs"></div>
+
+  <div style="text-align:center; margin-top:30px;">
+    <a href="./clubs.html"><button>Read the full club histories →</button></a>
+  </div>
+</div>
+
+<script type="module">
+  import { LEAGUE, CLUBS } from "./js/lore.js";
+  document.getElementById('league-title').textContent = LEAGUE.name;
+  document.getElementById('league-tagline').textContent = LEAGUE.tagline;
+  document.getElementById('chapters').innerHTML = LEAGUE.chapters.map(c => `
+    <div class="chapter">
+      <h2>${c.title}</h2>
+      <p>${c.body}</p>
+    </div>
+  `).join('');
+  document.getElementById('three-clubs').innerHTML = Object.values(CLUBS).map(c => `
+    <a class="club-mini" href="./clubs/${c.id}.html" style="border-top-color:${c.colorPrimary}; color:${c.colorPrimary};">
+      <img src="${c.logoUrl}" alt="${c.name}">
+      <h3>${c.name}</h3>
+      <div class="role">${c.captain.name} · ${c.captain.role}</div>
+    </a>
+  `).join('');
+</script>
+</body>
+</html>
