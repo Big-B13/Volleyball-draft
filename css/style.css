@@ -175,17 +175,17 @@ button.big { display: block; width: 100%; padding: 18px; font-size: 1.15rem; mar
 /* ===== Mini trading-card grid for the reveal roster ===== */
 .roster-mini-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 16px;
 }
 /* Single-row layout for the drafted teams (captain + 5 players = 6 cards) */
 .roster-mini-grid.lineup {
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 /* Grid layout for the undrafted "didn't make it" section — wraps freely */
 .roster-mini-grid.wrap {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 .mini-tcg {
   position: relative;
@@ -260,11 +260,12 @@ button.big { display: block; width: 100%; padding: 18px; font-size: 1.15rem; mar
   text-align: center; z-index: 3;
 }
 .mini-tcg .mini-nick {
-  font-size: 1.05rem; font-weight: 900;
-  color: #fff; line-height: 1;
+  font-size: 0.95rem; font-weight: 900;
+  color: #fff; line-height: 1.1;
   text-shadow: 0 2px 8px rgba(0,0,0,0.9);
   letter-spacing: 0.5px; text-transform: uppercase;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .mini-tcg .mini-real {
   margin-top: 4px;
@@ -273,13 +274,13 @@ button.big { display: block; width: 100%; padding: 18px; font-size: 1.15rem; mar
   letter-spacing: 1.5px; text-transform: uppercase;
 }
 .mini-tcg .mini-stats {
-  position: absolute; bottom: 8px; left: 8px; right: 8px;
+  position: absolute; bottom: 8px; left: 6px; right: 6px;
   background: rgba(0,0,0,0.85);
-  border-radius: 8px;
-  padding: 6px 4px;
+  border-radius: 6px;
+  padding: 5px 2px;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 2px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
   z-index: 3;
 }
 .mini-tcg .mini-stat {
