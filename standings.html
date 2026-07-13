@@ -116,6 +116,19 @@
     <h2><span class="emoji">📋</span> Recent matches</h2>
     <div id="matches"></div>
   </div>
+
+  <div id="player-stats-section" class="card hidden">
+    <h2><span class="emoji">🌟</span> Log player stats for a match</h2>
+    <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:14px;">
+      Pick a match, then fill in each player's numbers. Only commissioners can log stats.
+    </p>
+    <label>Match</label>
+    <select id="stats-match-select" style="max-width: 500px;"></select>
+    <div id="stats-editor" style="margin-top: 16px;"></div>
+    <p style="color:#94a3b8; font-size:0.8rem; margin-top:12px;">
+      💡 <a href="./player-stats.html" style="color:#fbbf24;">View the full player leaderboards →</a>
+    </p>
+  </div>
 </div>
 
 <script type="module" src="./js/back-button.js"></script>
@@ -125,7 +138,10 @@
   import { watchMatches, logMatch, deleteMatch, computeStandings } from "./js/standings.js";
   import { watchAuth } from "./js/auth.js";
   import { escapeHtml } from "./js/util.js";
-  import { LOGO_URLS } from "./js/data.js";
+  import { LOGO_URLS, photoPathFor, getInitials } from "./js/data.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { savePlayerStats, watchStats, STAT_FIELDS } from "./js/player-stats.js";
+  import { db, ref, get } from "./js/firebase-init.js";
 
   await ensureGomiCupSeeded();
 
@@ -144,11 +160,40 @@
   watchAuth((session) => {
     isCommish = !!(session && session.profile && session.profile.role === 'commissioner');
     document.getElementById('commish-only').classList.toggle('hidden', !isCommish);
+    document.getElementById('player-stats-section').classList.toggle('hidden', !isCommish);
   });
 
+  // Player stats section
+  let allPlayers = [];
+  let playerRosters = {}; // playerId -> captainId from the most recent completed draft
+  let currentStatsBlob = {};
+  let statsUnsub = null;
+
+  (async () => { allPlayers = await getAllPlayers(); })();
+
+  async function loadRosterMapForLeague(leagueId) {
+    const snap = await get(ref(db, 'drafts'));
+    const drafts = snap.val() || {};
+    let latest = null;
+    for (const [id, d] of Object.entries(drafts)) {
+      if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
+      if (d.status !== 'complete') continue;
+      if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+    }
+    const map = {};
+    if (latest && latest.picks) {
+      for (const pk of latest.picks) {
+        const cap = latest.captains[pk.captainIdx];
+        if (cap) map[pk.playerId] = cap.id;
+      }
+    }
+    return map;
+  }
+
   let matchUnsub = null;
-  function switchLeague(leagueId) {
+  async function switchLeague(leagueId) {
     if (matchUnsub) matchUnsub();
+    if (statsUnsub) statsUnsub();
     selectedLeague = leagues.find(l => l.id === leagueId);
     if (!selectedLeague) return;
     // Populate team dropdowns
@@ -159,12 +204,132 @@
     if (selectedLeague.captains && selectedLeague.captains.length > 1) {
       document.getElementById('teamB').selectedIndex = 1;
     }
+    // Load roster mapping so we know which players are on which team
+    playerRosters = await loadRosterMapForLeague(leagueId);
+    // Subscribe to matches and stats in parallel
     matchUnsub = watchMatches(leagueId, (list) => {
       matches = list;
       renderStandings();
       renderMatches();
+      renderStatsMatchDropdown();
+    });
+    statsUnsub = watchStats(leagueId, (blob) => {
+      currentStatsBlob = blob || {};
+      renderStatsEditor();
     });
   }
+
+  function renderStatsMatchDropdown() {
+    const sel = document.getElementById('stats-match-select');
+    if (!sel) return;
+    const capsById = Object.fromEntries((selectedLeague.captains || []).map(c => [c.id, c]));
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— pick a match —</option>' + matches.map(m => {
+      const a = capsById[m.teamAId], b = capsById[m.teamBId];
+      if (!a || !b) return '';
+      const when = new Date(m.playedAt || m.loggedAt || Date.now()).toLocaleDateString();
+      return `<option value="${m.id}">${when}: ${escapeHtml(a.team)} ${m.scoreA} – ${m.scoreB} ${escapeHtml(b.team)}</option>`;
+    }).join('');
+    if (prev) sel.value = prev;
+    sel.onchange = renderStatsEditor;
+  }
+
+  function renderStatsEditor() {
+    const box = document.getElementById('stats-editor');
+    if (!box) return;
+    const sel = document.getElementById('stats-match-select');
+    const matchId = sel ? sel.value : '';
+    if (!matchId) {
+      box.innerHTML = '<div style="color:#64748b; padding:12px;">Pick a match above to log player stats.</div>';
+      return;
+    }
+    const match = matches.find(m => m.id === matchId);
+    if (!match) { box.innerHTML = ''; return; }
+    // Roster: only players whose captain is teamA or teamB
+    const eligibleCaps = new Set([match.teamAId, match.teamBId]);
+    const rosterPlayers = allPlayers.filter(p => eligibleCaps.has(playerRosters[p.id]));
+    if (!rosterPlayers.length) {
+      box.innerHTML = `<div style="color:#94a3b8; padding:12px;">
+        No completed draft found for this league yet — can't determine which players are on which team.
+        <br>Once a draft finishes, come back here and log stats.
+      </div>`;
+      return;
+    }
+    const capsById = Object.fromEntries((selectedLeague.captains || []).map(c => [c.id, c]));
+    const existingStats = currentStatsBlob[matchId] || {};
+    box.innerHTML = `
+      <div style="max-height: 460px; overflow-y: auto; border:1px solid #334155; border-radius:8px;">
+      <table class="standings-table" style="min-width: 600px;">
+        <thead>
+          <tr>
+            <th>Player</th>
+            ${STAT_FIELDS.map(f => `<th class="num">${f.short}</th>`).join('')}
+            <th class="num">MVP</th>
+            <th class="num">Save</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rosterPlayers.map(p => {
+            const capId = playerRosters[p.id];
+            const cap = capsById[capId];
+            const s = existingStats[p.id] || {};
+            return `
+              <tr data-pid="${p.id}">
+                <td>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="width:8px; height:8px; background:${cap ? cap.color : '#64748b'}; border-radius:2px;"></span>
+                    <strong>${escapeHtml(p.name)}</strong>
+                    <span style="color:#64748b; font-size:0.75rem;">${escapeHtml(p.position || '')}</span>
+                  </div>
+                </td>
+                ${STAT_FIELDS.map(f => `<td class="num"><input class="ps-${f.id}" type="number" min="0" max="999" value="${s[f.id] || 0}" style="width:56px; padding:4px; text-align:center;"></td>`).join('')}
+                <td class="num"><input type="checkbox" class="ps-mvp" ${s.mvp ? 'checked' : ''}></td>
+                <td class="num"><button class="secondary ps-save" style="padding:4px 10px; font-size:0.75rem;">💾</button></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+      <div class="row-btns" style="margin-top: 12px;">
+        <button onclick="saveAllStats('${matchId}')">💾 Save all rows</button>
+      </div>
+    `;
+    // Wire per-row save buttons
+    box.querySelectorAll('.ps-save').forEach(btn => {
+      const row = btn.closest('tr');
+      btn.addEventListener('click', async () => {
+        await savePlayerStats(selectedLeague.id, matchId, row.dataset.pid, readRowStats(row));
+        btn.textContent = '✅';
+        setTimeout(() => btn.textContent = '💾', 1000);
+      });
+    });
+  }
+
+  function readRowStats(row) {
+    return {
+      kills:   row.querySelector('.ps-kills').value,
+      blocks:  row.querySelector('.ps-blocks').value,
+      aces:    row.querySelector('.ps-aces').value,
+      digs:    row.querySelector('.ps-digs').value,
+      assists: row.querySelector('.ps-assists').value,
+      mvp:     row.querySelector('.ps-mvp').checked
+    };
+  }
+
+  window.saveAllStats = async (matchId) => {
+    const rows = document.querySelectorAll('#stats-editor tr[data-pid]');
+    let count = 0;
+    for (const row of rows) {
+      const s = readRowStats(row);
+      // Skip completely-empty rows (all zeros and no MVP)
+      const isEmpty = !s.mvp && [s.kills, s.blocks, s.aces, s.digs, s.assists].every(v => (parseInt(v)||0) === 0);
+      if (isEmpty) continue;
+      await savePlayerStats(selectedLeague.id, matchId, row.dataset.pid, s);
+      count++;
+    }
+    alert(`✅ Saved ${count} player stat lines.`);
+  };
 
   function renderStandings() {
     if (!selectedLeague) return;
@@ -260,7 +425,7 @@
     await deleteMatch(selectedLeague.id, matchId);
   };
 
-  switchLeague(initialId);
+  await switchLeague(initialId);
 </script>
 </body>
 </html>
