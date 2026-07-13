@@ -3,6 +3,7 @@ import { LOGO_URLS, STAT_KEYS, STAT_LABELS, photoPathFor, getInitials } from "./
 import { CLUBS, PLAYER_BIOS } from "./lore.js";
 import { escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge } from "./auth.js";
+import { photoOffsetY } from "./photo-config.js";
 
 // Require at least a viewer login before showing the reveal
 const { profile: __authProfile } = await guardPage({ requireRole: 'viewer' });

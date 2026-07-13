@@ -66,7 +66,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: 50% 12%;
+    object-position: 50% 15%; /* overridden per-player via inline style */
   }
   .photo-avatar .initials { font-size: 36px; font-weight: 900; color: rgba(255,255,255,0.6); }
   .photo-item .name { font-weight: 700; color: #fff; font-size: 0.95rem; margin-bottom: 4px; }
@@ -139,6 +139,7 @@
 <script type="module">
   import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, photoPathFor, getInitials } from "./js/data.js";
   import { CLUBS } from "./js/lore.js";
+  import { photoOffsetY } from "./js/photo-config.js";
 
   function photoExists(url) {
     return new Promise(r => {
@@ -185,7 +186,8 @@
       div.classList.add('has-photo');
       div.classList.remove('missing');
       const avatar = div.querySelector('.photo-avatar');
-      avatar.innerHTML = `<img src="${url}" alt="${item.name}">`;
+      const yOff = photoOffsetY(item.id);
+      avatar.innerHTML = `<img src="${url}" alt="${item.name}" style="object-position: 50% ${yOff}%;">`;
       div.querySelector('.status-badge').className = 'status-badge ok';
       div.querySelector('.status-badge').textContent = '✓ READY';
       return true;
