@@ -161,14 +161,23 @@ function pickSetter(team) {
   return playerAtSpot(team, 1) || team.lineup[0];
 }
 
-/** Get the blocker matched against a hitter's zone */
+/** Get the blockers matched against a hitter's zone.
+ *  Front row = spots 2, 3, 4 (rotation indices 1, 2, 3). We call ALL three of them
+ *  potential blockers (real blockwall). The engine tags who is the primary vs helpers so the
+ *  visual layer can arrange the wall. */
 function pickBlockers(defendingTeam, hitter) {
-  // Middle blocker (spot 3 = index 2) always joins the block, plus one pin blocker
-  const middle = playerAtSpot(defendingTeam, 2);
-  // Pin blocker = opposite side of the hitter's zone
-  const pinIdx = hitter && hitter.spot.x < 0.5 ? 1 : 3; // hitter on left → block from right pin
-  const pin = playerAtSpot(defendingTeam, pinIdx);
-  return [middle, pin].filter(Boolean);
+  const front = [1, 2, 3].map(i => playerAtSpot(defendingTeam, i)).filter(Boolean);
+  // Primary blocker = the one closest to the hitter's cross-court zone
+  const hitterX = hitter && hitter.spot ? hitter.spot.x : 0.5;
+  // Determine the "matching" front-row spot based on hitter x
+  //   hitter on left (x<0.4)  → primary = defender right pin (rotation idx 1)
+  //   hitter in middle        → primary = middle blocker (rotation idx 2)
+  //   hitter on right (x>0.6) → primary = defender left pin (rotation idx 3)
+  const primaryIdx = hitterX < 0.4 ? 1 : (hitterX > 0.6 ? 3 : 2);
+  const primary = playerAtSpot(defendingTeam, primaryIdx);
+  // Reorder so primary is first, then helpers
+  const ordered = [primary, ...front.filter(f => f && (!primary || f.player.id !== primary.player.id))];
+  return ordered.filter(Boolean);
 }
 
 /** Get all back-row defenders + spot 4/2 non-blocker (if any) */
@@ -272,12 +281,13 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   const attackerEffective = (hitter.player.attack || 5) * setQuality;
   const blockChance = statCheck(avgBlockDef + blockBonus, attackerEffective, 0.20);
   if (blockChance) {
-    // BLOCK!
-    const blocker = blockers[Math.floor(Math.random() * blockers.length)];
+    // BLOCK! Primary blocker gets credit but the whole wall reaches up.
+    const blocker = blockers[0] || blockers[Math.floor(Math.random() * blockers.length)];
     // Ball ricochets back onto the hitter's side of the court
     const hitterSideY = hitter.spot.y > 0.5 ? 0.85 : 0.15;
     events.push({
       type: 'block', actor: blocker, team: attackingSide === 'home' ? 'away' : 'home', hitter,
+      blockers, // full array so the visual layer can draw the blockwall
       toSpot: { x: hitter.spot.x, y: hitterSideY }
     });
     // Blocked ball often lands on hitter's side; sometimes recovered on their side. Assume ~70% point for blocker.
