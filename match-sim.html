@@ -151,9 +151,8 @@
       <div class="row-btns" style="margin-top: 14px;">
         <button onclick="startMatch()">▶️ Start match</button>
       </div>
-      <p style="color:#94a3b8; font-size:0.8rem; margin-top:10px;">
-        Team rosters come from the most recent completed draft in this league.
-        Best of 5 sets, sets 1-4 to 25, set 5 to 15.
+      <p id="roster-note" style="color:#94a3b8; font-size:0.8rem; margin-top:10px;">
+        Loading rosters…
       </p>
     </div>
   </div>
@@ -203,9 +202,10 @@
 <script type="module" src="./js/back-button.js"></script>
 <script type="module">
   import { db, ref, get } from "./js/firebase-init.js";
-  import { listLeagues, ensureGomiCupSeeded, currentLeagueId } from "./js/leagues.js";
-  import { escapeHtml } from "./js/util.js";
+  import { listLeagues, ensureGomiCupSeeded, currentLeagueId, getLeague } from "./js/leagues.js";
+  import { escapeHtml, shuffle } from "./js/util.js";
   import { createMatch, simulateRally, playerAtSpot } from "./js/match-engine.js";
+  import { getAllPlayers } from "./js/players.js";
   import { playPick, playYourTurn, playReveal } from "./js/sounds.js";
 
   await ensureGomiCupSeeded();
@@ -215,13 +215,28 @@
   const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
   lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
   lgSel.addEventListener('change', populateTeams);
+
+  // Cache all players once (needed for random-fill rosters when there's no draft)
+  const ALL_PLAYERS = await getAllPlayers();
+  const PLAYERS_BY_ID = Object.fromEntries(ALL_PLAYERS.map(p => [p.id, p]));
+
+  let leagueDraft = null;      // most recent completed draft for the league, or null
+  let leagueCaptains = [];     // captains from the league (always available if the league exists)
+  let rosterSource = 'random'; // 'draft' or 'random'
+
   await populateTeams();
 
-  let leagueDraft = null;
-  let leagueCaptains = [];
   async function populateTeams() {
-    // Find the most recent completed draft for this league
     const leagueId = lgSel.value;
+    const homeSel = document.getElementById('home-team');
+    const awaySel = document.getElementById('away-team');
+    const noteEl = document.getElementById('roster-note');
+
+    // Always load the league's captains first
+    const league = await getLeague(leagueId);
+    leagueCaptains = (league && league.captains) || [];
+
+    // Try to find the most recent completed draft for this league
     const draftsSnap = await get(ref(db, 'drafts'));
     const drafts = draftsSnap.val() || {};
     let latest = null;
@@ -230,41 +245,73 @@
       if (d.status !== 'complete') continue;
       if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
     }
-    const homeSel = document.getElementById('home-team');
-    const awaySel = document.getElementById('away-team');
-    if (!latest) {
-      homeSel.innerHTML = '<option value="">No completed draft found</option>';
-      awaySel.innerHTML = '<option value="">No completed draft found</option>';
+    leagueDraft = latest;
+    rosterSource = latest ? 'draft' : 'random';
+
+    if (!leagueCaptains.length) {
+      homeSel.innerHTML = '<option value="">No teams in this league yet</option>';
+      awaySel.innerHTML = '<option value="">No teams in this league yet</option>';
+      if (noteEl) noteEl.textContent = 'This league has no captains. Add teams in League Editor first.';
       return;
     }
-    leagueDraft = latest;
-    leagueCaptains = latest.captains || [];
+
     const opts = leagueCaptains.map((c, i) =>
-      `<option value="${i}">${escapeHtml(c.team)} (${escapeHtml(c.name)})</option>`).join('');
+      `<option value="${i}">${escapeHtml(c.team || c.name)} (${escapeHtml(c.name)})</option>`).join('');
     homeSel.innerHTML = opts;
     awaySel.innerHTML = opts;
     if (leagueCaptains.length > 1) awaySel.selectedIndex = 1;
+
+    if (noteEl) {
+      noteEl.textContent = latest
+        ? 'Rosters loaded from the most recent completed draft. Best of 5 · sets 1-4 to 25, set 5 to 15.'
+        : 'No completed draft yet for this league — teams will be filled with random players from the pool for simulation. Best of 5 · sets 1-4 to 25, set 5 to 15.';
+    }
+  }
+
+  // Build a fake captain-as-player entry (stats from linked player if any, else average)
+  function captainAsPlayer(cap) {
+    if (cap.linkedPlayerId && PLAYERS_BY_ID[cap.linkedPlayerId]) {
+      return { ...PLAYERS_BY_ID[cap.linkedPlayerId], jerseyNum: 'C' };
+    }
+    return {
+      id: cap.id || ('cap-' + (cap.name || 'x').toLowerCase()),
+      name: cap.name || 'Captain',
+      nickname: cap.name || 'Captain',
+      attack: 6.5, serve: 6.5, defense: 6.5, setting: 6.5, athletic: 6.5,
+      position: (cap.role || 'OH').split(/[^A-Za-z]/)[0].toUpperCase() || 'OH',
+      jerseyNum: 'C'
+    };
   }
 
   // Get roster (drafted players + captain) for a captain
-  function getRoster(captainIdx) {
-    const picks = (leagueDraft.picks || []).filter(p => p.captainIdx === captainIdx);
-    const playersById = Object.fromEntries((leagueDraft.players || []).map(p => [p.id, p]));
+  function getRoster(captainIdx, usedIds) {
     const cap = leagueCaptains[captainIdx];
-    const captainPlayer = cap.linkedPlayerId ? playersById[cap.linkedPlayerId] : null;
-    const roster = [];
-    // Captain acts as one of the players
-    if (captainPlayer) roster.push({ ...captainPlayer, jerseyNum: 'C' });
-    else roster.push({
-      id: cap.id, name: cap.name, nickname: cap.name,
-      attack: 6.5, serve: 6.5, defense: 6.5, setting: 6.5, athletic: 6.5,
-      position: (cap.role || '').split(' ').map(w => w[0]).join('').toUpperCase() || 'OH',
-      jerseyNum: 'C'
-    });
-    picks.forEach((pk, i) => {
-      const p = playersById[pk.playerId];
-      if (p) roster.push({ ...p, jerseyNum: i + 1 });
-    });
+    const roster = [captainAsPlayer(cap)];
+    usedIds.add(roster[0].id);
+
+    if (rosterSource === 'draft' && leagueDraft) {
+      const picks = (leagueDraft.picks || []).filter(p => p.captainIdx === captainIdx);
+      const playersById = Object.fromEntries((leagueDraft.players || []).map(p => [p.id, p]));
+      picks.forEach((pk, i) => {
+        const p = playersById[pk.playerId] || PLAYERS_BY_ID[pk.playerId];
+        if (p) { roster.push({ ...p, jerseyNum: i + 1 }); usedIds.add(p.id); }
+      });
+    }
+
+    // Fill up to 6 with random players not yet used, skipping other captains' linked players
+    if (roster.length < 6) {
+      const linkedByOtherCaps = new Set(
+        leagueCaptains.filter((_, i) => i !== captainIdx).map(c => c.linkedPlayerId).filter(Boolean)
+      );
+      const pool = shuffle(ALL_PLAYERS.filter(p => !usedIds.has(p.id) && !linkedByOtherCaps.has(p.id)));
+      let n = roster.length;
+      while (roster.length < 6 && pool.length) {
+        const p = pool.shift();
+        roster.push({ ...p, jerseyNum: n });
+        usedIds.add(p.id);
+        n++;
+      }
+    }
     return roster.slice(0, 6);
   }
 
@@ -277,11 +324,13 @@
   window.startMatch = () => {
     const homeIdx = parseInt(document.getElementById('home-team').value);
     const awayIdx = parseInt(document.getElementById('away-team').value);
+    if (isNaN(homeIdx) || isNaN(awayIdx)) return alert('Pick a team for both home and away.');
     if (homeIdx === awayIdx) return alert('Pick different teams for home and away.');
-    const homeRoster = getRoster(homeIdx);
-    const awayRoster = getRoster(awayIdx);
-    if (homeRoster.length < 6) return alert(`Home team only has ${homeRoster.length} players (need 6).`);
-    if (awayRoster.length < 6) return alert(`Away team only has ${awayRoster.length} players (need 6).`);
+    const usedIds = new Set();
+    const homeRoster = getRoster(homeIdx, usedIds);
+    const awayRoster = getRoster(awayIdx, usedIds);
+    if (homeRoster.length < 6) return alert(`Home team only has ${homeRoster.length} players (need 6). Not enough players in the pool.`);
+    if (awayRoster.length < 6) return alert(`Away team only has ${awayRoster.length} players (need 6). Not enough players in the pool.`);
 
     match = createMatch({
       homeTeam: homeRoster, awayTeam: awayRoster,
