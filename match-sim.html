@@ -813,6 +813,8 @@
     shadow.style.top = (startSpot.y * 100) + '%';
     court.appendChild(shadow);
     court.appendChild(ball);
+    // Reset ball position tracker so distance-based transitions start fresh
+    BALL_LAST_POS = { x: startSpot.x, y: startSpot.y };
   }
 
   function scheduleNextRally() {
@@ -832,6 +834,13 @@
   async function playRally() {
     if (!match) return;
     const events = simulateRally(match);
+    // Stop idle sway during the rally so nothing fights the smooth walk/jump motion
+    stopIdleMotion();
+    // Reset the tiny --sx/--sy nudges from any previous idle tick
+    document.querySelectorAll('.player-circle').forEach(el => {
+      el.style.setProperty('--sx', '0px');
+      el.style.setProperty('--sy', '0px');
+    });
     // Safety: clear any lingering transient states before the rally
     ['active','jumping','diving','crouching','walking'].forEach(cls => {
       document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
@@ -853,8 +862,8 @@
     });
     // At end of rally, refresh court in case of rotation
     renderCourt();
-    // Restart idle motion for the fresh set of circles
-    if (idleTimer) startIdleMotion();
+    // Restart idle motion for between-rally moments (subtle)
+    startIdleMotion();
   }
 
   // Height profile per event type: what height is the ball AT the moment of this touch,
@@ -894,17 +903,32 @@
     ball.classList.add(cls);
     if (shadow) shadow.classList.add(cls);
   }
+  // Track ball's last position so we can measure distance and time proportionally
+  let BALL_LAST_POS = { x: 0.5, y: 0.5 };
+  /** Set ball position with a transition time proportional to distance.
+   *  transMs is used as a MINIMUM floor. Actual time = max(transMs, distance * speedFactor).
+   *  This makes short flights snappy and long flights (like a serve) take proper time. */
   function setBallPos(ball, shadow, s, transMs) {
+    // Compute distance from last position (0..1 court units → sqrt2 max)
+    const dx = s.x - BALL_LAST_POS.x;
+    const dy = s.y - BALL_LAST_POS.y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    // Ball speed: full court diagonal (~1.4) at 1× speed should take ~1.2s → 1.2/1.4 = 0.86s per unit
+    // At higher sim speed we scale it down proportionally.
+    const speedFactor = 850 / speed;   // ms per court unit
+    const durMs = Math.max(transMs, d * speedFactor);
+    BALL_LAST_POS = { x: s.x, y: s.y };
     if (ball) {
-      ball.style.transitionDuration = (transMs / 1000) + 's';
+      ball.style.transitionDuration = (durMs / 1000) + 's';
       ball.style.left = (s.x * 100) + '%';
       ball.style.top = (s.y * 100) + '%';
     }
     if (shadow) {
-      shadow.style.transitionDuration = (transMs / 1000) + 's';
+      shadow.style.transitionDuration = (durMs / 1000) + 's';
       shadow.style.left = (s.x * 100) + '%';
       shadow.style.top = (s.y * 100) + '%';
     }
+    return durMs;
   }
 
   // Stance for the actor of this event type ("go DOWN for a save, UP for a spike…")
@@ -924,6 +948,77 @@
     'serve-error':  'crouching'
   };
 
+  /** Predict where the actor will physically be at the moment of their contact.
+   *  PURE — doesn't mutate anything. Used by Phase 3 to aim the ball at the correct meetup
+   *  point before the next event fires, so the ball and the next player converge there. */
+  function predictContactPos(ev, prevEv) {
+    if (!ev || !ev.actor || !ev.actor.player) return null;
+    const actorPid = ev.actor.player.id;
+    const actorHome = HOME_POS[actorPid];
+    if (!actorHome) return null;
+    const side = actorHome.side;
+    const isHome = side === 'home';
+    const netDir = isHome ? +1 : -1;
+
+    switch (ev.type) {
+      case 'serve':
+        return { x: isHome ? 0.06 : 0.94, y: actorHome.y };
+      case 'pass': {
+        let targetY = actorHome.y;
+        if (prevEv && prevEv.actor && prevEv.actor.spot) {
+          const from = toScreen(prevEv.actor.spot);
+          targetY = actorHome.y + (from.y - actorHome.y) * 0.4;
+        }
+        return { x: actorHome.x + netDir * 0.05, y: targetY };
+      }
+      case 'set':
+        return { x: isHome ? 0.44 : 0.56, y: 0.5 };
+      case 'attack':
+      case 'kill':
+      case 'attack-error':
+        // MEETUP POINT: right at the net, at the spiker's home y.
+        // This is FIXED — the ball goes here AND the spiker runs here. They meet.
+        return { x: isHome ? 0.46 : 0.54, y: actorHome.y };
+      case 'ace':
+        // Ace = serve that lands. Same actor as the serve, so keep them at serve position.
+        return { x: isHome ? 0.06 : 0.94, y: actorHome.y };
+      case 'block': {
+        // Blocker moves to the net at the hitter's y — but capped so they don't teleport
+        // across the whole court (a blocker can shuffle ~15% along the net max).
+        let hitterY = actorHome.y;
+        if (ev.hitter && ev.hitter.spot) hitterY = toScreen(ev.hitter.spot).y;
+        else if (prevEv && prevEv.actor && prevEv.actor.spot) hitterY = toScreen(prevEv.actor.spot).y;
+        const cap = 0.18;
+        const rawDy = hitterY - actorHome.y;
+        const blockY = actorHome.y + Math.max(-cap, Math.min(cap, rawDy));
+        return { x: isHome ? 0.48 : 0.52, y: blockY };
+      }
+      case 'dig': {
+        // Digger moves toward where the ball is coming from, but CLAMPED to their own side
+        // of the net and capped at a realistic travel distance (~15% of court).
+        let targetX = actorHome.x;
+        let targetY = actorHome.y;
+        if (prevEv && prevEv.actor && prevEv.actor.spot) {
+          const from = toScreen(prevEv.actor.spot);
+          // Pull toward the ball's incoming trajectory, capped
+          const cap = 0.15;
+          const rawDx = (from.x - actorHome.x) * 0.4;
+          const rawDy = (from.y - actorHome.y) * 0.4;
+          targetX = actorHome.x + Math.max(-cap, Math.min(cap, rawDx));
+          targetY = actorHome.y + Math.max(-cap, Math.min(cap, rawDy));
+        }
+        // Clamp to own side of net (with a small buffer so they don't touch it)
+        if (isHome) targetX = Math.min(targetX, 0.46);
+        else        targetX = Math.max(targetX, 0.54);
+        // Clamp to court bounds
+        targetY = Math.max(0.08, Math.min(0.92, targetY));
+        return { x: targetX, y: targetY };
+      }
+      default:
+        return null;
+    }
+  }
+
   /** Get all players on a given side (returns array of {pid, home, role}). */
   function playersOnSide(side) {
     const out = [];
@@ -936,133 +1031,58 @@
     return out;
   }
 
-  /** Choreograph the movement of players for a given event.
-   *  RETURNS: the screen position {x, y} the actor ended up at, so the ball can be aimed at
-   *  the same spot (fixes ball-and-player disconnect). Null = no move, use actor's home. */
+  /** Move the actor + supporting cast into position for a given event.
+   *  Returns the actor's contact position (same as predictContactPos). */
   function choreographMovement(ev, prevEv) {
-    if (!ev.actor || !ev.actor.player) return null;
+    const target = predictContactPos(ev, prevEv);
+    if (!target) return null;
     const actorPid = ev.actor.player.id;
-    const actorScreen = toScreen(ev.actor.spot);
     const actorHome = HOME_POS[actorPid];
-    if (!actorHome) return null;
     const side = actorHome.side;
     const isHome = side === 'home';
-    // Direction from actor's side TOWARD the net (home is on left, so +x toward net)
-    const netDir = isHome ? +1 : -1;
-    let target = null;
 
-    switch (ev.type) {
-      case 'serve': {
-        // Server steps back to the endline
-        const endX = isHome ? 0.06 : 0.94;
-        target = { x: endX, y: actorHome.y };
-        movePlayerTo(actorPid, target.x, target.y);
-        break;
-      }
-      case 'pass': {
-        // Passer RUNS to meet the ball. Move them toward the ball's trajectory (in their y).
-        // Move x slightly forward (toward net) so they're in a good pass position.
-        let targetX = actorHome.x + netDir * 0.05;
-        let targetY = actorHome.y;
-        if (prevEv && prevEv.actor && prevEv.actor.spot) {
-          const ballFrom = toScreen(prevEv.actor.spot);
-          // Move y ~40% toward the ball's incoming y so they visibly shift
-          targetY = actorHome.y + (ballFrom.y - actorHome.y) * 0.4;
+    // Move the actor to their contact position
+    movePlayerTo(actorPid, target.x, target.y);
+
+    // Supporting cast movements per event type
+    if (ev.type === 'pass') {
+      // Front-row OUTSIDE hitters back off HARD toward the endline for a proper spike approach
+      const backX = isHome ? 0.14 : 0.86;
+      playersOnSide(side).forEach(p => {
+        if (p.pid === actorPid) return;
+        const isFront = Math.abs(p.home.x - 0.5) < 0.28;
+        if (isFront && (p.role.includes('OH') || p.role.includes('OP'))) {
+          movePlayerTo(p.pid, backX, p.home.y);
         }
-        target = { x: targetX, y: targetY };
-        movePlayerTo(actorPid, target.x, target.y);
-        // Front-row OUTSIDE hitters BACK OFF toward the endline for approach (very visible move)
-        const backX = isHome ? 0.14 : 0.86;
-        playersOnSide(side).forEach(p => {
-          if (p.pid === actorPid) return;
-          const isFront = Math.abs(p.home.x - 0.5) < 0.28;
-          // Only back off outside hitters (they're the ones who spike after the pass)
-          if (isFront && (p.role.includes('OH') || p.role.includes('OP'))) {
-            movePlayerTo(p.pid, backX, p.home.y);
-          }
-        });
-        break;
-      }
-      case 'set': {
-        // Setter moves to the front-middle at the net
-        const setterX = isHome ? 0.44 : 0.56;
-        target = { x: setterX, y: 0.5 };   // middle y for classic setter position
-        movePlayerTo(actorPid, target.x, target.y);
-        break;
-      }
-      case 'attack':
-      case 'kill':
-      case 'attack-error': {
-        // Attacker RUNS UP HARD from wherever they backed off to, all the way to the net
-        const attackX = isHome ? 0.46 : 0.54;
-        target = { x: attackX, y: actorHome.y };
-        movePlayerTo(actorPid, target.x, target.y);
-        break;
-      }
-      case 'ace': {
-        // Server hits a jump serve — steps forward
-        const jumpX = isHome ? 0.10 : 0.90;
-        target = { x: jumpX, y: actorHome.y };
-        movePlayerTo(actorPid, target.x, target.y);
-        break;
-      }
-      case 'block': {
-        // Blocker moves right up to the net at hitter's zone
-        const blockX = isHome ? 0.48 : 0.52;
-        // Try to line up y with the hitter's y (from prev event actor if it was an attack)
-        let blockY = actorHome.y;
-        if (ev.hitter && ev.hitter.spot) blockY = toScreen(ev.hitter.spot).y;
-        else if (prevEv && prevEv.actor && prevEv.actor.spot) blockY = toScreen(prevEv.actor.spot).y;
-        target = { x: blockX, y: blockY };
-        movePlayerTo(actorPid, target.x, target.y);
-        break;
-      }
-      case 'dig': {
-        // Digger DIVES/RUNS toward the ball's incoming trajectory
-        let dx = 0, dy = 0;
-        if (prevEv && prevEv.actor && prevEv.actor.spot) {
-          const ballFrom = toScreen(prevEv.actor.spot);
-          // Move ~60% of the way toward the ball origin (they really sprint for it)
-          dx = (ballFrom.x - actorHome.x) * 0.55;
-          dy = (ballFrom.y - actorHome.y) * 0.55;
-        }
-        target = { x: actorHome.x + dx, y: actorHome.y + dy };
-        movePlayerTo(actorPid, target.x, target.y);
-        break;
-      }
-      default:
-        break;
+      });
     }
     return target;
   }
 
   /** Pre-position the defending block wall when the opponent is about to attack.
-   *  Squeezes all 3 front-row blockers TIGHT together at the net, centered on the hitter's y. */
+   *  Squeezes all 3 front-row blockers TIGHT at the net, centered on the hitter's y. */
   function proactivePositioning(ev) {
     if (!(ev.type === 'attack' || ev.type === 'kill' || ev.type === 'attack-error')) return;
     if (!ev.actor || !ev.actor.spot || !match) return;
     const attackerScreen = toScreen(ev.actor.spot);
-    const attackerOnHome = ev.actor.spot.y > 0.5;   // engine coords: home=y>0.5
+    const attackerOnHome = ev.actor.spot.y > 0.5;
     const defSide = attackerOnHome ? 'away' : 'home';
     const defIsHome = defSide === 'home';
     const netX = defIsHome ? 0.48 : 0.52;
 
-    // Gather all front-row defenders on the defending side (by home x near net)
     const wall = playersOnSide(defSide)
       .filter(p => Math.abs(p.home.x - 0.5) < 0.28)
-      .sort((a, b) => a.home.y - b.home.y);  // top → bottom by y
+      .sort((a, b) => a.home.y - b.home.y);
 
     if (!wall.length) return;
 
-    // Center the wall on the hitter's y. Tight spacing: circles are ~9% of court width wide,
-    // court aspect is 18:9 so 9% of width ≈ 18% of height. Use ~0.16 spacing so they touch.
-    const spacing = 0.16;
+    // Tight wall: centered on hitter's y, 0.14 spacing so circles overlap slightly (feels like a wall)
+    const spacing = 0.14;
     const hitterY = attackerScreen.y;
     const startY = hitterY - ((wall.length - 1) / 2) * spacing;
     wall.forEach((p, i) => {
       let wallY = startY + i * spacing;
-      // Clamp to court bounds
-      wallY = Math.max(0.05, Math.min(0.95, wallY));
+      wallY = Math.max(0.08, Math.min(0.92, wallY));
       movePlayerTo(p.pid, netX, wallY);
     });
   }
@@ -1133,19 +1153,20 @@
     proactivePositioning(ev);
 
     // --- PHASE 2: ball travels TO the actor's actual position (not their engine home) ---
-    // Slight lag before the ball flies so the player has time to run there first.
+    // Ball's transition duration is distance-proportional; we await its actual time.
     if (!skipPhase1 && actorContactPos && ball) {
-      // Give the player ~0.25 * stepMs of run-up before we aim the ball their way
-      await sleep(stepMs * 0.15);
-      setBallPos(ball, shadow, actorContactPos, stepMs * 0.5);
+      // Give the player a short head start so they're already running when the ball flies
+      await sleep(stepMs * 0.12);
+      const flightMs = setBallPos(ball, shadow, actorContactPos, stepMs * 0.35);
       setBallHeight(ball, shadow, contactLevel);
       if (actorEl) actorEl.classList.add('active');
       // Trigger STANCE (jump/dive/crouch) just before the ball arrives → timed contact
+      const stanceDelay = Math.max(80, flightMs * 0.55);
       setTimeout(() => {
         if (actorEl && stance) actorEl.classList.add(stance);
         wallEls.forEach(el => el.classList.add('jumping'));
-      }, stepMs * 0.28);
-      await sleep(stepMs * 0.5);
+      }, stanceDelay);
+      await sleep(flightMs);
     } else if (actorEl) {
       // Ball is already at the actor — glow + stance immediately
       setBallHeight(ball, shadow, contactLevel);
@@ -1163,25 +1184,48 @@
       }
     }
 
-    // --- PHASE 3: ball flies to its next destination (arcs high mid-flight) ---
-    // Aim at where the next actor will physically be (their CURRENT/HOME pos), so when the next
-    // event fires and moves them further, the ball is already in the vicinity — no hitching.
+    // --- PHASE 3: ball flies to the MEETUP POINT for the next event ---
+    // We compute exactly where the next player will make contact and aim the ball there,
+    // AND move the next player toward that same spot at the same time — they converge.
     let destScreen = null;
-    if (nextActorId && nextActorId !== currActorId) {
-      // Prefer their current live position (they may already be there from a wall pre-position)
-      destScreen = CURRENT_POS[nextActorId] || HOME_POS[nextActorId];
-      if (!destScreen && nextEv.actor.spot) destScreen = toScreen(nextEv.actor.spot);
+    if (nextEv && nextEv.actor && nextEv.actor.player && nextActorId !== currActorId) {
+      destScreen = predictContactPos(nextEv, ev);   // pass CURRENT ev as prev
+      // Start the next player moving toward the meetup point NOW (in parallel with the ball flight)
+      if (destScreen) {
+        // Move the next actor early so they arrive at the meetup point around the same time as the ball
+        movePlayerTo(nextActorId, destScreen.x, destScreen.y);
+        // Also fire the supporting cast (e.g. back-off) for the next event immediately
+        if (nextEv.type === 'pass') {
+          // Trigger the OH back-off during the pass ball flight, not after
+          const nextActorHome = HOME_POS[nextActorId];
+          if (nextActorHome) {
+            const nSide = nextActorHome.side;
+            const nIsHome = nSide === 'home';
+            const backX = nIsHome ? 0.14 : 0.86;
+            playersOnSide(nSide).forEach(p => {
+              if (p.pid === nextActorId) return;
+              const isFront = Math.abs(p.home.x - 0.5) < 0.28;
+              if (isFront && (p.role.includes('OH') || p.role.includes('OP'))) {
+                movePlayerTo(p.pid, backX, p.home.y);
+              }
+            });
+          }
+        }
+      }
     } else if (ev.toSpot) {
       destScreen = toScreen(ev.toSpot);
     }
+    let phase3FlightMs = 0;
     if (destScreen && ball) {
       const midHeight = HEIGHT_MIDFLIGHT_AFTER[ev.type] || 'mid';
       setBallHeight(ball, shadow, midHeight);
-      setBallPos(ball, shadow, destScreen, stepMs * 0.65);
+      phase3FlightMs = setBallPos(ball, shadow, destScreen, stepMs * 0.35);
     }
 
-    // Hold the stance briefly through the follow-through, then release
-    await sleep(stepMs * (skipPhase1 ? 0.55 : 0.4));
+    // Hold stance through the follow-through, but at least until the ball has cleared this player.
+    // Stance is released BEFORE the ball arrives at the next player (so this player is neutral by then).
+    const followThrough = Math.max(stepMs * 0.3, phase3FlightMs * 0.3);
+    await sleep(followThrough);
 
     // Release stance (recover to standing)
     if (actorEl && stance) actorEl.classList.remove(stance);
