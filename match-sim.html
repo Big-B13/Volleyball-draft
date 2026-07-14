@@ -543,45 +543,54 @@
   async function playRally() {
     if (!match) return;
     const events = simulateRally(match);
-    // Reset player highlights
+    // Safety: clear any lingering highlights before the rally
     document.querySelectorAll('.player-circle.active').forEach(el => el.classList.remove('active'));
     const ball = document.querySelector('.ball');
     for (const ev of events) {
       appendLog(formatEvent(ev), classForEvent(ev));
       await animateEvent(ev, ball);
     }
+    // Safety: clear highlights after rally in case something got stuck
+    document.querySelectorAll('.player-circle.active').forEach(el => el.classList.remove('active'));
     // At end of rally, refresh court in case of rotation
     renderCourt();
   }
 
   async function animateEvent(ev, ball) {
     const stepMs = 400 / speed;
-    if (ev.actor && ev.actor.player) {
-      const el = document.querySelector(`.player-circle[data-pid="${ev.actor.player.id}"]`);
-      if (el) {
-        el.classList.add('active');
-        setTimeout(() => el.classList.remove('active'), stepMs * 2);
-      }
+    const actorEl = (ev.actor && ev.actor.player)
+      ? document.querySelector(`.player-circle[data-pid="${ev.actor.player.id}"]`)
+      : null;
+
+    // --- PHASE 1: ball travels TO the actor (they receive/touch it) ---
+    if (ev.actor && ev.actor.spot && ball) {
+      const s = toScreen(ev.actor.spot);
+      ball.style.transitionDuration = (stepMs * 0.55 / 1000) + 's';
+      ball.style.left = (s.x * 100) + '%';
+      ball.style.top = (s.y * 100) + '%';
     }
-    // Move ball if we have coords (transform engine → screen). Ball stays visible.
-    if (ball) ball.style.opacity = '1';
+    // Highlight the actor exactly when the ball reaches them
+    if (actorEl) actorEl.classList.add('active');
+    await sleep(stepMs * 0.55);
+
+    // --- PHASE 2: after the touch, ball flies to its next destination (if any) ---
     if (ev.toSpot && ball) {
       const s = toScreen(ev.toSpot);
-      ball.style.transitionDuration = (stepMs / 1000) + 's';
-      ball.style.left = (s.x * 100) + '%';
-      ball.style.top = (s.y * 100) + '%';
-    } else if (ev.actor && ev.actor.spot && ball) {
-      const s = toScreen(ev.actor.spot);
-      ball.style.transitionDuration = (stepMs / 1000) + 's';
+      ball.style.transitionDuration = (stepMs * 0.65 / 1000) + 's';
       ball.style.left = (s.x * 100) + '%';
       ball.style.top = (s.y * 100) + '%';
     }
-    // Action bursts
+
+    // Action bursts fire during the follow-through
     if (['kill','ace','block','dig','attack-error','serve-error'].includes(ev.type)) {
       showBurst(ev);
       try { if (ev.type === 'kill' || ev.type === 'ace') playPick(); } catch (e) {}
     }
-    await sleep(stepMs);
+
+    await sleep(stepMs * 0.45);
+
+    // Clear this actor's glow BEFORE next event's actor lights up (fixes out-of-order glows)
+    if (actorEl) actorEl.classList.remove('active');
   }
 
   function showBurst(ev) {
