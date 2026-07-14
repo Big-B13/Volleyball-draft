@@ -27,41 +27,70 @@
 
   .court-wrap {
     position: relative;
-    max-width: 640px;
+    max-width: 1000px;
     margin: 0 auto 16px;
-    aspect-ratio: 9 / 18;
+    aspect-ratio: 18 / 9;
     background: linear-gradient(180deg, #b16050 0%, #a05141 100%);
     border: 3px solid #fff;
     border-radius: 6px;
     overflow: hidden;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   }
-  .court-wrap .net { position: absolute; top: 50%; left: -3px; right: -3px; height: 4px; background: repeating-linear-gradient(90deg, #fff 0 8px, transparent 8px 12px); transform: translateY(-50%); }
-  .court-wrap .attack-line-far { position: absolute; top: 33%; left: 0; right: 0; height: 2px; background: rgba(255,255,255,0.6); }
-  .court-wrap .attack-line-near { position: absolute; top: 67%; left: 0; right: 0; height: 2px; background: rgba(255,255,255,0.6); }
+  /* Horizontal court: net is a vertical stripe down the middle; attack lines are vertical too. */
+  .court-wrap .net { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 4px; background: repeating-linear-gradient(0deg, #fff 0 8px, transparent 8px 12px); transform: translateX(-50%); z-index: 2; }
+  .court-wrap .attack-line-far { position: absolute; left: 33%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.6); }
+  .court-wrap .attack-line-near { position: absolute; left: 67%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.6); }
+  /* Side labels */
+  .court-wrap .side-label {
+    position: absolute; top: 8px; font-size: 0.7rem; letter-spacing: 2px; font-weight: 900;
+    color: rgba(255,255,255,0.55); text-transform: uppercase; pointer-events: none; z-index: 2;
+  }
+  .court-wrap .side-label.home { left: 12px; }
+  .court-wrap .side-label.away { right: 12px; }
+
   .player-circle {
     position: absolute;
-    width: 8%; aspect-ratio: 1;
+    width: 9%; aspect-ratio: 1;
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: flex-end; justify-content: center;
     font-weight: 900; color: #fff;
-    border: 2px solid #fff;
+    border: 3px solid #fff;
     box-shadow: 0 2px 8px rgba(0,0,0,0.6);
-    font-size: 0.75rem;
-    transition: transform 0.4s, filter 0.3s;
+    font-size: 0.7rem;
+    transition: transform 0.4s, filter 0.3s, box-shadow 0.3s;
     z-index: 3;
+    overflow: hidden;
+    background-color: #334155;
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-position: center 30%;
   }
-  .player-circle.active { transform: translate(-50%, -50%) scale(1.35); filter: brightness(1.3) drop-shadow(0 0 12px #fff); z-index: 5; }
-  .player-circle .num { pointer-events: none; }
+  .player-circle.active { transform: translate(-50%, -50%) scale(1.4); filter: brightness(1.15) drop-shadow(0 0 14px #fff); z-index: 5; box-shadow: 0 0 0 3px #fbbf24, 0 4px 16px rgba(0,0,0,0.8); }
+  .player-circle .num {
+    position: absolute; top: -6px; right: -6px;
+    background: #fff; color: #0f172a;
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 900;
+    border: 2px solid currentColor;
+    pointer-events: none;
+    z-index: 4;
+  }
   .player-circle .label {
     position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
     background: rgba(0,0,0,0.85); color: #fff;
     padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; white-space: nowrap;
-    margin-top: 4px; pointer-events: none;
+    margin-top: 6px; pointer-events: none;
     opacity: 0; transition: opacity 0.2s;
+    z-index: 6;
   }
   .player-circle:hover .label { opacity: 1; }
+  /* Fallback initials when no photo */
+  .player-circle .initials {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-weight: 900; color: #fff; font-size: 1rem; letter-spacing: 1px;
+  }
   .ball {
     position: absolute;
     width: 22px; height: 22px;
@@ -119,6 +148,8 @@
     .sim-header { grid-template-columns: 1fr; }
     .score-big { font-size: 2.2rem; }
     .team-tag.away { flex-direction: row; text-align: left; }
+    .player-circle { width: 11%; font-size: 0.6rem; }
+    .player-circle .num { width: 14px; height: 14px; font-size: 0.55rem; }
   }
 </style>
 </head>
@@ -175,18 +206,20 @@
     </div>
 
     <div class="court-wrap" id="court">
-      <div class="net"></div>
       <div class="attack-line-far"></div>
       <div class="attack-line-near"></div>
+      <div class="net"></div>
+      <div class="side-label home" id="side-label-home">HOME</div>
+      <div class="side-label away" id="side-label-away">AWAY</div>
     </div>
 
     <div class="controls">
       <button onclick="togglePause()" id="btn-pause">⏸️ Pause</button>
       <select id="speed-select" onchange="setSpeed()">
-        <option value="1">1× (chill)</option>
-        <option value="2" selected>2× (fast)</option>
+        <option value="0.5">0.5× (slow-mo)</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2× (fast)</option>
         <option value="4">4× (very fast)</option>
-        <option value="8">8× (auto-play)</option>
       </select>
       <button onclick="finishInstantly()" class="secondary">⏩ Simulate to end</button>
       <button onclick="resetSim()" class="secondary">↺ New match</button>
@@ -206,7 +239,17 @@
   import { escapeHtml, shuffle } from "./js/util.js";
   import { createMatch, simulateRally, playerAtSpot } from "./js/match-engine.js";
   import { getAllPlayers } from "./js/players.js";
+  import { photoPathFor, getInitials } from "./js/data.js";
+  import { PHOTO_CONFIG } from "./js/photo-config.js";
   import { playPick, playYourTurn, playReveal } from "./js/sounds.js";
+
+  // Transform engine coords (vertical, home on bottom) → screen coords (horizontal, home on left)
+  // screen.x = 1 - engine.y   (engine's y=0.85 near home endline → screen x=0.15 = far left)
+  // screen.y = engine.x       (engine's x sideline maps to screen vertical)
+  function toScreen(spot) {
+    if (!spot) return { x: 0.5, y: 0.5 };
+    return { x: 1 - spot.y, y: spot.x };
+  }
 
   await ensureGomiCupSeeded();
 
@@ -318,7 +361,7 @@
   // ============ SIM RUNTIME ============
   let match = null;
   let paused = false;
-  let speed = 2;
+  let speed = 1;
   let rallyTimer = null;
 
   window.startMatch = () => {
@@ -365,7 +408,7 @@
   };
 
   window.setSpeed = () => {
-    speed = parseInt(document.getElementById('speed-select').value) || 2;
+    speed = parseFloat(document.getElementById('speed-select').value) || 1;
   };
 
   window.finishInstantly = () => {
@@ -407,14 +450,20 @@
     const court = document.getElementById('court');
     // Clear existing player circles + ball
     court.querySelectorAll('.player-circle, .ball, .action-burst').forEach(el => el.remove());
+    // Update side labels with team names
+    document.getElementById('side-label-home').textContent = match.home.name;
+    document.getElementById('side-label-home').style.color = match.home.color;
+    document.getElementById('side-label-away').textContent = match.away.name;
+    document.getElementById('side-label-away').style.color = match.away.color;
+
     // Add players
     for (const side of ['home', 'away']) {
       const team = match[side];
       team.lineup.forEach((slot, i) => {
         if (!slot) return;
-        // rotate offset — compute actual on-court coords
+        // rotate offset — compute actual on-court coords (in engine's vertical space)
         const spotIndex = (6 + i - team.rotationOffset) % 6;
-        const spot = (side === 'home' ? [
+        const engineSpot = (side === 'home' ? [
           { x: 0.75, y: 0.85 },{ x: 0.75, y: 0.60 },{ x: 0.50, y: 0.60 },
           { x: 0.25, y: 0.60 },{ x: 0.25, y: 0.85 },{ x: 0.50, y: 0.85 }
         ] : [
@@ -422,14 +471,37 @@
           { x: 0.75, y: 0.40 },{ x: 0.75, y: 0.15 },{ x: 0.50, y: 0.15 }
         ])[spotIndex];
         // update the slot's current spot so engine sees it
-        slot.spot = spot;
+        slot.spot = engineSpot;
+        const screen = toScreen(engineSpot);
         const circle = document.createElement('div');
         circle.className = 'player-circle';
         circle.dataset.pid = slot.player.id;
-        circle.style.left = (spot.x * 100) + '%';
-        circle.style.top = (spot.y * 100) + '%';
-        circle.style.background = team.color;
-        circle.innerHTML = `<span class="num">${slot.player.jerseyNum || '?'}</span><span class="label">${escapeHtml(slot.player.nickname || slot.player.name)}</span>`;
+        circle.style.left = (screen.x * 100) + '%';
+        circle.style.top = (screen.y * 100) + '%';
+        circle.style.borderColor = team.color;
+        circle.style.color = team.color;
+
+        // Try to load a photo; fall back to initials on error
+        const pid = slot.player.id;
+        const photoUrl = photoPathFor(pid);
+        const cfg = PHOTO_CONFIG[pid] || { y: 25, zoom: 1.0 };
+        // Preload photo to see if it exists
+        const img = new Image();
+        img.onload = () => {
+          circle.style.backgroundImage = `url('${photoUrl}')`;
+          circle.style.backgroundSize = `${cfg.zoom * 100}% auto`;
+          circle.style.backgroundPosition = `center ${cfg.y}%`;
+          const initEl = circle.querySelector('.initials');
+          if (initEl) initEl.remove();
+        };
+        img.onerror = () => { /* keep initials */ };
+        img.src = photoUrl;
+
+        circle.innerHTML = `
+          <span class="initials">${escapeHtml(getInitials(slot.player.name))}</span>
+          <span class="num" style="color:${team.color}">${slot.player.jerseyNum || '?'}</span>
+          <span class="label">${escapeHtml(slot.player.nickname || slot.player.name)}</span>
+        `;
         court.appendChild(circle);
       });
     }
@@ -479,17 +551,19 @@
         setTimeout(() => el.classList.remove('active'), stepMs * 2);
       }
     }
-    // Move ball if we have coords
+    // Move ball if we have coords (transform engine → screen)
     if (ev.toSpot && ball) {
+      const s = toScreen(ev.toSpot);
       ball.style.opacity = '1';
       ball.style.transitionDuration = (stepMs / 1000) + 's';
-      ball.style.left = (ev.toSpot.x * 100) + '%';
-      ball.style.top = (ev.toSpot.y * 100) + '%';
+      ball.style.left = (s.x * 100) + '%';
+      ball.style.top = (s.y * 100) + '%';
     } else if (ev.actor && ev.actor.spot && ball) {
+      const s = toScreen(ev.actor.spot);
       ball.style.opacity = '1';
       ball.style.transitionDuration = (stepMs / 1000) + 's';
-      ball.style.left = (ev.actor.spot.x * 100) + '%';
-      ball.style.top = (ev.actor.spot.y * 100) + '%';
+      ball.style.left = (s.x * 100) + '%';
+      ball.style.top = (s.y * 100) + '%';
     }
     // Action bursts
     if (['kill','ace','block','dig','attack-error','serve-error'].includes(ev.type)) {
@@ -511,8 +585,9 @@
       : ev.type === 'block' ? 'block' : ev.type === 'dig' ? 'dig' : 'error';
     burst.className = 'action-burst ' + cls;
     burst.textContent = label;
-    burst.style.left = (ev.actor.spot.x * 100) + '%';
-    burst.style.top = (ev.actor.spot.y * 100) + '%';
+    const s = toScreen(ev.actor.spot);
+    burst.style.left = (s.x * 100) + '%';
+    burst.style.top = (s.y * 100) + '%';
     court.appendChild(burst);
     setTimeout(() => burst.remove(), 800);
   }
