@@ -102,9 +102,51 @@
     transform: translate(-50%, -50%);
     filter: drop-shadow(0 3px 6px rgba(0,0,0,0.55));
     z-index: 10;
-    transition: left 0.5s cubic-bezier(0.4, 0.0, 0.2, 1), top 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
+    transition:
+      left 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      width 0.5s ease,
+      height 0.5s ease,
+      filter 0.5s ease;
     pointer-events: none;
   }
+  /* Height states — bigger + softer/farther shadow = higher, smaller + tight shadow = lower */
+  .ball.h-high {
+    width: 46px; height: 46px;
+    filter: drop-shadow(0 14px 8px rgba(0,0,0,0.45)) drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+  }
+  .ball.h-mid {
+    width: 36px; height: 36px;
+    filter: drop-shadow(0 8px 6px rgba(0,0,0,0.5));
+  }
+  .ball.h-low {
+    width: 24px; height: 24px;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.7));
+  }
+  .ball.h-floor {
+    width: 20px; height: 20px;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+  }
+  /* Ball shadow on the court (separate element that scales opposite of height) */
+  .ball-shadow {
+    position: absolute;
+    width: 26px; height: 8px;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9;
+    pointer-events: none;
+    transition:
+      left 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      width 0.5s ease,
+      height 0.5s ease,
+      opacity 0.5s ease;
+  }
+  .ball-shadow.h-high  { width: 46px; height: 12px; opacity: 0.35; }
+  .ball-shadow.h-mid   { width: 32px; height: 10px; opacity: 0.55; }
+  .ball-shadow.h-low   { width: 22px; height: 7px;  opacity: 0.75; }
+  .ball-shadow.h-floor { width: 18px; height: 5px;  opacity: 0.9; }
   .ball.spin { animation: ballspin 0.6s linear infinite; }
   @keyframes ballspin {
     from { transform: translate(-50%, -50%) rotate(0deg); }
@@ -457,7 +499,7 @@
   function renderCourt() {
     const court = document.getElementById('court');
     // Clear existing player circles + ball
-    court.querySelectorAll('.player-circle, .ball, .action-burst').forEach(el => el.remove());
+    court.querySelectorAll('.player-circle, .ball, .ball-shadow, .action-burst').forEach(el => el.remove());
     // Update side labels with team names
     document.getElementById('side-label-home').textContent = match.home.name;
     document.getElementById('side-label-home').style.color = match.home.color;
@@ -515,7 +557,10 @@
     }
     // Ball starts visible at the server's spot (or center if unknown)
     const ball = document.createElement('div');
-    ball.className = 'ball spin';
+    ball.className = 'ball spin h-low';
+    // Court-floor shadow (moves with the ball, but always on the ground)
+    const shadow = document.createElement('div');
+    shadow.className = 'ball-shadow h-low';
     // Find current server (spot 1 of the serving team) and place ball at their location
     const servingTeam = match[match.serving];
     const server = servingTeam && servingTeam.lineup ? servingTeam.lineup[(0 + servingTeam.rotationOffset) % 6] : null;
@@ -523,12 +568,15 @@
     ball.style.left = (startSpot.x * 100) + '%';
     ball.style.top = (startSpot.y * 100) + '%';
     ball.style.opacity = '1';
+    shadow.style.left = (startSpot.x * 100) + '%';
+    shadow.style.top = (startSpot.y * 100) + '%';
+    court.appendChild(shadow);
     court.appendChild(ball);
   }
 
   function scheduleNextRally() {
     if (paused || !match || match.matchOver) return;
-    const delay = 800 / speed;
+    const delay = 400 / speed; // between-rally pause (playRally already adds its own)
     rallyTimer = setTimeout(async () => {
       await playRally();
       renderHeader();
@@ -546,48 +594,132 @@
     // Safety: clear any lingering highlights before the rally
     document.querySelectorAll('.player-circle.active').forEach(el => el.classList.remove('active'));
     const ball = document.querySelector('.ball');
-    for (const ev of events) {
+    const shadow = document.querySelector('.ball-shadow');
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      const prev = events[i - 1] || null;
+      const next = events[i + 1] || null;
       appendLog(formatEvent(ev), classForEvent(ev));
-      await animateEvent(ev, ball);
+      await animateEvent(ev, prev, next, ball, shadow);
     }
+    // Small pause between rallies (feels like an actual match reset)
+    await sleep(600 / speed);
     // Safety: clear highlights after rally in case something got stuck
     document.querySelectorAll('.player-circle.active').forEach(el => el.classList.remove('active'));
     // At end of rally, refresh court in case of rotation
     renderCourt();
   }
 
-  async function animateEvent(ev, ball) {
-    const stepMs = 400 / speed;
+  // Height profile per event type: what height is the ball AT the moment of this touch,
+  // and what height does it fly through on the way to the next touch?
+  // low = at hip/floor level, mid = normal contact, high = apex of arc
+  const HEIGHT_AT_CONTACT = {
+    'serve':        'mid',   // toss + contact around head height
+    'pass':         'low',   // forearm pass down low
+    'set':          'high',  // hands overhead
+    'attack':       'high',  // jumping spike at peak
+    'kill':         'floor', // ball is on the floor now
+    'ace':          'floor',
+    'block':        'high',  // hands above net
+    'attack-error': 'floor',
+    'serve-error':  'floor',
+    'dig':          'low'    // often diving/kneeling
+  };
+  // Height mid-flight (between this contact and the next). If a ball travels from setter (high)
+  // to attacker (high), it arcs — pick 'high'. Pass upward to setter = 'high'. Attack to
+  // opponent = attacker sends it hard, but the ball rises then falls — call it 'high'.
+  const HEIGHT_MIDFLIGHT_AFTER = {
+    'serve':  'high',  // serve arcs high
+    'pass':   'high',  // pass arcs up to setter
+    'set':    'high',  // set arcs up to hitter
+    'attack': 'high',  // spike travels above net then falls
+    'dig':    'high',  // dig pops up
+    'block':  'low',   // ricochet, comes down quick
+  };
+
+  function setBallHeight(ball, shadow, level) {
+    if (!ball) return;
+    ['h-high','h-mid','h-low','h-floor'].forEach(c => {
+      ball.classList.remove(c);
+      if (shadow) shadow.classList.remove(c);
+    });
+    const cls = 'h-' + level;
+    ball.classList.add(cls);
+    if (shadow) shadow.classList.add(cls);
+  }
+  function setBallPos(ball, shadow, s, transMs) {
+    if (ball) {
+      ball.style.transitionDuration = (transMs / 1000) + 's';
+      ball.style.left = (s.x * 100) + '%';
+      ball.style.top = (s.y * 100) + '%';
+    }
+    if (shadow) {
+      shadow.style.transitionDuration = (transMs / 1000) + 's';
+      shadow.style.left = (s.x * 100) + '%';
+      shadow.style.top = (s.y * 100) + '%';
+    }
+  }
+
+  async function animateEvent(ev, prevEv, nextEv, ball, shadow) {
+    // Slower base timing so a rally feels like actual volleyball
+    const stepMs = 900 / speed;
     const actorEl = (ev.actor && ev.actor.player)
       ? document.querySelector(`.player-circle[data-pid="${ev.actor.player.id}"]`)
       : null;
 
+    const currActorId = ev.actor && ev.actor.player ? ev.actor.player.id : null;
+    const prevActorId = prevEv && prevEv.actor && prevEv.actor.player ? prevEv.actor.player.id : null;
+    const nextActorId = nextEv && nextEv.actor && nextEv.actor.player ? nextEv.actor.player.id : null;
+    const isTerminating = ['kill','ace','block','attack-error','serve-error'].includes(ev.type);
+    // If this event's actor is the SAME as the previous event's actor (e.g. attack→kill by same
+    // player), the ball is already at them — skip the redundant "travel to actor" phase.
+    const skipPhase1 = currActorId && prevActorId && currActorId === prevActorId;
+
+    // Non-visual events (point, rotation, set-won, match-won, etc.) — just a small beat
+    if (!ev.actor && !ev.toSpot) {
+      await sleep(stepMs * 0.3);
+      return;
+    }
+
+    const contactLevel = HEIGHT_AT_CONTACT[ev.type] || 'mid';
+
     // --- PHASE 1: ball travels TO the actor (they receive/touch it) ---
-    if (ev.actor && ev.actor.spot && ball) {
+    // The ball comes DOWN into the touch (drop into low/mid), so briefly go mid-way.
+    if (!skipPhase1 && ev.actor && ev.actor.spot && ball) {
       const s = toScreen(ev.actor.spot);
-      ball.style.transitionDuration = (stepMs * 0.55 / 1000) + 's';
-      ball.style.left = (s.x * 100) + '%';
-      ball.style.top = (s.y * 100) + '%';
-    }
-    // Highlight the actor exactly when the ball reaches them
-    if (actorEl) actorEl.classList.add('active');
-    await sleep(stepMs * 0.55);
-
-    // --- PHASE 2: after the touch, ball flies to its next destination (if any) ---
-    if (ev.toSpot && ball) {
-      const s = toScreen(ev.toSpot);
-      ball.style.transitionDuration = (stepMs * 0.65 / 1000) + 's';
-      ball.style.left = (s.x * 100) + '%';
-      ball.style.top = (s.y * 100) + '%';
+      setBallPos(ball, shadow, s, stepMs * 0.55);
+      // Land at the contact height
+      setBallHeight(ball, shadow, contactLevel);
+      if (actorEl) actorEl.classList.add('active');
+      await sleep(stepMs * 0.55);
+    } else if (actorEl) {
+      // Ball is already at the actor — just glow briefly + snap to contact height
+      setBallHeight(ball, shadow, contactLevel);
+      actorEl.classList.add('active');
     }
 
-    // Action bursts fire during the follow-through
-    if (['kill','ace','block','dig','attack-error','serve-error'].includes(ev.type)) {
+    // Fire the burst + sfx right at the moment of the touch, before the ball flies away
+    if (isTerminating) {
       showBurst(ev);
       try { if (ev.type === 'kill' || ev.type === 'ace') playPick(); } catch (e) {}
     }
 
-    await sleep(stepMs * 0.45);
+    // --- PHASE 2: ball flies to its next destination, arcing HIGH mid-flight ---
+    let destSpot = null;
+    if (nextActorId && nextActorId !== currActorId && nextEv.actor.spot) {
+      destSpot = nextEv.actor.spot;
+    } else if (ev.toSpot) {
+      destSpot = ev.toSpot;
+    }
+    if (destSpot && ball) {
+      // First, pop UP to the flight height mid-way (this gives the arc feel)
+      const midHeight = HEIGHT_MIDFLIGHT_AFTER[ev.type] || 'mid';
+      setBallHeight(ball, shadow, midHeight);
+      const s = toScreen(destSpot);
+      setBallPos(ball, shadow, s, stepMs * 0.65);
+    }
+
+    await sleep(stepMs * (skipPhase1 ? 0.75 : 0.55));
 
     // Clear this actor's glow BEFORE next event's actor lights up (fixes out-of-order glows)
     if (actorEl) actorEl.classList.remove('active');

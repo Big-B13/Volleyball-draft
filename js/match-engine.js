@@ -122,9 +122,16 @@ function statCheck(attackerStat, defenderStat, base = 0.5) {
   return Math.random() < Math.max(0.1, Math.min(0.9, chance));
 }
 
-/** Pick a random hitter from the team's front row (spots 2, 3, 4 in rotation) */
+/** Pick a random hitter from the team's front row (spots 2, 3, 4 in rotation).
+ *  Excludes the setter (spot 2 = rotation index 1) so the same person can't set + attack. */
 function pickHitter(team) {
-  const candidates = [1, 2, 3].map(i => playerAtSpot(team, i)).filter(Boolean);
+  const setterIdx = 1; // rotation index that is treated as the setter
+  const candidates = [2, 3].map(i => playerAtSpot(team, i)).filter(Boolean);
+  // If for some reason both hitter spots are empty, fall back to spot 1
+  if (!candidates.length) {
+    const fallback = playerAtSpot(team, setterIdx);
+    return fallback || null;
+  }
   // Weight by attack stat
   const weights = candidates.map(c => Math.pow((c.player.attack || 5), 2));
   const total = weights.reduce((a, b) => a + b, 0);
@@ -196,14 +203,20 @@ export function simulateRally(match) {
   // Ace check: server's serve vs receiver's defense
   const aceChance = statCheck(server?.player.serve, receiver?.player.defense, 0.15);
   if (aceChance) {
-    // ACE!
-    events.push({ type: 'ace', actor: server, team: servingSide, target: receiver });
+    // ACE! Ball lands at receiver's feet (or near them)
+    events.push({
+      type: 'ace', actor: server, team: servingSide, target: receiver,
+      toSpot: receiver ? receiver.spot : { x: 0.5, y: 0.15 }
+    });
     return finishPoint(match, events, servingSide);
   }
 
-  // Error check: server misses (rare — service errors)
+  // Error check: server misses (rare — service errors) — ball hits net (y=0.5)
   if (Math.random() < 0.05) {
-    events.push({ type: 'serve-error', actor: server, team: servingSide });
+    events.push({
+      type: 'serve-error', actor: server, team: servingSide,
+      toSpot: { x: 0.5, y: 0.5 }
+    });
     return finishPoint(match, events, servingSide === 'home' ? 'away' : 'home');
   }
 
@@ -261,7 +274,12 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   if (blockChance) {
     // BLOCK!
     const blocker = blockers[Math.floor(Math.random() * blockers.length)];
-    events.push({ type: 'block', actor: blocker, team: attackingSide === 'home' ? 'away' : 'home', hitter });
+    // Ball ricochets back onto the hitter's side of the court
+    const hitterSideY = hitter.spot.y > 0.5 ? 0.85 : 0.15;
+    events.push({
+      type: 'block', actor: blocker, team: attackingSide === 'home' ? 'away' : 'home', hitter,
+      toSpot: { x: hitter.spot.x, y: hitterSideY }
+    });
     // Blocked ball often lands on hitter's side; sometimes recovered on their side. Assume ~70% point for blocker.
     if (Math.random() < 0.7) {
       return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
@@ -270,9 +288,12 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
     return continueRally(match, events, attackingSide, 0.5);
   }
 
-  // 2. Attack error (hitter into net / out)
+  // 2. Attack error (hitter into net / out) — ball hits net or goes out of bounds
   if (Math.random() < 0.08 - setQuality * 0.05) {
-    events.push({ type: 'attack-error', actor: hitter, team: attackingSide });
+    events.push({
+      type: 'attack-error', actor: hitter, team: attackingSide,
+      toSpot: { x: hitter.spot.x, y: 0.5 } // into the net
+    });
     return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
   }
 
@@ -293,8 +314,11 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
     }
   }
 
-  // KILL
-  events.push({ type: 'kill', actor: hitter, team: attackingSide });
+  // KILL — ball lands on the defender's floor (use the attack event's target)
+  const killLandSpot = events[events.length - 1] && events[events.length - 1].toSpot
+    ? events[events.length - 1].toSpot
+    : pickAttackTarget(defendingTeam);
+  events.push({ type: 'kill', actor: hitter, team: attackingSide, toSpot: killLandSpot });
   return finishPoint(match, events, attackingSide);
 }
 
