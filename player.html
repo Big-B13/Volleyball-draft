@@ -13,10 +13,10 @@
     align-items: center;
     padding: 30px;
     border-radius: 16px;
-    /* Use the card's anime slash background style, tinted with the team color */
+    /* Anime slash background (like the trading cards) with team color gradient */
     background:
-      linear-gradient(115deg, transparent 30%, rgba(0,0,0,0.6) 30%, rgba(0,0,0,0.6) 70%, transparent 70%),
-      linear-gradient(135deg, var(--team-c, #fbbf24) 0%, var(--team-c-b, #dc2626) 130%);
+      linear-gradient(115deg, transparent 32%, rgba(0,0,0,0.45) 32%, rgba(0,0,0,0.45) 68%, transparent 68%),
+      linear-gradient(135deg, var(--team-c, #fbbf24) 0%, var(--team-c-b, #dc2626) 110%);
     margin-bottom: 24px;
     border-top: 6px solid var(--team-c, #fbbf24);
     position: relative;
@@ -236,16 +236,34 @@
       document.getElementById('content').classList.remove('hidden');
 
       // Team colors for the profile hero.
-      // If they've been on a team, use that team's color as primary + black as secondary
-      // (matches how team cards look). Otherwise use the default gold→red gradient
-      // (matches the pool player cards).
-      let teamC = '#fbbf24';
-      let teamCB = '#dc2626';
+      // Uses the SECONDARY color from the league captain data too, so the gradient
+      // matches the trading card aesthetic (e.g. Strigidae = red→black, Shizuka = blue→stone).
+      let teamC = '#fbbf24';   // fallback: gold
+      let teamCB = '#dc2626';  // fallback: red (matches pool-card gradient)
       const latest = career[0];
       if (latest && latest.teamColor) {
         teamC = latest.teamColor;
-        teamCB = '#000000';
+        // Try to find the full league record to get the secondary color
+        try {
+          const leaguesSnap = await get(ref(db, `leagues/${latest.leagueId}`));
+          const league = leaguesSnap.val();
+          if (league && league.captains) {
+            const matchingCap = league.captains.find(c =>
+              c.team === latest.team ||
+              c.color === latest.teamColor);
+            if (matchingCap && matchingCap.color2) {
+              teamCB = matchingCap.color2;
+            } else {
+              teamCB = '#000000'; // default secondary = black
+            }
+          } else {
+            teamCB = '#000000';
+          }
+        } catch (e) {
+          teamCB = '#000000';
+        }
       }
+      log(`Colors: primary=${teamC}, secondary=${teamCB}`);
 
       const photoUrl = photoPathFor(pid);
       const overall = ((p.attack + p.serve + p.defense + p.setting + p.athletic) / 5).toFixed(1);
