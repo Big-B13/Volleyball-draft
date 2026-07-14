@@ -105,25 +105,32 @@
 
   .player-circle {
     position: absolute;
-    /* width is set per-player based on height; default 9% */
     width: 9%; aspect-ratio: 1;
     border-radius: 50%;
-    /* Compose transform from CSS variables so idle sway + jump + scale all stack cleanly */
-    --sx: 0px;  /* sway x (px) */
-    --sy: 0px;  /* sway y (px) */
-    --jy: 0px;  /* jump y (px, negative = up) */
-    --sc: 1;    /* scale */
-    transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy) + var(--jy))) scale(var(--sc));
+    /* Compose transform from CSS variables — idle sway + walk + jump + scale/squash all stack */
+    --sx: 0px;   /* idle sway x */
+    --sy: 0px;   /* idle sway y */
+    --wx: 0px;   /* walk offset x (approach the ball) */
+    --wy: 0px;   /* walk offset y */
+    --jy: 0px;   /* jump y (negative = up) */
+    --sc: 1;     /* vertical scale (squash on dig, stretch on jump) */
+    --scx: 1;    /* horizontal scale (dive stretch) */
+    --jump-height: -20px;  /* set per-player from athletic stat */
+    transform:
+      translate(
+        calc(-50% + var(--sx) + var(--wx)),
+        calc(-50% + var(--sy) + var(--wy) + var(--jy))
+      )
+      scale(var(--scx), var(--sc));
     display: flex; align-items: flex-end; justify-content: center;
     font-weight: 900; color: #fff;
     border: 3px solid #fff;
     box-shadow: 0 3px 10px rgba(0,0,0,0.6);
     font-size: 0.7rem;
-    /* Sway motion is gentle & slow; jump/scale snap faster */
     transition:
       left 1.4s ease-in-out,
       top 1.4s ease-in-out,
-      transform 0.35s cubic-bezier(0.34, 1.4, 0.64, 1),
+      transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1),
       filter 0.3s, box-shadow 0.3s;
     z-index: 3;
     overflow: hidden;
@@ -132,6 +139,14 @@
     background-size: cover;
     background-position: center 30%;
   }
+  /* Walking uses a smoother ease — looks like footwork, not a spring */
+  .player-circle.walking {
+    transition:
+      left 1.4s ease-in-out,
+      top 1.4s ease-in-out,
+      transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      filter 0.3s, box-shadow 0.3s;
+  }
   .player-circle.active {
     --sc: 1.4;
     filter: brightness(1.18) drop-shadow(0 0 14px #fff);
@@ -139,20 +154,32 @@
     box-shadow: 0 0 0 3px #fbbf24, 0 4px 18px rgba(0,0,0,0.85);
     animation: activePulse 0.5s ease-out;
   }
-  .player-circle {
-    /* Default jump height — overridden per-player based on athletic stat */
-    --jump-height: -20px;
-  }
   .player-circle.jumping {
     --jy: var(--jump-height);
-    --sc: 1.12;
+    --sc: 1.15;
+    --scx: 0.94;   /* slight stretch upward (squash-and-stretch) */
     z-index: 6;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 16px 14px -6px rgba(0,0,0,0.6);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 18px 16px -6px rgba(0,0,0,0.6);
   }
   .player-circle.jumping.active {
-    /* Actor jumps a bit higher than teammates */
-    --jy: calc(var(--jump-height) - 8px);
-    --sc: 1.4;
+    --jy: calc(var(--jump-height) - 10px);
+    --sc: 1.45;
+    --scx: 1.0;
+  }
+  /* Diving / digging — sprawls low & sideways */
+  .player-circle.diving {
+    --wy: 8px;
+    --sc: 0.6;
+    --scx: 1.5;
+    z-index: 4;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.75), 0 6px 10px rgba(0,0,0,0.4);
+    filter: brightness(1.08);
+  }
+  /* Small crouch — defensive stance for pass / dig prep */
+  .player-circle.crouching {
+    --wy: 3px;
+    --sc: 0.85;
+    --scx: 1.12;
   }
   @keyframes activePulse {
     0%   { box-shadow: 0 0 0 0    rgba(251,191,36,0.9), 0 4px 18px rgba(0,0,0,0.85); }
@@ -773,8 +800,10 @@
   async function playRally() {
     if (!match) return;
     const events = simulateRally(match);
-    // Safety: clear any lingering highlights before the rally
-    document.querySelectorAll('.player-circle.active').forEach(el => el.classList.remove('active'));
+    // Safety: clear any lingering transient states before the rally
+    ['active','jumping','diving','crouching','walking'].forEach(cls => {
+      document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
+    });
     const ball = document.querySelector('.ball');
     const shadow = document.querySelector('.ball-shadow');
     for (let i = 0; i < events.length; i++) {
@@ -786,9 +815,10 @@
     }
     // Small pause between rallies (feels like an actual match reset)
     await sleep(600 / speed);
-    // Safety: clear highlights + jumps after rally in case something got stuck
-    document.querySelectorAll('.player-circle.active').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.player-circle.jumping').forEach(el => el.classList.remove('jumping'));
+    // Safety: clear all transient states after rally in case something got stuck
+    ['active','jumping','diving','crouching','walking'].forEach(cls => {
+      document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
+    });
     // At end of rally, refresh court in case of rotation
     renderCourt();
     // Restart idle motion for the fresh set of circles
@@ -845,8 +875,40 @@
     }
   }
 
+  // Stance for the actor of this event type ("go DOWN for a save, UP for a spike…")
+  //   jumping   = leap upward (attack/kill/ace/block/set)
+  //   crouching = slight bend (pass/receive)
+  //   diving    = sprawled dive (dig — the acrobatic save)
+  const STANCE_FOR_EVENT = {
+    'attack':  'jumping',
+    'kill':    'jumping',
+    'ace':     'jumping',   // slight jump serve
+    'set':     'jumping',   // reaching up
+    'block':   'jumping',
+    'pass':    'crouching',
+    'dig':     'diving',
+    'serve':   'crouching',
+    'attack-error': 'jumping',
+    'serve-error':  'crouching'
+  };
+
+  /** Move a player-circle by an offset (in px) using --wx/--wy. Called for the "walk toward
+   *  the ball" beat. Removed at end-of-rally when renderCourt re-snaps everyone. */
+  function walkPlayer(el, dx, dy) {
+    if (!el) return;
+    el.classList.add('walking');
+    el.style.setProperty('--wx', dx.toFixed(1) + 'px');
+    el.style.setProperty('--wy', dy.toFixed(1) + 'px');
+  }
+  function stopWalking(el) {
+    if (!el) return;
+    el.classList.remove('walking');
+    el.style.setProperty('--wx', '0px');
+    el.style.setProperty('--wy', '0px');
+  }
+
   async function animateEvent(ev, prevEv, nextEv, ball, shadow) {
-    // Slower base timing so a rally feels like actual volleyball
+    // Base tempo per touch — slower feels more like real volleyball
     const stepMs = 900 / speed;
     const actorEl = (ev.actor && ev.actor.player)
       ? document.querySelector(`.player-circle[data-pid="${ev.actor.player.id}"]`)
@@ -856,8 +918,6 @@
     const prevActorId = prevEv && prevEv.actor && prevEv.actor.player ? prevEv.actor.player.id : null;
     const nextActorId = nextEv && nextEv.actor && nextEv.actor.player ? nextEv.actor.player.id : null;
     const isTerminating = ['kill','ace','block','attack-error','serve-error'].includes(ev.type);
-    // If this event's actor is the SAME as the previous event's actor (e.g. attack→kill by same
-    // player), the ball is already at them — skip the redundant "travel to actor" phase.
     const skipPhase1 = currActorId && prevActorId && currActorId === prevActorId;
 
     // Non-visual events (point, rotation, set-won, match-won, etc.) — just a small beat
@@ -867,66 +927,95 @@
     }
 
     const contactLevel = HEIGHT_AT_CONTACT[ev.type] || 'mid';
+    const stance = STANCE_FOR_EVENT[ev.type] || null;
 
-    // Figure out who's JUMPING for this event:
-    //   attack/kill/ace  → the attacker jumps AND the defending team's front-row block wall goes up
-    //   block            → the whole block wall (all blockers passed by engine) jumps
-    //   set              → setter reaches up (small pop, feels alive)
-    // Jumping players get temporary CSS class .jumping — cleared after their motion window.
-    const jumpers = [];
-    if (['attack','kill','ace','set','block'].includes(ev.type) && ev.actor && ev.actor.player) {
-      jumpers.push(ev.actor.player.id);
-    }
-    if (ev.type === 'block' && Array.isArray(ev.blockers)) {
-      for (const b of ev.blockers) if (b && b.player) jumpers.push(b.player.id);
-    }
-    // ATTACK → defending team's whole front row puts up a block wall (even if it doesn't stuff)
+    // Who jumps as the block wall on an incoming attack?
+    const wallEls = [];
     if ((ev.type === 'attack' || ev.type === 'kill') && ev.actor && ev.actor.spot && match) {
-      // Attacker is on side y>0.5 → home; else away. Defenders are the opposite.
       const attackerOnHome = ev.actor.spot.y > 0.5;
       const defTeam = attackerOnHome ? match.away : match.home;
       if (defTeam && defTeam.lineup) {
-        // Front-row rotation indices are 1, 2, 3 (spots 2, 3, 4)
         [1, 2, 3].forEach(rotIdx => {
           const idx = (rotIdx + defTeam.rotationOffset) % 6;
           const slot = defTeam.lineup[idx];
-          if (slot && slot.player) jumpers.push(slot.player.id);
+          if (slot && slot.player) {
+            const el = document.querySelector(`.player-circle[data-pid="${slot.player.id}"]`);
+            if (el && el !== actorEl) wallEls.push(el);
+          }
         });
       }
     }
-    const jumpEls = [...new Set(jumpers)]
-      .map(pid => document.querySelector(`.player-circle[data-pid="${pid}"]`))
-      .filter(Boolean);
+    // On an explicit 'block' event, use engine's blockers array (all 3 front-row)
+    if (ev.type === 'block' && Array.isArray(ev.blockers)) {
+      ev.blockers.forEach(b => {
+        if (b && b.player) {
+          const el = document.querySelector(`.player-circle[data-pid="${b.player.id}"]`);
+          if (el && el !== actorEl && !wallEls.includes(el)) wallEls.push(el);
+        }
+      });
+    }
 
-    // --- PHASE 1: ball travels TO the actor (they receive/touch it) ---
-    // The ball comes DOWN into the touch (drop into low/mid), so briefly go mid-way.
+    // --- PHASE 1: WALK/step toward the ball (reads the play, moves into position) ---
+    // The actor takes a small step toward wherever the ball came from (previous touch).
+    // If they're diving, the step is bigger and stretches sideways. If jumping to attack,
+    // they take an approach step forward (toward the net).
+    if (!skipPhase1 && actorEl && ev.actor && ev.actor.spot) {
+      const court = document.getElementById('court');
+      const courtRect = court.getBoundingClientRect();
+      const actorScreen = toScreen(ev.actor.spot);
+      // Where is the ball coming FROM? Use previous event actor's spot, or serve start
+      let fromSpot = null;
+      if (prevEv && prevEv.actor && prevEv.actor.spot) fromSpot = toScreen(prevEv.actor.spot);
+      // If we know where the ball's coming from, step a few px in that direction
+      let dx = 0, dy = 0;
+      if (fromSpot) {
+        // Vector from actor to ball origin, in px (small step, ~15-25px max)
+        const rawDx = (fromSpot.x - actorScreen.x) * courtRect.width;
+        const rawDy = (fromSpot.y - actorScreen.y) * courtRect.height;
+        const mag = Math.sqrt(rawDx * rawDx + rawDy * rawDy) || 1;
+        const stepPx = ev.type === 'dig' ? 22 : (ev.type === 'pass' ? 14 : 10);
+        dx = (rawDx / mag) * stepPx;
+        dy = (rawDy / mag) * stepPx;
+      }
+      // Attacker's approach: step slightly toward the net (net is at screen x=0.5)
+      if (['attack','kill','ace'].includes(ev.type)) {
+        const towardNet = actorScreen.x < 0.5 ? +8 : -8;
+        dx += towardNet;
+      }
+      if (dx !== 0 || dy !== 0) walkPlayer(actorEl, dx, dy);
+    }
+
+    // --- PHASE 2: ball travels TO the actor's spot ---
     if (!skipPhase1 && ev.actor && ev.actor.spot && ball) {
       const s = toScreen(ev.actor.spot);
       setBallPos(ball, shadow, s, stepMs * 0.55);
-      // Land at the contact height
       setBallHeight(ball, shadow, contactLevel);
       if (actorEl) actorEl.classList.add('active');
-      // Trigger the jump slightly before the ball arrives so contact feels timed
-      setTimeout(() => jumpEls.forEach(el => el.classList.add('jumping')), stepMs * 0.35);
+      // Trigger the STANCE (jump/dive/crouch) slightly before the ball arrives → timed contact
+      setTimeout(() => {
+        if (actorEl && stance) actorEl.classList.add(stance);
+        // Block wall all leap simultaneously as attacker approaches
+        wallEls.forEach(el => el.classList.add('jumping'));
+      }, stepMs * 0.30);
       await sleep(stepMs * 0.55);
     } else if (actorEl) {
-      // Ball is already at the actor — just glow briefly + snap to contact height
+      // Ball is already at the actor — glow + stance immediately
       setBallHeight(ball, shadow, contactLevel);
       actorEl.classList.add('active');
-      jumpEls.forEach(el => el.classList.add('jumping'));
+      if (stance) actorEl.classList.add(stance);
+      wallEls.forEach(el => el.classList.add('jumping'));
     }
 
-    // Fire the burst + sfx right at the moment of the touch, before the ball flies away
+    // Fire the burst + sfx right at the moment of contact
     if (isTerminating) {
       showBurst(ev);
       try { if (ev.type === 'kill' || ev.type === 'ace') playPick(); } catch (e) {}
-      // Impact ring on the floor for kills / aces / errors that hit the floor
       if (ev.toSpot && ['kill','ace','attack-error'].includes(ev.type)) {
-        setTimeout(() => showImpactRing(ev.toSpot), stepMs * 0.55);
+        setTimeout(() => showImpactRing(ev.toSpot), stepMs * 0.15);
       }
     }
 
-    // --- PHASE 2: ball flies to its next destination, arcing HIGH mid-flight ---
+    // --- PHASE 3: ball flies to its next destination (arcs high mid-flight) ---
     let destSpot = null;
     if (nextActorId && nextActorId !== currActorId && nextEv.actor.spot) {
       destSpot = nextEv.actor.spot;
@@ -934,19 +1023,25 @@
       destSpot = ev.toSpot;
     }
     if (destSpot && ball) {
-      // First, pop UP to the flight height mid-way (this gives the arc feel)
       const midHeight = HEIGHT_MIDFLIGHT_AFTER[ev.type] || 'mid';
       setBallHeight(ball, shadow, midHeight);
       const s = toScreen(destSpot);
       setBallPos(ball, shadow, s, stepMs * 0.65);
     }
 
-    await sleep(stepMs * (skipPhase1 ? 0.75 : 0.55));
+    // Hold the stance briefly through the follow-through, then release
+    await sleep(stepMs * (skipPhase1 ? 0.55 : 0.4));
 
-    // Clear this actor's glow BEFORE next event's actor lights up (fixes out-of-order glows)
+    // Release stance (recover to standing) & walk back
+    if (actorEl && stance) actorEl.classList.remove(stance);
+    if (actorEl) stopWalking(actorEl);
+    wallEls.forEach(el => el.classList.remove('jumping'));
+
+    // Small settle beat before next event
+    await sleep(stepMs * 0.15);
+
+    // Clear this actor's glow BEFORE next event's actor lights up
     if (actorEl) actorEl.classList.remove('active');
-    // Bring jumpers back down
-    jumpEls.forEach(el => el.classList.remove('jumping'));
   }
 
   function showImpactRing(spotEngine) {
@@ -971,7 +1066,7 @@
     const burst = document.createElement('div');
     const label = {
       'kill': 'KILL!', 'ace': 'ACE!', 'block': 'BLOCK!', 'dig': 'DIG!',
-      'attack-error': 'ERROR', 'serve-error': 'ERROR'
+      'attack-error': 'OUT!', 'serve-error': 'NET!'
     }[ev.type] || '';
     const cls = ['kill','ace'].includes(ev.type) ? ev.type
       : ev.type === 'block' ? 'block' : ev.type === 'dig' ? 'dig' : 'error';
@@ -1001,14 +1096,14 @@
     switch (ev.type) {
       case 'serve': return `🎾 ${name(ev.actor)} serves…`;
       case 'ace':   return `⚡ ACE! ${name(ev.actor)} — untouchable serve`;
-      case 'serve-error': return `❌ ${name(ev.actor)} serves into the net`;
+      case 'serve-error': return `❌ ${name(ev.actor)} serves into the net (NET!)`;
       case 'pass':  return `  ↳ ${name(ev.actor)} receives`;
       case 'set':   return `  ↳ ${name(ev.actor)} sets`;
       case 'attack': return `  ↳ ${name(ev.actor)} swings…`;
       case 'kill':  return `💥 KILL by ${name(ev.actor)}`;
       case 'block': return `🧱 BLOCKED by ${name(ev.actor)}`;
       case 'dig':   return `🛡 DUG by ${name(ev.actor)}`;
-      case 'attack-error': return `❌ ${name(ev.actor)} attack out`;
+      case 'attack-error': return `❌ ${name(ev.actor)} hits it out of bounds (OUT!)`;
       case 'point': return `▶ Point ${ev.team === 'home' ? match.home.name : match.away.name} (${ev.home}-${ev.away})`;
       case 'rotation': return `  ↺ ${ev.team === 'home' ? match.home.name : match.away.name} rotates`;
       case 'set-won':  return `🏁 Set ${ev.setNumber} to ${ev.team === 'home' ? match.home.name : match.away.name} (sets: ${ev.setsHome}-${ev.setsAway})`;
