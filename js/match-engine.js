@@ -111,15 +111,14 @@ function playerAtSpot(team, spotIndex) {
   return team.lineup[rotated];
 }
 
-/** Simple weighted random check. Returns true if success. */
-function statCheck(attackerStat, defenderStat, base = 0.5) {
-  // Convert 0-10 stats into a 0-1 chance, weighted by contest.
-  // High attacker + low defender = high success. Vice versa low.
+/** Simple weighted random check. Returns true if success.
+ *  Higher `weight` = stats matter more. Default 0.55 gives an 8-rated player a ~20%pt
+ *  edge over a 4-rated defender, which is felt but not deterministic. */
+function statCheck(attackerStat, defenderStat, base = 0.5, weight = 0.55) {
   const attackScore = (attackerStat || 5) / 10;
   const defScore = (defenderStat || 5) / 10;
-  // Base success = attacker's raw ability + small edge over defender
-  const chance = base + (attackScore - defScore) * 0.35;
-  return Math.random() < Math.max(0.1, Math.min(0.9, chance));
+  const chance = base + (attackScore - defScore) * weight;
+  return Math.random() < Math.max(0.05, Math.min(0.95, chance));
 }
 
 /** Pick a random hitter from the team's front row (spots 2, 3, 4 in rotation).
@@ -209,8 +208,8 @@ export function simulateRally(match) {
     team: servingSide
   });
 
-  // Ace check: server's serve vs receiver's defense
-  const aceChance = statCheck(server?.player.serve, receiver?.player.defense, 0.15);
+  // Ace check: server's serve vs receiver's defense (lower base = fewer aces)
+  const aceChance = statCheck(server?.player.serve, receiver?.player.defense, 0.05, 0.35);
   if (aceChance) {
     // ACE! Ball lands at receiver's feet (or near them)
     events.push({
@@ -273,13 +272,24 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   });
 
   // Attack outcome tree
-  // 1. Block: (blocker defense + block bonus) vs (hitter attack * setQuality)
-  const avgBlockDef = blockers.length
-    ? blockers.reduce((s, b) => s + (b.player.defense || 5), 0) / blockers.length
-    : 3;
-  const blockBonus = blockers.some(b => (b.player.blockTouchCm || 300) > 310) ? 1 : 0;
+  // 1. Block: primary blocker's defense + wall bonus vs hitter's attack quality.
+  //    Wall bonus scales with the number of blockers (2-man block > 1-man) AND their reach.
+  const primaryBlockerDef = blockers[0] ? (blockers[0].player.defense || 5) : 3;
+  const wallSize = blockers.length; // 1-3 blockers in the wall
+  const wallBonus = (wallSize - 1) * 0.3; // small bonus per extra blocker (+0.3 / +0.6)
+  const reachBonus = blockers.reduce((s, b) => {
+    const reach = b.player.blockTouchCm || (b.player.heightCm ? b.player.heightCm + 45 : 300);
+    return s + Math.max(0, (reach - 300) / 25); // every 25cm above 3m = +1
+  }, 0) / Math.max(1, wallSize);
   const attackerEffective = (hitter.player.attack || 5) * setQuality;
-  const blockChance = statCheck(avgBlockDef + blockBonus, attackerEffective, 0.20);
+  const spikeReach = hitter.player.spikeTouchCm || (hitter.player.heightCm ? hitter.player.heightCm + 50 : 315);
+  const attackerReachEdge = Math.max(0, (spikeReach - 315) / 20); // taller attackers get above the wall
+  const blockChance = statCheck(
+    primaryBlockerDef + wallBonus + reachBonus - attackerReachEdge * 0.5,
+    attackerEffective,
+    -0.02,  // very low base — blocks require a real edge
+    0.35
+  );
   if (blockChance) {
     // BLOCK! Primary blocker gets credit but the whole wall reaches up.
     const blocker = blockers[0] || blockers[Math.floor(Math.random() * blockers.length)];

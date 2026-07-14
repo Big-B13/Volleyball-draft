@@ -30,40 +30,82 @@
     max-width: 1000px;
     margin: 0 auto 16px;
     aspect-ratio: 18 / 9;
+    /* Indoor gym floor: wooden planks + subtle court paint */
     background:
-      radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.08) 0%, transparent 70%),
-      linear-gradient(180deg, #c26a58 0%, #a05141 100%);
-    border: 4px solid #fff;
+      /* Court paint zones (two shades of blue-teal so the play area pops) */
+      linear-gradient(90deg,
+        rgba(30, 120, 145, 0.55) 0%,
+        rgba(30, 120, 145, 0.55) 33%,
+        rgba(255, 165, 60, 0.55) 33%,
+        rgba(255, 165, 60, 0.55) 67%,
+        rgba(30, 120, 145, 0.55) 67%,
+        rgba(30, 120, 145, 0.55) 100%),
+      /* Wood plank stripes (vertical faint lines) */
+      repeating-linear-gradient(90deg,
+        rgba(255,255,255,0.03) 0 3px,
+        transparent 3px 40px),
+      /* Wood base color */
+      linear-gradient(180deg, #d19458 0%, #b8783f 45%, #a06731 100%);
+    border: 4px solid #f5f5f5;
     border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.55), inset 0 0 60px rgba(0,0,0,0.35);
+    box-shadow:
+      0 12px 40px rgba(0,0,0,0.6),
+      inset 0 0 80px rgba(0,0,0,0.45),
+      inset 0 0 20px rgba(0,0,0,0.3);
   }
-  /* Court gloss overlay — subtle stadium-light shimmer */
+  /* Stadium spotlight glow overlay */
   .court-wrap::before {
     content: ''; position: absolute; inset: 0;
-    background: linear-gradient(115deg, rgba(255,255,255,0.05) 0%, transparent 30%, transparent 70%, rgba(255,255,255,0.05) 100%);
+    background:
+      radial-gradient(ellipse at 25% 30%, rgba(255,255,255,0.14) 0%, transparent 45%),
+      radial-gradient(ellipse at 75% 70%, rgba(255,255,255,0.14) 0%, transparent 45%),
+      linear-gradient(115deg, rgba(255,255,255,0.05) 0%, transparent 30%, transparent 70%, rgba(255,255,255,0.06) 100%);
     pointer-events: none; z-index: 1;
+  }
+  /* Court outer boundary lines (drawn INSIDE via a pseudo-element for polish) */
+  .court-wrap::after {
+    content: ''; position: absolute;
+    top: 8px; left: 8px; right: 8px; bottom: 8px;
+    border: 3px solid rgba(255,255,255,0.9);
+    border-radius: 3px;
+    pointer-events: none; z-index: 1;
+    box-shadow: 0 0 12px rgba(255,255,255,0.15);
   }
   /* Horizontal court: net is a vertical stripe down the middle; attack lines are vertical too. */
   .court-wrap .net {
-    position: absolute; left: 50%; top: -4px; bottom: -4px; width: 6px;
-    background: repeating-linear-gradient(0deg, #fff 0 8px, transparent 8px 12px);
+    position: absolute; left: 50%; top: -6px; bottom: -6px; width: 7px;
+    background:
+      repeating-linear-gradient(0deg, #fff 0 6px, rgba(255,255,255,0.35) 6px 10px);
     transform: translateX(-50%); z-index: 2;
-    box-shadow: 0 0 6px rgba(255,255,255,0.4);
+    box-shadow: 0 0 8px rgba(255,255,255,0.5), 0 0 20px rgba(255,255,255,0.15);
+    border-left: 1px solid rgba(0,0,0,0.2);
+    border-right: 1px solid rgba(0,0,0,0.2);
   }
-  .court-wrap .attack-line-far  { position: absolute; left: 33%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.55); z-index: 1; }
-  .court-wrap .attack-line-near { position: absolute; left: 67%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.55); z-index: 1; }
+  /* Antenna posts on top of the net */
+  .court-wrap .net::before,
+  .court-wrap .net::after {
+    content: ''; position: absolute; left: 50%; width: 4px; height: 30px;
+    background: repeating-linear-gradient(0deg, #ef4444 0 6px, #fff 6px 12px);
+    transform: translateX(-50%);
+    border-radius: 2px;
+  }
+  .court-wrap .net::before { top: -22px; }
+  .court-wrap .net::after  { bottom: -22px; }
+  .court-wrap .attack-line-far  { position: absolute; left: 33%; top: 12px; bottom: 12px; width: 3px; background: rgba(255,255,255,0.85); z-index: 1; box-shadow: 0 0 6px rgba(255,255,255,0.2); }
+  .court-wrap .attack-line-near { position: absolute; left: 67%; top: 12px; bottom: 12px; width: 3px; background: rgba(255,255,255,0.85); z-index: 1; box-shadow: 0 0 6px rgba(255,255,255,0.2); }
   /* Side labels */
   .court-wrap .side-label {
-    position: absolute; top: 10px; font-size: 0.8rem; letter-spacing: 3px; font-weight: 900;
-    text-transform: uppercase; pointer-events: none; z-index: 2;
-    text-shadow: 0 0 12px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.9);
+    position: absolute; top: 14px; font-size: 0.85rem; letter-spacing: 3px; font-weight: 900;
+    text-transform: uppercase; pointer-events: none; z-index: 3;
+    text-shadow: 0 0 12px rgba(0,0,0,1), 0 0 6px rgba(0,0,0,1), 0 2px 4px rgba(0,0,0,1);
   }
-  .court-wrap .side-label.home { left: 14px; }
-  .court-wrap .side-label.away { right: 14px; }
+  .court-wrap .side-label.home { left: 18px; }
+  .court-wrap .side-label.away { right: 18px; }
 
   .player-circle {
     position: absolute;
+    /* width is set per-player based on height; default 9% */
     width: 9%; aspect-ratio: 1;
     border-radius: 50%;
     /* Compose transform from CSS variables so idle sway + jump + scale all stack cleanly */
@@ -97,14 +139,19 @@
     box-shadow: 0 0 0 3px #fbbf24, 0 4px 18px rgba(0,0,0,0.85);
     animation: activePulse 0.5s ease-out;
   }
+  .player-circle {
+    /* Default jump height — overridden per-player based on athletic stat */
+    --jump-height: -20px;
+  }
   .player-circle.jumping {
-    --jy: -18px;
-    --sc: 1.15;
+    --jy: var(--jump-height);
+    --sc: 1.12;
     z-index: 6;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 14px 12px -6px rgba(0,0,0,0.55);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 16px 14px -6px rgba(0,0,0,0.6);
   }
   .player-circle.jumping.active {
-    --jy: -22px;
+    /* Actor jumps a bit higher than teammates */
+    --jy: calc(var(--jump-height) - 8px);
     --sc: 1.4;
   }
   @keyframes activePulse {
@@ -124,13 +171,31 @@
   }
   .player-circle .label {
     position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,0.85); color: #fff;
-    padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; white-space: nowrap;
-    margin-top: 6px; pointer-events: none;
+    background: rgba(15,23,42,0.96); color: #fff;
+    padding: 6px 10px; border-radius: 6px; white-space: nowrap;
+    margin-top: 8px; pointer-events: none;
     opacity: 0; transition: opacity 0.2s;
-    z-index: 6;
+    z-index: 20;
+    border: 1px solid rgba(255,255,255,0.15);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.6);
+    text-align: center;
   }
+  .player-circle .label .label-name { font-size: 0.8rem; font-weight: 900; color: #fbbf24; }
+  .player-circle .label .label-sub  { font-size: 0.65rem; color: #cbd5e1; margin-top: 2px; }
+  .player-circle .label .label-stats { font-size: 0.6rem; color: #94a3b8; margin-top: 4px; letter-spacing: 0.5px; }
   .player-circle:hover .label { opacity: 1; }
+  /* Elite ★ badge for high-overall players (top-left corner) */
+  .player-circle .elite-badge {
+    position: absolute; top: -6px; left: -6px;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: #0f172a;
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 900;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    z-index: 4; pointer-events: none;
+  }
   /* Fallback initials when no photo */
   .player-circle .initials {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -616,8 +681,26 @@
         circle.style.borderColor = team.color;
         circle.style.color = team.color;
 
+        // ---- Stats affect visual appearance ----
+        // Height (150-215cm) → circle size (6.5% to 11% of court width)
+        // Overall stat (avg of 5) → glow strength on the border
+        const p = slot.player;
+        const heightCm = p.heightCm || 180;
+        const heightNorm = Math.max(0, Math.min(1, (heightCm - 150) / 65)); // 150→0, 215→1
+        const sizePct = 6.5 + heightNorm * 4.5; // 6.5% (short) to 11% (tall)
+        circle.style.width = sizePct.toFixed(2) + '%';
+        // Overall rating for glow
+        const overall = ((+p.attack || 5) + (+p.serve || 5) + (+p.defense || 5) + (+p.setting || 5) + (+p.athletic || 5)) / 5;
+        const glow = Math.max(0, (overall - 5) / 3.5); // 5→0, 8.5→1
+        if (glow > 0) {
+          const glowPx = Math.round(6 + glow * 12);
+          circle.style.boxShadow = `0 3px 10px rgba(0,0,0,0.6), 0 0 ${glowPx}px ${team.color}`;
+        }
+        // Elite (overall >= 7.5) gets a small ★ badge
+        const isElite = overall >= 7.5;
+
         // Try to load a photo; fall back to initials on error
-        const pid = slot.player.id;
+        const pid = p.id;
         const photoUrl = photoPathFor(pid);
         const cfg = PHOTO_CONFIG[pid] || { y: 25, zoom: 1.0 };
         // Preload photo to see if it exists
@@ -632,10 +715,24 @@
         img.onerror = () => { /* keep initials */ };
         img.src = photoUrl;
 
+        // Rich hover label showing the actual stats driving the sim
+        const statLine = `ATK ${(+p.attack||5).toFixed(1)} · SRV ${(+p.serve||5).toFixed(1)} · DEF ${(+p.defense||5).toFixed(1)} · SET ${(+p.setting||5).toFixed(1)} · ATH ${(+p.athletic||5).toFixed(1)}`;
+        const heightLine = p.heightCm ? `${p.heightCm}cm · ${p.position || 'OH'}` : (p.position || 'OH');
+
+        // Jump height scales with athletic stat (5=default 20px, 8=28px, 3=14px)
+        const athletic = +p.athletic || 5;
+        const jumpPx = Math.round(14 + (athletic - 3) * 3); // 3→14px, 5→20px, 8→29px
+        circle.style.setProperty('--jump-height', `-${jumpPx}px`);
+
         circle.innerHTML = `
-          <span class="initials">${escapeHtml(getInitials(slot.player.name))}</span>
-          <span class="num" style="color:${team.color}">${slot.player.jerseyNum || '?'}</span>
-          <span class="label">${escapeHtml(slot.player.nickname || slot.player.name)}</span>
+          <span class="initials">${escapeHtml(getInitials(p.name))}</span>
+          <span class="num" style="color:${team.color}">${p.jerseyNum || '?'}</span>
+          ${isElite ? `<span class="elite-badge" title="Overall ${overall.toFixed(1)}">★</span>` : ''}
+          <div class="label">
+            <div class="label-name">${escapeHtml(p.nickname || p.name)}</div>
+            <div class="label-sub">${escapeHtml(heightLine)}</div>
+            <div class="label-stats">${statLine}</div>
+          </div>
         `;
         court.appendChild(circle);
       });
@@ -772,7 +869,7 @@
     const contactLevel = HEIGHT_AT_CONTACT[ev.type] || 'mid';
 
     // Figure out who's JUMPING for this event:
-    //   attack/kill/ace  → the attacker jumps
+    //   attack/kill/ace  → the attacker jumps AND the defending team's front-row block wall goes up
     //   block            → the whole block wall (all blockers passed by engine) jumps
     //   set              → setter reaches up (small pop, feels alive)
     // Jumping players get temporary CSS class .jumping — cleared after their motion window.
@@ -782,6 +879,20 @@
     }
     if (ev.type === 'block' && Array.isArray(ev.blockers)) {
       for (const b of ev.blockers) if (b && b.player) jumpers.push(b.player.id);
+    }
+    // ATTACK → defending team's whole front row puts up a block wall (even if it doesn't stuff)
+    if ((ev.type === 'attack' || ev.type === 'kill') && ev.actor && ev.actor.spot && match) {
+      // Attacker is on side y>0.5 → home; else away. Defenders are the opposite.
+      const attackerOnHome = ev.actor.spot.y > 0.5;
+      const defTeam = attackerOnHome ? match.away : match.home;
+      if (defTeam && defTeam.lineup) {
+        // Front-row rotation indices are 1, 2, 3 (spots 2, 3, 4)
+        [1, 2, 3].forEach(rotIdx => {
+          const idx = (rotIdx + defTeam.rotationOffset) % 6;
+          const slot = defTeam.lineup[idx];
+          if (slot && slot.player) jumpers.push(slot.player.id);
+        });
+      }
     }
     const jumpEls = [...new Set(jumpers)]
       .map(pid => document.querySelector(`.player-circle[data-pid="${pid}"]`))
@@ -843,15 +954,20 @@
     const s = toScreen(spotEngine);
     const ring = document.createElement('div');
     ring.className = 'impact-ring';
+    // Scale duration to speed too
+    const dur = Math.max(220, 700 / speed);
+    ring.style.animationDuration = dur + 'ms';
     ring.style.left = (s.x * 100) + '%';
     ring.style.top = (s.y * 100) + '%';
     court.appendChild(ring);
-    setTimeout(() => ring.remove(), 700);
+    setTimeout(() => ring.remove(), dur + 50);
   }
 
   function showBurst(ev) {
     if (!ev.actor || !ev.actor.spot) return;
     const court = document.getElementById('court');
+    // Clear any old bursts still on screen (fixes ERROR lingering on 4× speed and stacking labels)
+    court.querySelectorAll('.action-burst').forEach(el => el.remove());
     const burst = document.createElement('div');
     const label = {
       'kill': 'KILL!', 'ace': 'ACE!', 'block': 'BLOCK!', 'dig': 'DIG!',
@@ -861,11 +977,14 @@
       : ev.type === 'block' ? 'block' : ev.type === 'dig' ? 'dig' : 'error';
     burst.className = 'action-burst ' + cls;
     burst.textContent = label;
+    // Scale animation duration to speed so bursts don't outlast rallies at 4× (fixes ERROR bug)
+    const dur = Math.max(280, 1000 / speed);
+    burst.style.animationDuration = dur + 'ms';
     const s = toScreen(ev.actor.spot);
     burst.style.left = (s.x * 100) + '%';
     burst.style.top = (s.y * 100) + '%';
     court.appendChild(burst);
-    setTimeout(() => burst.remove(), 800);
+    setTimeout(() => burst.remove(), dur + 50);
   }
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
