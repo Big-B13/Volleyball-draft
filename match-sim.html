@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Match Simulator — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:16px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .sim-header {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center;
+    padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; margin-bottom: 12px;
+  }
+  .team-tag { display: flex; align-items: center; gap: 10px; }
+  .team-tag.away { flex-direction: row-reverse; text-align: right; }
+  .team-tag .swatch { width: 20px; height: 20px; border-radius: 4px; }
+  .team-tag .name { font-weight: 900; color: #fff; font-size: 1.1rem; }
+  .score-box { text-align: center; }
+  .score-big { font-size: 3rem; font-weight: 900; line-height: 1; color: #fbbf24; letter-spacing: 4px; }
+  .set-info { font-size: 0.75rem; color: #94a3b8; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+  .sets-row { display: flex; gap: 6px; justify-content: center; margin-top: 4px; }
+  .set-pill { padding: 2px 8px; background: rgba(255,255,255,0.08); border-radius: 10px; font-size: 0.75rem; color: #cbd5e1; font-weight: 700; }
+  .set-pill.won { background: #22c55e; color: #052e16; }
+
+  .court-wrap {
+    position: relative;
+    max-width: 640px;
+    margin: 0 auto 16px;
+    aspect-ratio: 9 / 18;
+    background: linear-gradient(180deg, #b16050 0%, #a05141 100%);
+    border: 3px solid #fff;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .court-wrap .net { position: absolute; top: 50%; left: -3px; right: -3px; height: 4px; background: repeating-linear-gradient(90deg, #fff 0 8px, transparent 8px 12px); transform: translateY(-50%); }
+  .court-wrap .attack-line-far { position: absolute; top: 33%; left: 0; right: 0; height: 2px; background: rgba(255,255,255,0.6); }
+  .court-wrap .attack-line-near { position: absolute; top: 67%; left: 0; right: 0; height: 2px; background: rgba(255,255,255,0.6); }
+  .player-circle {
+    position: absolute;
+    width: 8%; aspect-ratio: 1;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; color: #fff;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    font-size: 0.75rem;
+    transition: transform 0.4s, filter 0.3s;
+    z-index: 3;
+  }
+  .player-circle.active { transform: translate(-50%, -50%) scale(1.35); filter: brightness(1.3) drop-shadow(0 0 12px #fff); z-index: 5; }
+  .player-circle .num { pointer-events: none; }
+  .player-circle .label {
+    position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.85); color: #fff;
+    padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; white-space: nowrap;
+    margin-top: 4px; pointer-events: none;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .player-circle:hover .label { opacity: 1; }
+  .ball {
+    position: absolute;
+    width: 22px; height: 22px;
+    background: radial-gradient(circle at 30% 30%, #fef08a, #fbbf24 60%, #92400e);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 12px rgba(251,191,36,0.8), inset -3px -3px 6px rgba(0,0,0,0.3);
+    z-index: 10;
+    transition: left 0.5s cubic-bezier(0.4, 0.0, 0.2, 1), top 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
+    pointer-events: none;
+  }
+  .action-burst {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: 8; pointer-events: none;
+    font-weight: 900; letter-spacing: 2px;
+    font-size: 1.2rem;
+    text-shadow: 0 0 12px rgba(0,0,0,0.9);
+    animation: burst 0.8s ease-out forwards;
+  }
+  @keyframes burst {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+    30% { opacity: 1; transform: translate(-50%, -80%) scale(1.3); }
+    100% { opacity: 0; transform: translate(-50%, -140%) scale(1); }
+  }
+  .action-burst.kill { color: #22c55e; }
+  .action-burst.ace { color: #fbbf24; }
+  .action-burst.block { color: #7c3aed; }
+  .action-burst.dig { color: #38bdf8; }
+  .action-burst.error { color: #ef4444; }
+
+  .controls {
+    display: flex; gap: 8px; justify-content: center; margin: 12px 0; flex-wrap: wrap;
+  }
+  .controls button, .controls select {
+    padding: 8px 16px; font-size: 0.9rem;
+  }
+
+  .log-panel {
+    max-height: 200px; overflow-y: auto;
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
+    font-family: monospace; font-size: 0.8rem;
+    color: #cbd5e1;
+  }
+  .log-entry { padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+  .log-entry.point { color: #fbbf24; font-weight: 700; }
+  .log-entry.setwon { color: #22c55e; font-weight: 900; }
+  .log-entry.matchwon { color: #f97316; font-weight: 900; font-size: 1rem; }
+
+  #match-picker { padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; }
+  #match-picker select { max-width: 100%; }
+  #match-picker .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  @media (max-width: 720px) {
+    #match-picker .row { grid-template-columns: 1fr; }
+    .sim-header { grid-template-columns: 1fr; }
+    .score-big { font-size: 2.2rem; }
+    .team-tag.away { flex-direction: row; text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./standings.html">📊 Standings</a>
+    <a href="./player-stats.html">🌟 Player stats</a>
+    <a href="./match-sim.html" class="active">🎮 Match Sim</a>
+  </nav>
+
+  <h1><span class="emoji">🎮</span> MATCH SIMULATOR</h1>
+  <p class="tagline">Watch your drafted teams play it out. Best of 5 sets.</p>
+
+  <div id="setup-card" class="card">
+    <div id="match-picker">
+      <label>League</label>
+      <select id="league-select"></select>
+      <div class="row">
+        <div>
+          <label>Home team (bottom)</label>
+          <select id="home-team"></select>
+        </div>
+        <div>
+          <label>Away team (top)</label>
+          <select id="away-team"></select>
+        </div>
+      </div>
+      <div class="row-btns" style="margin-top: 14px;">
+        <button onclick="startMatch()">▶️ Start match</button>
+      </div>
+      <p style="color:#94a3b8; font-size:0.8rem; margin-top:10px;">
+        Team rosters come from the most recent completed draft in this league.
+        Best of 5 sets, sets 1-4 to 25, set 5 to 15.
+      </p>
+    </div>
+  </div>
+
+  <div id="match-view" class="hidden">
+    <div class="sim-header">
+      <div class="team-tag" id="tag-home">
+        <div class="swatch"></div>
+        <div class="name"></div>
+      </div>
+      <div class="score-box">
+        <div class="score-big"><span id="score-home">0</span> : <span id="score-away">0</span></div>
+        <div class="set-info" id="set-info">Set 1 of 5</div>
+        <div class="sets-row" id="sets-row"></div>
+      </div>
+      <div class="team-tag away" id="tag-away">
+        <div class="swatch"></div>
+        <div class="name"></div>
+      </div>
+    </div>
+
+    <div class="court-wrap" id="court">
+      <div class="net"></div>
+      <div class="attack-line-far"></div>
+      <div class="attack-line-near"></div>
+    </div>
+
+    <div class="controls">
+      <button onclick="togglePause()" id="btn-pause">⏸️ Pause</button>
+      <select id="speed-select" onchange="setSpeed()">
+        <option value="1">1× (chill)</option>
+        <option value="2" selected>2× (fast)</option>
+        <option value="4">4× (very fast)</option>
+        <option value="8">8× (auto-play)</option>
+      </select>
+      <button onclick="finishInstantly()" class="secondary">⏩ Simulate to end</button>
+      <button onclick="resetSim()" class="secondary">↺ New match</button>
+    </div>
+
+    <div class="card">
+      <h3 style="color:#fbbf24; font-size:0.9rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:8px;">📋 Play-by-play</h3>
+      <div class="log-panel" id="log-panel"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { db, ref, get } from "./js/firebase-init.js";
+  import { listLeagues, ensureGomiCupSeeded, currentLeagueId } from "./js/leagues.js";
+  import { escapeHtml } from "./js/util.js";
+  import { createMatch, simulateRally, playerAtSpot } from "./js/match-engine.js";
+  import { playPick, playYourTurn, playReveal } from "./js/sounds.js";
+
+  await ensureGomiCupSeeded();
+
+  const leagues = await listLeagues();
+  const lgSel = document.getElementById('league-select');
+  const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
+  lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  lgSel.addEventListener('change', populateTeams);
+  await populateTeams();
+
+  let leagueDraft = null;
+  let leagueCaptains = [];
+  async function populateTeams() {
+    // Find the most recent completed draft for this league
+    const leagueId = lgSel.value;
+    const draftsSnap = await get(ref(db, 'drafts'));
+    const drafts = draftsSnap.val() || {};
+    let latest = null;
+    for (const d of Object.values(drafts)) {
+      if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
+      if (d.status !== 'complete') continue;
+      if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+    }
+    const homeSel = document.getElementById('home-team');
+    const awaySel = document.getElementById('away-team');
+    if (!latest) {
+      homeSel.innerHTML = '<option value="">No completed draft found</option>';
+      awaySel.innerHTML = '<option value="">No completed draft found</option>';
+      return;
+    }
+    leagueDraft = latest;
+    leagueCaptains = latest.captains || [];
+    const opts = leagueCaptains.map((c, i) =>
+      `<option value="${i}">${escapeHtml(c.team)} (${escapeHtml(c.name)})</option>`).join('');
+    homeSel.innerHTML = opts;
+    awaySel.innerHTML = opts;
+    if (leagueCaptains.length > 1) awaySel.selectedIndex = 1;
+  }
+
+  // Get roster (drafted players + captain) for a captain
+  function getRoster(captainIdx) {
+    const picks = (leagueDraft.picks || []).filter(p => p.captainIdx === captainIdx);
+    const playersById = Object.fromEntries((leagueDraft.players || []).map(p => [p.id, p]));
+    const cap = leagueCaptains[captainIdx];
+    const captainPlayer = cap.linkedPlayerId ? playersById[cap.linkedPlayerId] : null;
+    const roster = [];
+    // Captain acts as one of the players
+    if (captainPlayer) roster.push({ ...captainPlayer, jerseyNum: 'C' });
+    else roster.push({
+      id: cap.id, name: cap.name, nickname: cap.name,
+      attack: 6.5, serve: 6.5, defense: 6.5, setting: 6.5, athletic: 6.5,
+      position: (cap.role || '').split(' ').map(w => w[0]).join('').toUpperCase() || 'OH',
+      jerseyNum: 'C'
+    });
+    picks.forEach((pk, i) => {
+      const p = playersById[pk.playerId];
+      if (p) roster.push({ ...p, jerseyNum: i + 1 });
+    });
+    return roster.slice(0, 6);
+  }
+
+  // ============ SIM RUNTIME ============
+  let match = null;
+  let paused = false;
+  let speed = 2;
+  let rallyTimer = null;
+
+  window.startMatch = () => {
+    const homeIdx = parseInt(document.getElementById('home-team').value);
+    const awayIdx = parseInt(document.getElementById('away-team').value);
+    if (homeIdx === awayIdx) return alert('Pick different teams for home and away.');
+    const homeRoster = getRoster(homeIdx);
+    const awayRoster = getRoster(awayIdx);
+    if (homeRoster.length < 6) return alert(`Home team only has ${homeRoster.length} players (need 6).`);
+    if (awayRoster.length < 6) return alert(`Away team only has ${awayRoster.length} players (need 6).`);
+
+    match = createMatch({
+      homeTeam: homeRoster, awayTeam: awayRoster,
+      homeName: leagueCaptains[homeIdx].team,
+      awayName: leagueCaptains[awayIdx].team,
+      homeColor: leagueCaptains[homeIdx].color,
+      awayColor: leagueCaptains[awayIdx].color
+    });
+
+    document.getElementById('setup-card').classList.add('hidden');
+    document.getElementById('match-view').classList.remove('hidden');
+    renderHeader();
+    renderCourt();
+    logSeed();
+    paused = false;
+    scheduleNextRally();
+    try { playYourTurn(); } catch (e) {}
+  };
+
+  window.resetSim = () => {
+    if (rallyTimer) clearTimeout(rallyTimer);
+    match = null; paused = false;
+    document.getElementById('setup-card').classList.remove('hidden');
+    document.getElementById('match-view').classList.add('hidden');
+    document.getElementById('log-panel').innerHTML = '';
+  };
+
+  window.togglePause = () => {
+    paused = !paused;
+    document.getElementById('btn-pause').textContent = paused ? '▶️ Resume' : '⏸️ Pause';
+    if (!paused) scheduleNextRally();
+  };
+
+  window.setSpeed = () => {
+    speed = parseInt(document.getElementById('speed-select').value) || 2;
+  };
+
+  window.finishInstantly = () => {
+    if (!match) return;
+    while (!match.matchOver) {
+      const events = simulateRally(match);
+      events.forEach(e => appendLog(formatEvent(e)));
+    }
+    renderHeader();
+    scrollLog();
+    try { playReveal(); } catch (e) {}
+  };
+
+  function renderHeader() {
+    if (!match) return;
+    const th = document.getElementById('tag-home');
+    const ta = document.getElementById('tag-away');
+    th.querySelector('.swatch').style.background = match.home.color;
+    th.querySelector('.name').textContent = match.home.name;
+    th.querySelector('.name').style.color = match.home.color;
+    ta.querySelector('.swatch').style.background = match.away.color;
+    ta.querySelector('.name').textContent = match.away.name;
+    ta.querySelector('.name').style.color = match.away.color;
+    document.getElementById('score-home').textContent = match.pointsHome;
+    document.getElementById('score-away').textContent = match.pointsAway;
+    document.getElementById('set-info').textContent = match.matchOver
+      ? '🏆 MATCH OVER'
+      : `Set ${match.setNumber} · First to ${match.setNumber === 5 ? match.finalSetTarget : match.setTarget}`;
+    // sets row
+    const setsRow = document.getElementById('sets-row');
+    const totalSets = Math.max(match.setsHome + match.setsAway, 1);
+    const pills = [];
+    for (let i = 0; i < match.setsHome; i++) pills.push('<span class="set-pill won" style="background:' + match.home.color + '; color:#fff;">H</span>');
+    for (let i = 0; i < match.setsAway; i++) pills.push('<span class="set-pill won" style="background:' + match.away.color + '; color:#fff;">A</span>');
+    setsRow.innerHTML = `<span class="set-pill">Sets: ${match.setsHome} - ${match.setsAway}</span>`;
+  }
+
+  function renderCourt() {
+    const court = document.getElementById('court');
+    // Clear existing player circles + ball
+    court.querySelectorAll('.player-circle, .ball, .action-burst').forEach(el => el.remove());
+    // Add players
+    for (const side of ['home', 'away']) {
+      const team = match[side];
+      team.lineup.forEach((slot, i) => {
+        if (!slot) return;
+        // rotate offset — compute actual on-court coords
+        const spotIndex = (6 + i - team.rotationOffset) % 6;
+        const spot = (side === 'home' ? [
+          { x: 0.75, y: 0.85 },{ x: 0.75, y: 0.60 },{ x: 0.50, y: 0.60 },
+          { x: 0.25, y: 0.60 },{ x: 0.25, y: 0.85 },{ x: 0.50, y: 0.85 }
+        ] : [
+          { x: 0.25, y: 0.15 },{ x: 0.25, y: 0.40 },{ x: 0.50, y: 0.40 },
+          { x: 0.75, y: 0.40 },{ x: 0.75, y: 0.15 },{ x: 0.50, y: 0.15 }
+        ])[spotIndex];
+        // update the slot's current spot so engine sees it
+        slot.spot = spot;
+        const circle = document.createElement('div');
+        circle.className = 'player-circle';
+        circle.dataset.pid = slot.player.id;
+        circle.style.left = (spot.x * 100) + '%';
+        circle.style.top = (spot.y * 100) + '%';
+        circle.style.background = team.color;
+        circle.innerHTML = `<span class="num">${slot.player.jerseyNum || '?'}</span><span class="label">${escapeHtml(slot.player.nickname || slot.player.name)}</span>`;
+        court.appendChild(circle);
+      });
+    }
+    // Ball starts at server position
+    const ball = document.createElement('div');
+    ball.className = 'ball';
+    ball.style.left = '50%';
+    ball.style.top = '50%';
+    ball.style.opacity = '0';
+    court.appendChild(ball);
+  }
+
+  function scheduleNextRally() {
+    if (paused || !match || match.matchOver) return;
+    const delay = 800 / speed;
+    rallyTimer = setTimeout(async () => {
+      await playRally();
+      renderHeader();
+      if (!match.matchOver && !paused) scheduleNextRally();
+      else if (match.matchOver) {
+        appendLog(`\n🏆 ${match.winner === 'home' ? match.home.name : match.away.name} WINS THE MATCH ${match.setsHome}-${match.setsAway}!`, 'matchwon');
+        try { playReveal(); } catch (e) {}
+      }
+    }, delay);
+  }
+
+  async function playRally() {
+    if (!match) return;
+    const events = simulateRally(match);
+    // Reset player highlights
+    document.querySelectorAll('.player-circle.active').forEach(el => el.classList.remove('active'));
+    const ball = document.querySelector('.ball');
+    for (const ev of events) {
+      appendLog(formatEvent(ev), classForEvent(ev));
+      await animateEvent(ev, ball);
+    }
+    // At end of rally, refresh court in case of rotation
+    renderCourt();
+  }
+
+  async function animateEvent(ev, ball) {
+    const stepMs = 400 / speed;
+    if (ev.actor && ev.actor.player) {
+      const el = document.querySelector(`.player-circle[data-pid="${ev.actor.player.id}"]`);
+      if (el) {
+        el.classList.add('active');
+        setTimeout(() => el.classList.remove('active'), stepMs * 2);
+      }
+    }
+    // Move ball if we have coords
+    if (ev.toSpot && ball) {
+      ball.style.opacity = '1';
+      ball.style.transitionDuration = (stepMs / 1000) + 's';
+      ball.style.left = (ev.toSpot.x * 100) + '%';
+      ball.style.top = (ev.toSpot.y * 100) + '%';
+    } else if (ev.actor && ev.actor.spot && ball) {
+      ball.style.opacity = '1';
+      ball.style.transitionDuration = (stepMs / 1000) + 's';
+      ball.style.left = (ev.actor.spot.x * 100) + '%';
+      ball.style.top = (ev.actor.spot.y * 100) + '%';
+    }
+    // Action bursts
+    if (['kill','ace','block','dig','attack-error','serve-error'].includes(ev.type)) {
+      showBurst(ev);
+      try { if (ev.type === 'kill' || ev.type === 'ace') playPick(); } catch (e) {}
+    }
+    await sleep(stepMs);
+  }
+
+  function showBurst(ev) {
+    if (!ev.actor || !ev.actor.spot) return;
+    const court = document.getElementById('court');
+    const burst = document.createElement('div');
+    const label = {
+      'kill': 'KILL!', 'ace': 'ACE!', 'block': 'BLOCK!', 'dig': 'DIG!',
+      'attack-error': 'ERROR', 'serve-error': 'ERROR'
+    }[ev.type] || '';
+    const cls = ['kill','ace'].includes(ev.type) ? ev.type
+      : ev.type === 'block' ? 'block' : ev.type === 'dig' ? 'dig' : 'error';
+    burst.className = 'action-burst ' + cls;
+    burst.textContent = label;
+    burst.style.left = (ev.actor.spot.x * 100) + '%';
+    burst.style.top = (ev.actor.spot.y * 100) + '%';
+    court.appendChild(burst);
+    setTimeout(() => burst.remove(), 800);
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function classForEvent(ev) {
+    if (ev.type === 'point') return 'point';
+    if (ev.type === 'set-won') return 'setwon';
+    if (ev.type === 'match-won') return 'matchwon';
+    return '';
+  }
+
+  function formatEvent(ev) {
+    const name = (a) => a && a.player ? (a.player.nickname || a.player.name) : '?';
+    switch (ev.type) {
+      case 'serve': return `🎾 ${name(ev.actor)} serves…`;
+      case 'ace':   return `⚡ ACE! ${name(ev.actor)} — untouchable serve`;
+      case 'serve-error': return `❌ ${name(ev.actor)} serves into the net`;
+      case 'pass':  return `  ↳ ${name(ev.actor)} receives`;
+      case 'set':   return `  ↳ ${name(ev.actor)} sets`;
+      case 'attack': return `  ↳ ${name(ev.actor)} swings…`;
+      case 'kill':  return `💥 KILL by ${name(ev.actor)}`;
+      case 'block': return `🧱 BLOCKED by ${name(ev.actor)}`;
+      case 'dig':   return `🛡 DUG by ${name(ev.actor)}`;
+      case 'attack-error': return `❌ ${name(ev.actor)} attack out`;
+      case 'point': return `▶ Point ${ev.team === 'home' ? match.home.name : match.away.name} (${ev.home}-${ev.away})`;
+      case 'rotation': return `  ↺ ${ev.team === 'home' ? match.home.name : match.away.name} rotates`;
+      case 'set-won':  return `🏁 Set ${ev.setNumber} to ${ev.team === 'home' ? match.home.name : match.away.name} (sets: ${ev.setsHome}-${ev.setsAway})`;
+      case 'match-won': return `🏆 MATCH WON by ${ev.team === 'home' ? match.home.name : match.away.name}`;
+      default: return ev.type;
+    }
+  }
+
+  function appendLog(text, cls) {
+    const panel = document.getElementById('log-panel');
+    const div = document.createElement('div');
+    div.className = 'log-entry' + (cls ? ' ' + cls : '');
+    div.textContent = text;
+    panel.appendChild(div);
+    scrollLog();
+  }
+  function scrollLog() {
+    const panel = document.getElementById('log-panel');
+    panel.scrollTop = panel.scrollHeight;
+  }
+  function logSeed() {
+    appendLog(`Match starting: ${match.home.name} vs ${match.away.name}`);
+    appendLog(`Best of 5 sets — first to 3 wins the match`);
+    appendLog('');
+  }
+</script>
+</body>
+</html>
