@@ -299,15 +299,17 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
 }
 
 function pickAttackTarget(defendingTeam) {
-  // Random open spot on defender's side (bias toward the deep corners)
+  // Random open spot on defender's side (bias toward the deep corners).
+  // Engine coords: y=0..1 with net at y=0.5. Home occupies y>0.5, Away occupies y<0.5.
   const candidates = [
     { x: 0.1, y: 0.9 },  // deep corner
     { x: 0.9, y: 0.9 },  // deep corner
     { x: 0.5, y: 0.95 }, // deep middle
     { x: 0.5, y: 0.6 }   // short (tip)
   ];
-  // Mirror if defending team is on the far side
-  const isFar = defendingTeam === (defendingTeam && defendingTeam.lineup && defendingTeam.lineup[0].spot.y < 0.5);
+  // Detect whether the defending team is on the far (top) side of the court in engine space
+  const isFar = !!(defendingTeam && defendingTeam.lineup && defendingTeam.lineup[0] &&
+                   defendingTeam.lineup[0].spot && defendingTeam.lineup[0].spot.y < 0.5);
   const pick = candidates[Math.floor(Math.random() * candidates.length)];
   return isFar ? { x: pick.x, y: 1 - pick.y } : pick;
 }

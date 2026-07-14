@@ -93,14 +93,22 @@
   }
   .ball {
     position: absolute;
-    width: 22px; height: 22px;
-    background: radial-gradient(circle at 30% 30%, #fef08a, #fbbf24 60%, #92400e);
+    width: 32px; height: 32px;
+    background-image: url('./assets/volleyball.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 12px rgba(251,191,36,0.8), inset -3px -3px 6px rgba(0,0,0,0.3);
+    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.55));
     z-index: 10;
     transition: left 0.5s cubic-bezier(0.4, 0.0, 0.2, 1), top 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
     pointer-events: none;
+  }
+  .ball.spin { animation: ballspin 0.6s linear infinite; }
+  @keyframes ballspin {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to   { transform: translate(-50%, -50%) rotate(360deg); }
   }
   .action-burst {
     position: absolute;
@@ -505,12 +513,16 @@
         court.appendChild(circle);
       });
     }
-    // Ball starts at server position
+    // Ball starts visible at the server's spot (or center if unknown)
     const ball = document.createElement('div');
-    ball.className = 'ball';
-    ball.style.left = '50%';
-    ball.style.top = '50%';
-    ball.style.opacity = '0';
+    ball.className = 'ball spin';
+    // Find current server (spot 1 of the serving team) and place ball at their location
+    const servingTeam = match[match.serving];
+    const server = servingTeam && servingTeam.lineup ? servingTeam.lineup[(0 + servingTeam.rotationOffset) % 6] : null;
+    const startSpot = server && server.spot ? toScreen(server.spot) : { x: 0.5, y: 0.5 };
+    ball.style.left = (startSpot.x * 100) + '%';
+    ball.style.top = (startSpot.y * 100) + '%';
+    ball.style.opacity = '1';
     court.appendChild(ball);
   }
 
@@ -551,16 +563,15 @@
         setTimeout(() => el.classList.remove('active'), stepMs * 2);
       }
     }
-    // Move ball if we have coords (transform engine → screen)
+    // Move ball if we have coords (transform engine → screen). Ball stays visible.
+    if (ball) ball.style.opacity = '1';
     if (ev.toSpot && ball) {
       const s = toScreen(ev.toSpot);
-      ball.style.opacity = '1';
       ball.style.transitionDuration = (stepMs / 1000) + 's';
       ball.style.left = (s.x * 100) + '%';
       ball.style.top = (s.y * 100) + '%';
     } else if (ev.actor && ev.actor.spot && ball) {
       const s = toScreen(ev.actor.spot);
-      ball.style.opacity = '1';
       ball.style.transitionDuration = (stepMs / 1000) + 's';
       ball.style.left = (s.x * 100) + '%';
       ball.style.top = (s.y * 100) + '%';
