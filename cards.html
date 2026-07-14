@@ -701,7 +701,7 @@
     const isLoggedIn = window.__cardsSession && window.__cardsSession.profile;
 
     if (currentMode === 'blind') {
-      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. <strong>Public — no login needed.</strong>';
+      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. Click any card to view its profile · green button to download PNG. <strong>Public — no login needed.</strong>';
       grid.innerHTML = '';
       for (const p of players) {
         const wrap = await makeCardWrap(p, 'blind', playerCardHtml, `blind-${p.id}`, false);
@@ -712,7 +712,7 @@
       // Progressive unlock: silhouettes for anyone who hasn't been part of a completed draft yet
       const totalCount = players.length;
       const unlockedCount = players.filter(p => unlockedPlayerIds.has(p.id)).length;
-      info.innerHTML = `🎬 <strong>Full reveal cards</strong> — ${unlockedCount} / ${totalCount} unlocked so far. Silhouettes reveal as they get drafted.`;
+      info.innerHTML = `🎬 <strong>Full reveal cards</strong> — ${unlockedCount} / ${totalCount} unlocked so far. Click a card to view the full profile · use the green button below each to download PNG.`;
       grid.innerHTML = '';
       // Captain colors only apply to UNLOCKED captains (locked ones look neutral to avoid tipping off which slot they are)
       const captainColors = { 'big-b': '#dc2626', 'burla': '#16a34a', 'stratus': '#2563eb' };
@@ -779,14 +779,26 @@
     const thumb = document.createElement('div');
     thumb.className = 'card-thumb' + (isRoster ? ' roster-thumb' : '');
     thumb.innerHTML = await htmlFn(entity, mode);
-    thumb.title = 'Click to download';
-    thumb.addEventListener('click', () => downloadCard(thumb.querySelector('.tcg-card'), filename));
+    // For player cards, clicking opens the profile page.
+    // For roster cards (which represent a club, not a single player), keep the download behavior.
+    const isPlayer = !isRoster && entity && entity.id;
+    thumb.title = isPlayer ? 'Click to view profile' : 'Click to download';
+    thumb.addEventListener('click', () => {
+      if (isPlayer) {
+        location.href = `./player.html?id=${encodeURIComponent(entity.id)}`;
+      } else {
+        downloadCard(thumb.querySelector('.tcg-card'), filename);
+      }
+    });
     wrap.appendChild(thumb);
     const btn = document.createElement('button');
     btn.className = 'download-btn';
     btn.textContent = '⬇ Download PNG';
     btn.dataset.filename = filename;
-    btn.addEventListener('click', () => downloadCard(thumb.querySelector('.tcg-card'), filename));
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      downloadCard(thumb.querySelector('.tcg-card'), filename);
+    });
     wrap.appendChild(btn);
     // Observe the thumb's size and keep the CSS --thumb-size variable up to date
     // so the inner .tcg-card always scales properly (including on mobile / resize).

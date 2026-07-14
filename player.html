@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Player Profile — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  .profile-hero {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 30px;
+    align-items: center;
+    padding: 30px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--team-c, #f97316) 0%, #0f172a 130%);
+    margin-bottom: 24px;
+    border-top: 6px solid var(--team-c, #f97316);
+  }
+  .profile-photo {
+    width: 260px; height: 260px; border-radius: 50%;
+    overflow: hidden; background: rgba(0,0,0,0.4);
+    border: 5px solid var(--team-c, #f97316);
+    box-shadow: 0 0 40px var(--team-c, #f97316);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .profile-photo img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 15%; }
+  .profile-photo .initials { font-size: 5rem; font-weight: 900; color: rgba(255,255,255,0.7); }
+
+  .profile-nick {
+    font-size: 2.5rem; font-weight: 900; color: #fff; line-height: 1;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.6); margin-bottom: 6px;
+  }
+  .profile-real { font-size: 1.4rem; color: rgba(255,255,255,0.9); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; }
+  .profile-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; }
+  .profile-meta .chip {
+    padding: 6px 14px; background: rgba(0,0,0,0.4); border-radius: 20px;
+    font-size: 0.85rem; font-weight: 700; color: #fff;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .profile-meta .chip.ovr { background: #fbbf24; color: #422006; }
+
+  .section { padding: 22px; background: rgba(30,41,59,0.7); border-radius: 12px; margin-bottom: 16px; }
+  .section h2 { color: #fbbf24; font-size: 1rem; margin-bottom: 14px; letter-spacing: 2px; text-transform: uppercase; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .stat-box { text-align: center; padding: 12px; background: rgba(0,0,0,0.4); border-radius: 8px; }
+  .stat-box .lbl { font-size: 0.7rem; color: #94a3b8; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .stat-box .val { font-size: 1.8rem; font-weight: 900; color: #fbbf24; }
+
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .metric-box { text-align: center; padding: 14px; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px dashed #475569; }
+  .metric-box .lbl { font-size: 0.7rem; color: #94a3b8; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .metric-box .val { font-size: 1.4rem; font-weight: 900; color: #e2e8f0; }
+  .metric-box .unit { font-size: 0.7rem; color: #64748b; font-weight: 400; margin-left: 2px; }
+  .metric-box.empty .val { color: #475569; font-size: 1rem; }
+
+  .yt-wrap { position: relative; width: 100%; padding-bottom: 56.25%; height: 0; }
+  .yt-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; border-radius: 8px; }
+
+  .career-item {
+    padding: 14px; background: rgba(0,0,0,0.35); border-radius: 8px; margin-bottom: 8px;
+    display: grid; grid-template-columns: 100px 1fr auto; gap: 12px; align-items: center;
+  }
+  .career-item .season { font-size: 0.7rem; color: #94a3b8; letter-spacing: 1px; text-transform: uppercase; }
+  .career-item .team-line { font-weight: 700; }
+  .career-item .pick-num {
+    padding: 4px 10px; background: #fbbf24; color: #422006;
+    border-radius: 12px; font-weight: 900; font-size: 0.85rem;
+  }
+  .career-item .pick-num.undrafted { background: #64748b; color: #fff; }
+
+  @media (max-width: 720px) {
+    .profile-hero { grid-template-columns: 1fr; text-align: center; padding: 20px; gap: 16px; }
+    .profile-photo { width: 180px; height: 180px; margin: 0 auto; }
+    .profile-photo .initials { font-size: 3rem; }
+    .profile-nick { font-size: 1.6rem; }
+    .profile-real { font-size: 1rem; }
+    .profile-meta { justify-content: center; }
+    .stat-grid { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .stat-box { padding: 6px 2px; }
+    .stat-box .val { font-size: 1.15rem; }
+    .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div id="loading" class="card"><h2 style="text-align:center;">Loading profile…</h2></div>
+  <div id="err" class="card hidden"><div class="warning" id="err-msg"></div><a href="./index.html"><button>← Home</button></a></div>
+  <div id="content" class="hidden"></div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { db, ref, get } from "./js/firebase-init.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { photoPathFor, getInitials, LOGO_URLS } from "./js/data.js";
+  import { photoOffsetY } from "./js/photo-config.js";
+  import { PLAYER_BIOS } from "./js/lore.js";
+  import { escapeHtml } from "./js/util.js";
+  import { STAT_FIELDS, computeMvpScore } from "./js/player-stats.js";
+
+  const params = new URLSearchParams(location.search);
+  const pid = params.get('id');
+
+  function showErr(msg) {
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('content').classList.add('hidden');
+    document.getElementById('err').classList.remove('hidden');
+    document.getElementById('err-msg').textContent = msg;
+  }
+
+  if (!pid) {
+    showErr('No player id in URL.');
+  } else {
+    init().catch(e => {
+      console.error(e);
+      showErr('Failed to load profile: ' + e.message);
+    });
+  }
+
+  async function init() {
+    const players = await getAllPlayers();
+    const p = players.find(x => x.id === pid);
+    if (!p) return showErr(`Player "${pid}" not found.`);
+
+    // Load all drafts to build career history + check if unlocked
+    const draftsSnap = await get(ref(db, 'drafts'));
+    const drafts = Object.entries(draftsSnap.val() || {})
+      .map(([id, d]) => ({ id, ...d }))
+      .filter(d => d.status === 'complete')
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    // Was this player in ANY completed draft? (unlock check)
+    const isUnlocked = drafts.some(d =>
+      (d.players || []).some(pp => pp.id === pid) ||
+      (d.captains || []).some(c => c.linkedPlayerId === pid));
+
+    // Build career history: which drafts they were in, drafted by whom, at what pick
+    const career = drafts.map(d => {
+      const wasCaptain = (d.captains || []).find(c => c.linkedPlayerId === pid);
+      const pick = (d.picks || []).find(pk => pk.playerId === pid);
+      const inPool = (d.players || []).some(pp => pp.id === pid);
+      if (!wasCaptain && !pick && !inPool) return null;
+      let entry = {
+        draftId: d.id,
+        leagueId: d.leagueId || 'gomi-cup',
+        date: d.createdAt,
+        role: wasCaptain ? 'captain' : (pick ? 'drafted' : 'undrafted'),
+        pickNumber: pick ? pick.pickIndex + 1 : null,
+        team: null,
+        teamColor: null
+      };
+      if (wasCaptain) {
+        entry.team = wasCaptain.team;
+        entry.teamColor = wasCaptain.color;
+      } else if (pick) {
+        const cap = d.captains[pick.captainIdx];
+        if (cap) { entry.team = cap.team; entry.teamColor = cap.color; }
+      }
+      return entry;
+    }).filter(Boolean);
+
+    // Load player stats aggregate (kills, blocks, MVPs, etc.)
+    const statsSnap = await get(ref(db, 'playerStats'));
+    const allStats = statsSnap.val() || {};
+    let totals = { games: 0, kills: 0, blocks: 0, aces: 0, digs: 0, assists: 0, mvpCount: 0, totalScore: 0 };
+    for (const leagueBlob of Object.values(allStats)) {
+      for (const matchBlob of Object.values(leagueBlob || {})) {
+        const s = matchBlob[pid];
+        if (!s) continue;
+        totals.games++;
+        totals.kills   += parseInt(s.kills)   || 0;
+        totals.blocks  += parseInt(s.blocks)  || 0;
+        totals.aces    += parseInt(s.aces)    || 0;
+        totals.digs    += parseInt(s.digs)    || 0;
+        totals.assists += parseInt(s.assists) || 0;
+        if (s.mvp) totals.mvpCount++;
+        totals.totalScore += computeMvpScore(s);
+      }
+    }
+
+    // Now render
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('content').classList.remove('hidden');
+
+    // Team color for the profile hero (from most recent captain slot, otherwise player pool default gold)
+    let teamC = '#fbbf24';
+    const latest = career[0];
+    if (latest && latest.teamColor) teamC = latest.teamColor;
+
+    const photoUrl = photoPathFor(pid);
+    const overall = ((p.attack + p.serve + p.defense + p.setting + p.athletic) / 5).toFixed(1);
+    const nick = isUnlocked ? (p.nickname || p.name) : '???';
+    const realName = isUnlocked ? p.name : 'Identity classified';
+    const showPhoto = isUnlocked;
+
+    const container = document.getElementById('content');
+    container.style.setProperty('--team-c', teamC);
+    container.innerHTML = `
+      <div class="profile-hero" style="--team-c:${teamC};">
+        <div class="profile-photo" style="border-color:${teamC}; box-shadow: 0 0 40px ${teamC}aa;">
+          ${showPhoto
+            ? `<img src="${photoUrl}" onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=&quot;initials&quot;>${getInitials(p.name)}</div>'" style="object-position: 50% ${photoOffsetY(pid)}%;">`
+            : `<div class="initials">?</div>`}
+        </div>
+        <div>
+          <div class="profile-nick">${escapeHtml(nick)}</div>
+          <div class="profile-real">${escapeHtml(realName)}</div>
+          <div class="profile-meta">
+            <span class="chip ovr">OVR ${overall}</span>
+            ${p.position ? `<span class="chip">📍 ${escapeHtml(p.position)}</span>` : ''}
+            ${latest ? `<span class="chip">🎽 ${escapeHtml(latest.team || 'Free agent')}</span>` : '<span class="chip">Free agent</span>'}
+          </div>
+        </div>
+      </div>
+
+      ${isUnlocked && p.bio ? `
+        <div class="section">
+          <h2>Scouting Report</h2>
+          <p style="color:#e2e8f0; line-height:1.6; font-style:italic;">"${escapeHtml(p.bio)}"</p>
+        </div>
+      ` : ''}
+
+      <div class="section">
+        <h2>⚡ Skill Stats</h2>
+        <div class="stat-grid">
+          <div class="stat-box"><div class="lbl">ATT</div><div class="val">${p.attack}</div></div>
+          <div class="stat-box"><div class="lbl">SER</div><div class="val">${p.serve}</div></div>
+          <div class="stat-box"><div class="lbl">DEF</div><div class="val">${p.defense}</div></div>
+          <div class="stat-box"><div class="lbl">SET</div><div class="val">${p.setting}</div></div>
+          <div class="stat-box"><div class="lbl">ATH</div><div class="val">${p.athletic}</div></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>📏 Physical Metrics</h2>
+        <div class="metric-grid">
+          ${metricBox('Height', p.heightCm)}
+          ${metricBox('Standing Reach', p.standingReachCm)}
+          ${metricBox('Spike Touch', p.spikeTouchCm)}
+          ${metricBox('Block Touch', p.blockTouchCm)}
+        </div>
+      </div>
+
+      ${totals.games > 0 ? `
+        <div class="section">
+          <h2>🏐 Match Stats (Career)</h2>
+          <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(90px,1fr));">
+            <div class="stat-box"><div class="lbl">Games</div><div class="val">${totals.games}</div></div>
+            <div class="stat-box"><div class="lbl">MVP</div><div class="val">${totals.mvpCount}</div></div>
+            <div class="stat-box"><div class="lbl">Kills</div><div class="val">${totals.kills}</div></div>
+            <div class="stat-box"><div class="lbl">Blocks</div><div class="val">${totals.blocks}</div></div>
+            <div class="stat-box"><div class="lbl">Aces</div><div class="val">${totals.aces}</div></div>
+            <div class="stat-box"><div class="lbl">Digs</div><div class="val">${totals.digs}</div></div>
+            <div class="stat-box"><div class="lbl">Assists</div><div class="val">${totals.assists}</div></div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${p.youtubeUrl && isUnlocked ? `
+        <div class="section">
+          <h2>🎥 Highlights</h2>
+          <div class="yt-wrap">
+            <iframe src="${youtubeEmbedUrl(p.youtubeUrl)}" allowfullscreen></iframe>
+          </div>
+        </div>
+      ` : ''}
+
+      ${career.length > 0 && isUnlocked ? `
+        <div class="section">
+          <h2>📜 Career History</h2>
+          ${career.map(c => `
+            <div class="career-item" style="border-left: 4px solid ${c.teamColor || '#64748b'};">
+              <div class="season">${c.date ? new Date(c.date).toLocaleDateString() : ''}<br>${escapeHtml(c.leagueId)}</div>
+              <div>
+                <div class="team-line" style="color:${c.teamColor || '#94a3b8'}">${escapeHtml(c.team || 'Undrafted')}</div>
+                <div style="font-size:0.75rem; color:#94a3b8;">
+                  ${c.role === 'captain' ? '🎖️ Captain' : c.role === 'drafted' ? `Drafted pick #${c.pickNumber}` : '💔 Undrafted'}
+                </div>
+              </div>
+              <div class="pick-num ${c.role === 'undrafted' ? 'undrafted' : ''}">
+                ${c.role === 'captain' ? 'C' : c.role === 'drafted' ? '#' + c.pickNumber : '—'}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      <div style="text-align:center; margin: 20px 0;">
+        <a href="./cards.html" style="color:#fbbf24; text-decoration:none;">← Back to all cards</a>
+      </div>
+    `;
+  }
+
+  function metricBox(label, cmValue) {
+    if (!cmValue) return `<div class="metric-box empty"><div class="lbl">${label}</div><div class="val">—</div></div>`;
+    return `<div class="metric-box"><div class="lbl">${label}</div><div class="val">${cmValue}<span class="unit">cm</span></div></div>`;
+  }
+
+  function youtubeEmbedUrl(url) {
+    // Handle standard, short, and shorts URLs
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([^&?/]+)/
+    ];
+    for (const p of patterns) {
+      const m = String(url).match(p);
+      if (m) return `https://www.youtube.com/embed/${m[1]}`;
+    }
+    return url;
+  }
+
+</script>
+</body>
+</html>

@@ -150,9 +150,10 @@ window.createRoom = async () => {
     if (!p.name.trim()) { alert('Every player needs a real name (or delete the empty row).'); return; }
   }
 
+  // Run the NBA-style lottery animation to determine captain order
+  const captainOrder = await runLotteryAnimation(captains);
+
   const roomId = makeRoomId();
-  // Build the initial captain order dynamically from the number of captains (not hardcoded to 3!)
-  const captainOrder = shuffle(captains.map((_, i) => i));
   const draftOrder = buildDraftOrder(captainOrder, PICKS_PER_TEAM);
 
   const captainsWithCodes = captains.map(c => ({ ...c, code: makeCaptainCode() }));
@@ -226,6 +227,128 @@ window.copyInvites = () => {
 window.openDraftAsCommissioner = () => {
   location.href = `./draft.html?room=${lastRoom.roomId}&spectate=1`;
 };
+
+// ============ NBA-STYLE LOTTERY ANIMATION ============
+// Fullscreen dramatic animation that reveals the draft pick order.
+// Returns a Promise that resolves with the final captain-index order (e.g. [2, 0, 1]).
+function runLotteryAnimation(captains) {
+  return new Promise((resolve) => {
+    const finalOrder = shuffle(captains.map((_, i) => i));
+
+    const overlay = document.createElement('div');
+    overlay.id = 'lottery-overlay';
+    overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 10000;
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 60%, #000 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 20px; overflow: hidden;
+      opacity: 0; transition: opacity 0.3s;
+    `;
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+      @keyframes lot-fall { 0% { transform: translateY(-40px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+      @keyframes lot-glow { 0%,100% { box-shadow: 0 0 30px currentColor; } 50% { box-shadow: 0 0 60px currentColor; } }
+      @keyframes lot-shake { 0%,100% { transform: translate(0,0); } 25% { transform: translate(-4px, -6px) rotate(-3deg); }
+                             50% { transform: translate(3px, -3px) rotate(2deg); } 75% { transform: translate(-2px, 4px) rotate(-1deg); } }
+      @keyframes lot-slam { 0% { transform: scale(4); opacity: 0; } 60% { transform: scale(0.95); opacity: 1; } 100% { transform: scale(1); } }
+      .lot-ball {
+        width: 80px; height: 80px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 900; font-size: 1.5rem; color: #fff;
+        border: 4px solid rgba(255,255,255,0.4);
+        background: linear-gradient(135deg, #64748b, #334155);
+        text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+        animation: lot-shake 0.4s ease-in-out infinite;
+        transition: transform 0.4s;
+      }
+      .lot-reveal {
+        padding: 20px 28px; border-radius: 16px;
+        display: flex; align-items: center; gap: 20px;
+        background: linear-gradient(135deg, var(--c) 0%, #0f172a 130%);
+        border: 3px solid var(--c); box-shadow: 0 0 40px var(--c);
+        margin-bottom: 12px;
+        animation: lot-fall 0.5s ease-out both;
+      }
+      .lot-reveal .rank { font-size: 3rem; font-weight: 900; color: var(--c);
+                          background: rgba(0,0,0,0.4); padding: 4px 20px; border-radius: 10px;
+                          text-shadow: 0 0 20px var(--c); min-width: 90px; text-align: center; }
+      .lot-reveal .team-name { font-size: 1.8rem; font-weight: 900; color: #fff; letter-spacing: 1px; }
+      .lot-reveal .cap-name { font-size: 0.9rem; color: rgba(255,255,255,0.8); letter-spacing: 2px; text-transform: uppercase; }
+      @media (max-width: 720px) {
+        .lot-ball { width: 60px; height: 60px; font-size: 1.1rem; }
+        .lot-reveal { padding: 12px 16px; gap: 12px; }
+        .lot-reveal .rank { font-size: 2rem; min-width: 60px; padding: 3px 12px; }
+        .lot-reveal .team-name { font-size: 1.2rem; }
+      }
+    `;
+    overlay.appendChild(styleEl);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+
+    // Phase 1: intro
+    overlay.innerHTML += `
+      <div id="lot-title" style="font-size: clamp(1.5rem, 5vw, 3rem); font-weight: 900; color: #fbbf24;
+                                  text-align: center; margin-bottom: 20px; letter-spacing: 2px;
+                                  text-shadow: 0 4px 20px rgba(251,191,36,0.5); animation: lot-slam 0.6s;">
+        🎲 DRAFT ORDER LOTTERY
+      </div>
+      <div id="lot-sub" style="color: #cbd5e1; margin-bottom: 30px; text-align: center;">
+        Drawing pick order for ${captains.length} captains…
+      </div>
+      <div id="lot-balls" style="display: flex; gap: 16px; margin-bottom: 40px; flex-wrap: wrap; justify-content: center;">
+        ${captains.map((c, i) => `
+          <div class="lot-ball" style="background: linear-gradient(135deg, ${c.color}, #0f172a); border-color: ${c.color}; color: ${c.color};">
+            ${escapeHtml(c.team.slice(0, 2).toUpperCase())}
+          </div>
+        `).join('')}
+      </div>
+      <div id="lot-reveals" style="width: 100%; max-width: 500px;"></div>
+    `;
+
+    // After ~2s, start revealing picks one by one (last pick first, then 2nd-to-last, then #1 pick)
+    setTimeout(() => revealNext(finalOrder.length - 1), 2000);
+
+    function revealNext(rankIdx) {
+      if (rankIdx < 0) {
+        // Done — wait a moment, fade out, resolve
+        setTimeout(() => {
+          overlay.style.opacity = '0';
+          setTimeout(() => { overlay.remove(); resolve(finalOrder); }, 400);
+        }, 2000);
+        return;
+      }
+      // rankIdx 0 = picks 1st, rankIdx (n-1) = picks last
+      const captainIdx = finalOrder[rankIdx];
+      const cap = captains[captainIdx];
+      const humanRank = rankIdx + 1;
+      const medal = humanRank === 1 ? '🥇 1st pick' : humanRank === 2 ? '🥈 2nd pick' : humanRank === 3 ? '🥉 3rd pick' : `#${humanRank}`;
+
+      // Grey out that ball
+      const balls = overlay.querySelectorAll('.lot-ball');
+      const targetBall = balls[captainIdx];
+      if (targetBall) {
+        targetBall.style.animation = 'none';
+        targetBall.style.transform = 'scale(1.4)';
+        targetBall.style.opacity = '0.3';
+      }
+
+      // Add reveal row
+      const reveals = overlay.querySelector('#lot-reveals');
+      reveals.insertAdjacentHTML('beforeend', `
+        <div class="lot-reveal" style="--c: ${cap.color};">
+          <div class="rank">${medal}</div>
+          <div style="flex: 1;">
+            <div class="team-name" style="color: ${cap.color};">${escapeHtml(cap.team)}</div>
+            <div class="cap-name">${escapeHtml(cap.name)}</div>
+          </div>
+        </div>
+      `);
+
+      // Reveal next after 1.2s
+      setTimeout(() => revealNext(rankIdx - 1), 1200);
+    }
+  });
+}
 
 // Init
 await buildLeaguePicker();

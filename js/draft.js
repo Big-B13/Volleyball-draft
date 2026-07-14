@@ -187,6 +187,143 @@ function paintTimer(remainingSec) {
   }
 }
 
+// ============ DISCONNECT BANNER ============
+// Shows a persistent, obvious banner across the top when any captain is
+// disconnected during the draft (once the lobby has already been passed).
+function updateDisconnectBanner() {
+  if (!state || state.status === 'complete') {
+    removeDisconnectBanner();
+    return;
+  }
+  // Only meaningful once the draft has started (picks made or lobby passed)
+  const totalCaptains = state.captains.length;
+  const presentCount = Object.keys(presence).length;
+  const noPicksYet = !(state.picks && state.picks.length);
+  const stillInLobby = noPicksYet && presentCount < totalCaptains && !spectate;
+  if (stillInLobby) { removeDisconnectBanner(); return; }
+  const missing = state.captains
+    .map((c, i) => presence[i] ? null : c)
+    .filter(Boolean);
+  if (!missing.length) { removeDisconnectBanner(); return; }
+
+  let banner = document.getElementById('disconnect-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'disconnect-banner';
+    banner.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 9800;
+      background: linear-gradient(90deg, #7c2d12, #dc2626, #7c2d12);
+      color: #fff; padding: 10px 14px;
+      text-align: center; font-weight: 700; font-size: 0.9rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      animation: db-pulse 2s ease-in-out infinite;
+    `;
+    const style = document.createElement('style');
+    style.textContent = '@keyframes db-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.85; } }';
+    document.head.appendChild(style);
+    document.body.appendChild(banner);
+    // Push page down so it doesn't overlap content
+    document.body.style.paddingTop = '48px';
+  }
+  const names = missing.map(c => `<strong style="color:${c.color}">${escapeHtml(c.name)}</strong>`).join(', ');
+  banner.innerHTML = `⏸️ Draft paused — waiting for ${names} to reconnect…`;
+}
+function removeDisconnectBanner() {
+  const b = document.getElementById('disconnect-banner');
+  if (b) {
+    b.remove();
+    document.body.style.paddingTop = '';
+  }
+}
+
+// ============ PICK REVEAL ANIMATION ============
+function showPickAnimation(pick) {
+  const p = state.players.find(pp => pp.id === pick.playerId);
+  const cap = state.captains[pick.captainIdx];
+  if (!p || !cap) return;
+  const photoUrl = photoPathFor(p.id);
+  // Create overlay if not exists
+  let overlay = document.getElementById('pick-anim-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'pick-anim-overlay';
+    overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 9500;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(circle at center, rgba(0,0,0,0.85), rgba(0,0,0,0.95));
+      backdrop-filter: blur(8px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s;
+      overflow: hidden;
+    `;
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <style>
+      @keyframes pa-slam-in {
+        0% { transform: scale(3) rotate(-8deg); opacity: 0; filter: blur(30px); }
+        50% { transform: scale(1.05) rotate(0deg); opacity: 1; filter: blur(0); }
+        100% { transform: scale(1) rotate(0deg); opacity: 1; }
+      }
+      @keyframes pa-photo-in {
+        0% { transform: translateY(80px); opacity: 0; }
+        100% { transform: translateY(0); opacity: 1; }
+      }
+      @keyframes pa-swipe {
+        0% { transform: translateX(-100%) skewX(-15deg); opacity: 0; }
+        50% { opacity: 1; }
+        100% { transform: translateX(0) skewX(-15deg); opacity: 1; }
+      }
+      @keyframes pa-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+      .pa-slam { animation: pa-slam-in 0.6s cubic-bezier(.2,1.2,.4,1) both; }
+      .pa-photo { animation: pa-photo-in 0.6s 0.2s cubic-bezier(.2,1,.4,1) both; }
+      .pa-swipe { animation: pa-swipe 0.5s cubic-bezier(.2,1,.4,1) both; }
+      .pa-pulse { animation: pa-pulse 2s ease-in-out infinite; }
+    </style>
+    <div style="position: relative; text-align: center; max-width: 90vw;">
+      <div class="pa-swipe" style="position:absolute; top:-40px; left:0; right:0; margin:0 auto;
+                                    background: ${cap.color}; color:#fff; padding:6px 24px;
+                                    font-weight: 900; letter-spacing: 3px; font-size: 0.85rem;
+                                    display: inline-block; text-transform: uppercase;">
+        ${escapeHtml(cap.team)} selects
+      </div>
+      <div class="pa-photo" style="width: 260px; height: 260px; margin: 0 auto 16px;
+                                    border-radius: 50%; overflow: hidden;
+                                    border: 6px solid ${cap.color};
+                                    box-shadow: 0 0 60px ${cap.color};
+                                    background: rgba(0,0,0,0.5);">
+        <img src="${photoUrl}"
+             style="width:100%; height:100%; object-fit:cover; object-position: 50% 15%;"
+             onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=&quot;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:5rem;font-weight:900;color:${cap.color};&quot;>${getInitials(p.name)}</div>'"
+             crossorigin="anonymous">
+      </div>
+      <div class="pa-slam pa-pulse" style="font-size: clamp(2.5rem, 8vw, 5rem); font-weight: 900;
+                                            line-height: 1; color: #fff;
+                                            text-shadow: 0 0 30px ${cap.color}, 0 4px 20px rgba(0,0,0,0.9);
+                                            letter-spacing: -1px; margin-bottom: 10px;">
+        ${escapeHtml((p.nickname || p.name).toUpperCase())}
+      </div>
+      <div class="pa-photo" style="font-size: 1.3rem; color: rgba(255,255,255,0.9);
+                                    letter-spacing: 4px; text-transform: uppercase; font-weight: 700;">
+        ${escapeHtml(p.name)}
+      </div>
+      <div class="pa-photo" style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;">
+        <span style="padding: 4px 12px; background: #fbbf24; color: #422006; border-radius: 12px; font-weight:900; font-size:0.85rem;">OVR ${p.overall}</span>
+        ${p.position ? `<span style="padding: 4px 12px; background: rgba(255,255,255,0.15); color:#fff; border-radius: 12px; font-weight:700; font-size:0.85rem;">${escapeHtml(p.position)}</span>` : ''}
+      </div>
+    </div>
+  `;
+  requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+  // Play the pick sound (whoosh) if it wasn't already played by the picker
+  try { playPick(); } catch (e) {}
+  clearTimeout(showPickAnimation._t);
+  showPickAnimation._t = setTimeout(() => {
+    overlay.style.opacity = '0';
+    setTimeout(() => { if (overlay.parentElement) overlay.remove(); }, 300);
+  }, 5000);
+}
+
 async function autoPickBestAvailable() {
   if (!state) return;
   const pickedIds = new Set((state.picks || []).map(p => p.playerId));
@@ -296,6 +433,7 @@ function render() {
   document.getElementById('error').classList.add('hidden');
   const lobbyEl = document.getElementById('lobby');
   if (lobbyEl) lobbyEl.classList.add('hidden');
+  updateDisconnectBanner();
 
   // If complete, redirect to reveal
   if (state.status === 'complete' || state.currentPick >= state.draftOrder.length) {
@@ -323,6 +461,13 @@ function render() {
 
   // Timer management: (re)start whenever a new pick is on the clock
   if (state.currentPick !== timerLastPickIndex) {
+    // A new pick just landed — trigger the reveal animation for everyone (except the picker who already knows)
+    if (timerLastPickIndex >= 0 && (state.picks || []).length > 0) {
+      const lastPick = state.picks[state.picks.length - 1];
+      if (lastPick && lastPick.pickIndex === state.currentPick - 1) {
+        showPickAnimation(lastPick);
+      }
+    }
     timerLastPickIndex = state.currentPick;
     // Only start timer if on-clock captain is present (draft-paused screens shouldn't run timer)
     if (onClockPresent) startPickTimer();
@@ -445,6 +590,66 @@ function renderWaiting(onClock, whoHtml, onClockPresent) {
     `Round ${round} of ${state.picksPerTeam} · Captain: ${escapeHtml(onClock.name)} · Overall pick #${state.currentPick + 1} of ${totalPicks}${absentMsg}`;
 }
 
+// Filter state (persists during the current pick)
+const filterState = { search: '', position: '', sort: 'default' };
+
+function wireFilterBar() {
+  const s = document.getElementById('filter-search');
+  const p = document.getElementById('filter-position');
+  const so = document.getElementById('filter-sort');
+  const c = document.getElementById('filter-clear');
+  if (!s || s.__wired) return;
+  s.__wired = true;
+  const trigger = () => {
+    filterState.search = s.value.trim().toLowerCase();
+    filterState.position = p.value;
+    filterState.sort = so.value;
+    if (state) render();
+  };
+  s.addEventListener('input', trigger);
+  p.addEventListener('change', trigger);
+  so.addEventListener('change', trigger);
+  c.addEventListener('click', () => {
+    s.value = ''; p.value = ''; so.value = 'default';
+    trigger();
+  });
+}
+function applyFilters(players) {
+  let out = players.slice();
+  if (filterState.search) {
+    const q = filterState.search;
+    out = out.filter(p =>
+      (p.nickname || '').toLowerCase().includes(q) ||
+      (p.name || '').toLowerCase().includes(q));
+  }
+  if (filterState.position) {
+    out = out.filter(p => (p.position || '').split('/').includes(filterState.position));
+  }
+  const s = filterState.sort;
+  if (s === 'ovr-desc') out.sort((a, b) => b.overall - a.overall);
+  else if (s === 'ovr-asc') out.sort((a, b) => a.overall - b.overall);
+  else if (['attack','serve','defense','setting','athletic'].includes(s))
+    out.sort((a, b) => (b[s] || 0) - (a[s] || 0));
+  else if (s === 'height') out.sort((a, b) => (b.heightCm || 0) - (a.heightCm || 0));
+  else if (s === 'spike')  out.sort((a, b) => (b.spikeTouchCm || 0) - (a.spikeTouchCm || 0));
+  return out;
+}
+function populatePositionDropdown(allPlayers) {
+  const sel = document.getElementById('filter-position');
+  if (!sel || sel.__populated) return;
+  sel.__populated = true;
+  const positions = new Set();
+  for (const p of allPlayers) {
+    (p.position || '').split('/').filter(Boolean).forEach(x => positions.add(x));
+  }
+  const sorted = [...positions].sort();
+  sorted.forEach(pos => {
+    const opt = document.createElement('option');
+    opt.value = pos; opt.textContent = pos;
+    sel.appendChild(opt);
+  });
+}
+
 async function renderMyTurn(onClock, whoHtml) {
   document.getElementById('waiting').classList.add('hidden');
   const m = document.getElementById('my-turn');
@@ -458,11 +663,17 @@ async function renderMyTurn(onClock, whoHtml) {
 
   const pickedIds = new Set((state.picks || []).map(p => p.playerId));
   const displayOrder = state.displayOrder || state.players.map(p => p.id);
-  const available = displayOrder
+  const availableAll = displayOrder
     .map(id => state.players.find(p => p.id === id))
     .filter(p => p && !pickedIds.has(p.id));
 
-  document.getElementById('available-count').textContent = available.length;
+  wireFilterBar();
+  populatePositionDropdown(availableAll);
+
+  const available = applyFilters(availableAll);
+
+  document.getElementById('available-count').textContent =
+    available.length + (available.length !== availableAll.length ? ` filtered of ${availableAll.length}` : '');
 
   // Load all photos in parallel
   const photos = await Promise.all(available.map(p => getPhotoUrl(p.id)));
