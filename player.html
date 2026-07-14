@@ -104,13 +104,21 @@
 
   const params = new URLSearchParams(location.search);
   const pid = params.get('id');
-  if (!pid) return showErr('No player id in URL.');
 
   function showErr(msg) {
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('content').classList.add('hidden');
     document.getElementById('err').classList.remove('hidden');
     document.getElementById('err-msg').textContent = msg;
+  }
+
+  if (!pid) {
+    showErr('No player id in URL.');
+  } else {
+    init().catch(e => {
+      console.error(e);
+      showErr('Failed to load profile: ' + e.message);
+    });
   }
 
   async function init() {
@@ -304,10 +312,6 @@
     return url;
   }
 
-  init().catch(e => {
-    console.error(e);
-    showErr('Failed to load profile: ' + e.message);
-  });
 </script>
 </body>
 </html>
