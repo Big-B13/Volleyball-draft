@@ -128,8 +128,8 @@
     box-shadow: 0 3px 10px rgba(0,0,0,0.6);
     font-size: 0.7rem;
     transition:
-      left 1.4s ease-in-out,
-      top 1.4s ease-in-out,
+      left 0.6s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.6s cubic-bezier(0.4, 0.0, 0.2, 1),
       transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1),
       filter 0.3s, box-shadow 0.3s;
     z-index: 3;
@@ -139,12 +139,12 @@
     background-size: cover;
     background-position: center 30%;
   }
-  /* Walking uses a smoother ease — looks like footwork, not a spring */
+  /* Walking overrides — slightly faster travel to feel like a running player */
   .player-circle.walking {
     transition:
-      left 1.4s ease-in-out,
-      top 1.4s ease-in-out,
-      transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      left 0.55s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.55s cubic-bezier(0.4, 0.0, 0.2, 1),
+      transform 0.4s cubic-bezier(0.4, 0.0, 0.2, 1),
       filter 0.3s, box-shadow 0.3s;
   }
   .player-circle.active {
@@ -565,28 +565,48 @@
   let speed = 1;
   let rallyTimer = null;
   let idleTimer = null;   // interval for subtle player sway animation
+  // Home positions per player id (screen coords 0..1). Set when court renders.
+  // Used to restore positions between rallies and after each touch.
+  const HOME_POS = {};
 
-  /** Every ~700ms, nudge each player-circle by a small random offset via CSS variables.
-   *  Combined with a 1.4s ease-in-out transition on transform, this looks like natural idle
-   *  fidgeting / weight-shifting between plays. Doesn't fight jump/scale since those are
-   *  separate CSS variables. */
+  /** Every ~1.5s, nudge each player-circle by a tiny random offset via CSS variables.
+   *  Very subtle — just enough that nobody looks frozen. Doesn't fight the walking/jumping. */
   function startIdleMotion() {
     stopIdleMotion();
     const tick = () => {
       document.querySelectorAll('.player-circle').forEach(el => {
-        // Skip players who are currently jumping (they're in animation)
-        if (el.classList.contains('jumping')) return;
-        const sx = (Math.random() - 0.5) * 8;  // -4..+4 px
-        const sy = (Math.random() - 0.5) * 6;  // -3..+3 px
+        if (el.classList.contains('jumping') || el.classList.contains('diving')) return;
+        const sx = (Math.random() - 0.5) * 4;
+        const sy = (Math.random() - 0.5) * 3;
         el.style.setProperty('--sx', sx.toFixed(1) + 'px');
         el.style.setProperty('--sy', sy.toFixed(1) + 'px');
       });
     };
     tick();
-    idleTimer = setInterval(tick, 900);
+    idleTimer = setInterval(tick, 1500);
   }
   function stopIdleMotion() {
     if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+  }
+
+  /** Move a player's circle to a new screen position (0..1). Smooth 0.6s transition —
+   *  this makes them look like they're RUNNING to that spot, not teleporting. */
+  function movePlayerTo(pid, screenX, screenY) {
+    const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+    if (!el) return;
+    el.classList.add('walking');
+    el.style.left = (screenX * 100) + '%';
+    el.style.top  = (screenY * 100) + '%';
+  }
+  /** Snap a player back to their home spot (rotation position). */
+  function restorePlayer(pid) {
+    const home = HOME_POS[pid];
+    if (!home) return;
+    movePlayerTo(pid, home.x, home.y);
+  }
+  /** Restore everyone home (called between rallies). */
+  function restoreAll() {
+    Object.keys(HOME_POS).forEach(pid => restorePlayer(pid));
   }
 
   window.startMatch = () => {
@@ -677,6 +697,8 @@
     const court = document.getElementById('court');
     // Clear existing player circles + ball
     court.querySelectorAll('.player-circle, .ball, .ball-shadow, .action-burst, .impact-ring').forEach(el => el.remove());
+    // Reset home positions map for the new lineup
+    for (const k of Object.keys(HOME_POS)) delete HOME_POS[k];
     // Update side labels with team names
     document.getElementById('side-label-home').textContent = match.home.name;
     document.getElementById('side-label-home').style.color = match.home.color;
@@ -703,10 +725,14 @@
         const circle = document.createElement('div');
         circle.className = 'player-circle';
         circle.dataset.pid = slot.player.id;
+        circle.dataset.side = side;   // 'home' or 'away' — used for movement logic
+        circle.dataset.role = slot.player.position || '';   // 'S' / 'OH' / 'MB' / 'L' etc.
         circle.style.left = (screen.x * 100) + '%';
         circle.style.top = (screen.y * 100) + '%';
         circle.style.borderColor = team.color;
         circle.style.color = team.color;
+        // Remember this player's home position (for restoring between touches / rallies)
+        HOME_POS[slot.player.id] = { x: screen.x, y: screen.y, side, spotIndex, engineSpot };
 
         // ---- Stats affect visual appearance ----
         // Height (150-215cm) → circle size (6.5% to 11% of court width)
@@ -892,19 +918,132 @@
     'serve-error':  'crouching'
   };
 
-  /** Move a player-circle by an offset (in px) using --wx/--wy. Called for the "walk toward
-   *  the ball" beat. Removed at end-of-rally when renderCourt re-snaps everyone. */
-  function walkPlayer(el, dx, dy) {
-    if (!el) return;
-    el.classList.add('walking');
-    el.style.setProperty('--wx', dx.toFixed(1) + 'px');
-    el.style.setProperty('--wy', dy.toFixed(1) + 'px');
+  /** Get all players on a given side (returns array of {pid, home, role}). */
+  function playersOnSide(side) {
+    const out = [];
+    for (const [pid, info] of Object.entries(HOME_POS)) {
+      if (info.side === side) {
+        const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+        out.push({ pid, home: info, role: el ? el.dataset.role : '' });
+      }
+    }
+    return out;
   }
-  function stopWalking(el) {
-    if (!el) return;
-    el.classList.remove('walking');
-    el.style.setProperty('--wx', '0px');
-    el.style.setProperty('--wy', '0px');
+
+  /** Choreograph the movement of players for a given event.
+   *  This is the "wonky → smooth" fix: move real positions on the court, not tiny offsets. */
+  function choreographMovement(ev, prevEv) {
+    if (!ev.actor || !ev.actor.player) return;
+    const actorPid = ev.actor.player.id;
+    const actorScreen = toScreen(ev.actor.spot);
+    const actorHome = HOME_POS[actorPid];
+    if (!actorHome) return;
+    const side = actorHome.side;
+    const isHome = side === 'home';
+    // Net at screen x = 0.5. Attackers "attack from" their side, net-ward.
+    const netX = 0.5;
+    // Direction from actor's side toward the net (positive = right, negative = left)
+    const toNet = isHome ? -1 : +1;   // home is on left (x<0.5), so toward net = +x direction... wait
+    // Actually: home has x<0.5 (left), away has x>0.5 (right). Toward net for home = increase x.
+    const netDir = isHome ? +1 : -1;
+
+    switch (ev.type) {
+      case 'serve': {
+        // Server steps back to the endline (edge of court on their side)
+        const endX = isHome ? 0.06 : 0.94;
+        movePlayerTo(actorPid, endX, actorHome.y);
+        break;
+      }
+      case 'pass': {
+        // Passer runs FORWARD (toward the net) a bit and TOWARD the ball's incoming x.
+        // Move them ~15-20% of court toward the net + slight lateral toward ball origin.
+        const targetX = actorHome.x + netDir * 0.06;
+        let targetY = actorHome.y;
+        if (prevEv && prevEv.actor && prevEv.actor.spot) {
+          const ballFrom = toScreen(prevEv.actor.spot);
+          // Nudge y toward incoming ball (small)
+          targetY += (ballFrom.y - actorHome.y) * 0.25;
+        }
+        movePlayerTo(actorPid, targetX, targetY);
+        // At the same time: any front-row hitter on this side steps BACK for approach
+        playersOnSide(side).forEach(p => {
+          if (p.pid === actorPid) return;
+          // Front row = home.y in the "front-row" band. For home (bottom→left after rotation),
+          // front row is the y band closer to the net (x closer to 0.5).
+          const isFront = Math.abs(p.home.x - 0.5) < 0.3;  // within 30% of net
+          if (isFront && (p.role.includes('OH') || p.role.includes('OP'))) {
+            // Step back toward the endline for a better approach jump
+            movePlayerTo(p.pid, p.home.x - netDir * 0.05, p.home.y);
+          }
+        });
+        break;
+      }
+      case 'set': {
+        // Setter moves to the front-middle at the net (classic setter spot)
+        const setterX = isHome ? 0.44 : 0.56;
+        movePlayerTo(actorPid, setterX, actorHome.y);
+        break;
+      }
+      case 'attack':
+      case 'kill':
+      case 'attack-error': {
+        // Attacker RUNS UP toward the net for their approach + spike
+        const attackX = isHome ? 0.46 : 0.54;
+        movePlayerTo(actorPid, attackX, actorHome.y);
+        break;
+      }
+      case 'ace': {
+        // Server hits a jump serve — small step forward
+        const jumpX = isHome ? 0.10 : 0.90;
+        movePlayerTo(actorPid, jumpX, actorHome.y);
+        break;
+      }
+      case 'block': {
+        // Blocker(s) shift TO the net (right at x=0.5-ish) at the hitter's zone
+        const blockX = isHome ? 0.48 : 0.52;
+        movePlayerTo(actorPid, blockX, actorHome.y);
+        // Move all blockers on the wall too — engine passes them via ev.blockers
+        if (Array.isArray(ev.blockers)) {
+          ev.blockers.forEach(b => {
+            if (b && b.player && b.player.id !== actorPid) {
+              const bHome = HOME_POS[b.player.id];
+              if (bHome) movePlayerTo(b.player.id, blockX, bHome.y);
+            }
+          });
+        }
+        break;
+      }
+      case 'dig': {
+        // Digger DIVES toward the ball — move them significantly toward the ball's incoming spot
+        let dx = 0, dy = 0;
+        if (prevEv && prevEv.actor && prevEv.actor.spot) {
+          const ballFrom = toScreen(prevEv.actor.spot);
+          dx = (ballFrom.x - actorHome.x) * 0.35;
+          dy = (ballFrom.y - actorHome.y) * 0.35;
+        }
+        movePlayerTo(actorPid, actorHome.x + dx, actorHome.y + dy);
+        break;
+      }
+      default:
+        // No movement for point/rotation/set-won/etc.
+        break;
+    }
+  }
+
+  /** Also proactively pre-position blockers on an incoming attack (before the block event fires).
+   *  The whole defending front row shuffles TO the net when the opponent swings. */
+  function proactivePositioning(ev) {
+    if (!(ev.type === 'attack' || ev.type === 'kill' || ev.type === 'attack-error')) return;
+    if (!ev.actor || !ev.actor.spot || !match) return;
+    const attackerOnHome = ev.actor.spot.y > 0.5;   // engine coords: home=y>0.5
+    const defSide = attackerOnHome ? 'away' : 'home';
+    const defIsHome = defSide === 'home';
+    const netX = defIsHome ? 0.48 : 0.52;
+    // Move defending team's front row toward the net
+    playersOnSide(defSide).forEach(p => {
+      const isFront = Math.abs(p.home.x - 0.5) < 0.3;
+      if (isFront) movePlayerTo(p.pid, netX, p.home.y);
+    });
   }
 
   async function animateEvent(ev, prevEv, nextEv, ball, shadow) {
@@ -955,35 +1094,14 @@
       });
     }
 
-    // --- PHASE 1: WALK/step toward the ball (reads the play, moves into position) ---
-    // The actor takes a small step toward wherever the ball came from (previous touch).
-    // If they're diving, the step is bigger and stretches sideways. If jumping to attack,
-    // they take an approach step forward (toward the net).
-    if (!skipPhase1 && actorEl && ev.actor && ev.actor.spot) {
-      const court = document.getElementById('court');
-      const courtRect = court.getBoundingClientRect();
-      const actorScreen = toScreen(ev.actor.spot);
-      // Where is the ball coming FROM? Use previous event actor's spot, or serve start
-      let fromSpot = null;
-      if (prevEv && prevEv.actor && prevEv.actor.spot) fromSpot = toScreen(prevEv.actor.spot);
-      // If we know where the ball's coming from, step a few px in that direction
-      let dx = 0, dy = 0;
-      if (fromSpot) {
-        // Vector from actor to ball origin, in px (small step, ~15-25px max)
-        const rawDx = (fromSpot.x - actorScreen.x) * courtRect.width;
-        const rawDy = (fromSpot.y - actorScreen.y) * courtRect.height;
-        const mag = Math.sqrt(rawDx * rawDx + rawDy * rawDy) || 1;
-        const stepPx = ev.type === 'dig' ? 22 : (ev.type === 'pass' ? 14 : 10);
-        dx = (rawDx / mag) * stepPx;
-        dy = (rawDy / mag) * stepPx;
-      }
-      // Attacker's approach: step slightly toward the net (net is at screen x=0.5)
-      if (['attack','kill','ace'].includes(ev.type)) {
-        const towardNet = actorScreen.x < 0.5 ? +8 : -8;
-        dx += towardNet;
-      }
-      if (dx !== 0 || dy !== 0) walkPlayer(actorEl, dx, dy);
+    // --- PHASE 1: REAL POSITION MOVEMENT ---
+    // Move the actor (and supporting teammates) to realistic play positions.
+    // Uses movePlayerTo(pid, x, y) which smoothly animates left/top over 0.55s.
+    if (!skipPhase1 && ev.actor && ev.actor.player) {
+      choreographMovement(ev, prevEv);
     }
+    // Also pre-position the defending block wall when this event is an attack
+    proactivePositioning(ev);
 
     // --- PHASE 2: ball travels TO the actor's spot ---
     if (!skipPhase1 && ev.actor && ev.actor.spot && ball) {
@@ -1032,9 +1150,8 @@
     // Hold the stance briefly through the follow-through, then release
     await sleep(stepMs * (skipPhase1 ? 0.55 : 0.4));
 
-    // Release stance (recover to standing) & walk back
+    // Release stance (recover to standing)
     if (actorEl && stance) actorEl.classList.remove(stance);
-    if (actorEl) stopWalking(actorEl);
     wallEls.forEach(el => el.classList.remove('jumping'));
 
     // Small settle beat before next event
