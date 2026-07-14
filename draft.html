@@ -37,6 +37,25 @@
     </div>
 
     <h3>Pick a player (<span id="available-count"></span> available)</h3>
+    <div id="filter-bar" style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center;">
+      <input type="text" id="filter-search" placeholder="🔎 Search nickname…" style="flex:1; min-width:180px;">
+      <select id="filter-position" style="min-width:130px;">
+        <option value="">All positions</option>
+      </select>
+      <select id="filter-sort" style="min-width:150px;">
+        <option value="default">Sort: default</option>
+        <option value="ovr-desc">OVR ↓ (best first)</option>
+        <option value="ovr-asc">OVR ↑ (worst first)</option>
+        <option value="attack">Best attack</option>
+        <option value="serve">Best serve</option>
+        <option value="defense">Best defense</option>
+        <option value="setting">Best setting</option>
+        <option value="athletic">Best athletic</option>
+        <option value="height">Tallest</option>
+        <option value="spike">Highest spike touch</option>
+      </select>
+      <button class="secondary" id="filter-clear" style="padding:8px 12px; font-size:0.8rem;">✕ Clear</button>
+    </div>
     <div class="available-players" id="available-list"></div>
   </div>
 

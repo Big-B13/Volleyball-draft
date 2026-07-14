@@ -14,7 +14,7 @@ export const LOGO_URLS = {
 
 // Bump this any time DEFAULT_PLAYERS changes — clients with a lower version
 // will auto-refresh their local cache to pick up the new list.
-export const PLAYER_DATA_VERSION = 6;
+export const PLAYER_DATA_VERSION = 7;
 
 // Photo path convention: ./assets/players/<id>.png (transparent PNG cutout preferred)
 // If a file doesn't exist, cards fall back to a silhouette + initials.

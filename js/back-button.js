@@ -15,6 +15,7 @@ const FALLBACK_TARGETS = {
   'predictions-results.html':  './index.html',
   'standings.html':            './index.html',
   'player-stats.html':         './index.html',
+  'player.html':               './cards.html',
   // clubs/*.html
   'strigidae.html':     '../clubs.html',
   'otters.html':        '../clubs.html',

@@ -380,6 +380,19 @@ Then they can sign up fresh with the invite code above.`;
             <label style="font-size:0.72rem;">Bio (scouting report — shown on reveal)</label>
             <input class="pe-bio" type="text" value="${escapeHtml(p.bio || '')}">
           </div>
+          <details style="margin-top:8px;">
+            <summary style="cursor:pointer; color:#94a3b8; font-size:0.75rem;">📏 Physical metrics + video (optional)</summary>
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:6px;">
+              <div><label style="font-size:0.7rem;">Height (cm)</label><input class="pe-height"        type="number" min="100" max="230" value="${p.heightCm || ''}"        placeholder="e.g. 185"></div>
+              <div><label style="font-size:0.7rem;">Reach (cm)</label> <input class="pe-reach"         type="number" min="100" max="280" value="${p.standingReachCm || ''}" placeholder="e.g. 240"></div>
+              <div><label style="font-size:0.7rem;">Spike (cm)</label> <input class="pe-spike"         type="number" min="100" max="380" value="${p.spikeTouchCm || ''}"    placeholder="e.g. 320"></div>
+              <div><label style="font-size:0.7rem;">Block (cm)</label> <input class="pe-block"         type="number" min="100" max="380" value="${p.blockTouchCm || ''}"    placeholder="e.g. 305"></div>
+            </div>
+            <div style="margin-top:8px;">
+              <label style="font-size:0.7rem;">YouTube highlight URL (optional)</label>
+              <input class="pe-youtube" type="text" value="${escapeHtml(p.youtubeUrl || '')}" placeholder="https://youtube.com/watch?v=..." style="font-size:0.85rem;">
+            </div>
+          </details>
         </div>
       `;
     }).join('') || '<div style="color:#64748b; padding:20px; text-align:center;">No players match the filter.</div>';
@@ -406,7 +419,12 @@ Then they can sign up fresh with the invite code above.`;
             defense: parseFloat(row.querySelector('.pe-defense').value) || 5,
             setting: parseFloat(row.querySelector('.pe-setting').value) || 5,
             athletic: parseFloat(row.querySelector('.pe-athletic').value) || 5,
-            bio: row.querySelector('.pe-bio').value.trim()
+            bio: row.querySelector('.pe-bio').value.trim(),
+            heightCm:        parseInt(row.querySelector('.pe-height').value) || null,
+            standingReachCm: parseInt(row.querySelector('.pe-reach').value)  || null,
+            spikeTouchCm:    parseInt(row.querySelector('.pe-spike').value)  || null,
+            blockTouchCm:    parseInt(row.querySelector('.pe-block').value)  || null,
+            youtubeUrl:      row.querySelector('.pe-youtube').value.trim()
           };
           saveBtn.textContent = '⏳ Saving…';
           await savePlayer(pid, patch);

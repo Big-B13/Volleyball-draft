@@ -493,6 +493,28 @@
     ...p,
     overall: Math.round((p.attack+p.serve+p.defense+p.setting+p.athletic)/5 * 10) / 10
   }));
+
+  // ============ UNLOCK STATE ============
+  // Scan ALL completed drafts in Firebase to know which players have ever been part of
+  // a completed draft. Those are "unlocked" — everyone else stays silhouette.
+  // Rules:
+  //   - Any player from a completed draft (drafted OR undrafted) → UNLOCKED
+  //   - Captains: also start as silhouettes; unlocked once their league has any completed draft
+  //   - Player not in any completed draft's pool → LOCKED (silhouette)
+  const unlockedPlayerIds = new Set();
+  try {
+    const allDraftsSnap = await get(ref(db, 'drafts'));
+    const allDrafts = allDraftsSnap.val() || {};
+    for (const d of Object.values(allDrafts)) {
+      if (d.status !== 'complete') continue;
+      // Every player in this completed draft's pool gets unlocked
+      for (const p of (d.players || [])) unlockedPlayerIds.add(p.id);
+      // Every captain in this completed draft's captain list also gets unlocked
+      for (const cap of (d.captains || [])) {
+        if (cap.linkedPlayerId) unlockedPlayerIds.add(cap.linkedPlayerId);
+      }
+    }
+  } catch (e) { console.warn('Could not load completed drafts for unlock check', e); }
   let liveDraft = null;
 
   if (roomId) {
@@ -510,23 +532,33 @@
   let currentMode = 'blind';
 
   async function playerCardHtml(p, mode, teamColor) {
+    // "locked" flag: in full-reveal mode, if the player has never been in a completed
+    // draft, they render as a silhouette (progressive reveal system).
+    const isLocked = mode === 'full' && !unlockedPlayerIds.has(p.id);
+    const isBlindOrLocked = mode === 'blind' || isLocked;
+
     // Vertical strip on the right side shows their POSITION (e.g. "MB", "OH/OP"),
     // fallback to first 2 letters of nickname if no position is set.
+    // When locked/blind, still show position (it's non-identifying info).
     const kanji = (p.position || (p.nickname || p.name || '').slice(0,2) || 'V').toUpperCase();
-    const displayName = (p.nickname || p.name || '').toUpperCase();
-    const realNameLine = mode === 'blind'
+    const displayName = isBlindOrLocked
+      ? '???'  // Hide nickname when locked
+      : (p.nickname || p.name || '').toUpperCase();
+    const realNameLine = isBlindOrLocked
       ? `<div class="realname-hidden">Identity classified · pick to reveal</div>`
       : `<div class="realname">${(p.name || '').toUpperCase()}</div>`;
     const photoUrl = await getPhotoUrl(p.id);
-    const silhouetteClass = mode === 'blind' ? ' silhouette' : '';
+    const silhouetteClass = isBlindOrLocked ? ' silhouette' : '';
     const photoHtml = photoUrl
-      ? `<img src="${photoUrl}" alt="${p.name}" crossorigin="anonymous">`
+      ? `<img src="${photoUrl}" alt="${isBlindOrLocked ? 'Classified' : p.name}" crossorigin="anonymous">`
       : `<div class="photo-placeholder">
-           <div class="initials">${mode === 'blind' ? '?' : getInitials(p.name)}</div>
-           <div class="placeholder-label">${mode === 'blind' ? 'Classified' : 'Awaiting photo'}</div>
+           <div class="initials">${isBlindOrLocked ? '?' : getInitials(p.name)}</div>
+           <div class="placeholder-label">${isBlindOrLocked ? 'Classified' : 'Awaiting photo'}</div>
          </div>`;
-    const colorA = teamColor || '#fbbf24';
-    const colorB = teamColor ? '#000000' : '#dc2626';
+    // When locked in full mode, use the same neutral orange-red gradient (no team colors
+    // — those would reveal which captain they belong to)
+    const colorA = isLocked ? '#fbbf24' : (teamColor || '#fbbf24');
+    const colorB = isLocked ? '#dc2626' : (teamColor ? '#000000' : '#dc2626');
     return `
       <div class="tcg-card" style="--team-color-a:${colorA}; --team-color-b:${colorB};">
         <div class="anime-bg"></div>
@@ -540,7 +572,7 @@
             OVR
             <span class="num">${p.overall}</span>
           </div>
-          <div class="type-badge">${teamColor && mode !== 'blind' ? '🎖️ Captain · Gomi Cup' : 'Gomi Cup ' + (mode === 'blind' ? '· Classified' : '· 2026')}</div>
+          <div class="type-badge">${teamColor && !isBlindOrLocked ? '🎖️ Captain · Gomi Cup' : 'Gomi Cup ' + (isBlindOrLocked ? '· Classified' : '· 2026')}</div>
         </div>
         <div class="photo-container${silhouetteClass}">${photoHtml}</div>
         <div class="nickname-block">
@@ -669,7 +701,7 @@
     const isLoggedIn = window.__cardsSession && window.__cardsSession.profile;
 
     if (currentMode === 'blind') {
-      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. <strong>Public — no login needed.</strong>';
+      info.innerHTML = '🖤 <strong>Pre-draft cards</strong> — silhouette photos + real names hidden. Perfect for Instagram teasers. Click any card to view its profile · green button to download PNG. <strong>Public — no login needed.</strong>';
       grid.innerHTML = '';
       for (const p of players) {
         const wrap = await makeCardWrap(p, 'blind', playerCardHtml, `blind-${p.id}`, false);
@@ -677,19 +709,23 @@
       }
     } else if (currentMode === 'full') {
       if (!isLoggedIn) { showLoginGate('Full reveal'); return; }
-      info.innerHTML = '🎬 <strong>Full reveal cards</strong> — nickname + real name + photo + stats. Captains appear in their team colors.';
+      // Progressive unlock: silhouettes for anyone who hasn't been part of a completed draft yet
+      const totalCount = players.length;
+      const unlockedCount = players.filter(p => unlockedPlayerIds.has(p.id)).length;
+      info.innerHTML = `🎬 <strong>Full reveal cards</strong> — ${unlockedCount} / ${totalCount} unlocked so far. Click a card to view the full profile · use the green button below each to download PNG.`;
       grid.innerHTML = '';
-      // Single unified list — captains render in team colors, regular players in default Gomi orange.
-      // Captains are auto-detected via their id (big-b, burla, stratus).
+      // Captain colors only apply to UNLOCKED captains (locked ones look neutral to avoid tipping off which slot they are)
       const captainColors = { 'big-b': '#dc2626', 'burla': '#16a34a', 'stratus': '#2563eb' };
       const captainOrder = ['big-b', 'burla', 'stratus'];
-      // Sort captains to the top of the list
-      const sortedPlayers = [
-        ...captainOrder.map(id => players.find(p => p.id === id)).filter(Boolean),
-        ...players.filter(p => !captainColors[p.id])
-      ];
-      for (const p of sortedPlayers) {
-        const teamColor = captainColors[p.id]; // undefined for non-captains → default orange/red gradient
+      // Sort: UNLOCKED first (captains at the top, then rest), then LOCKED last
+      const unlockedPlayers = players.filter(p => unlockedPlayerIds.has(p.id));
+      const lockedPlayers   = players.filter(p => !unlockedPlayerIds.has(p.id));
+      const unlockedCaps    = captainOrder.map(id => unlockedPlayers.find(p => p.id === id)).filter(Boolean);
+      const unlockedRest    = unlockedPlayers.filter(p => !captainColors[p.id]);
+      const orderedPlayers  = [...unlockedCaps, ...unlockedRest, ...lockedPlayers];
+      for (const p of orderedPlayers) {
+        const isUnlocked = unlockedPlayerIds.has(p.id);
+        const teamColor  = isUnlocked ? captainColors[p.id] : undefined;
         const wrap = await makeCardWrap(p, 'full', (pp, m) => playerCardHtml(pp, m, teamColor), `full-${p.id}`, false);
         grid.appendChild(wrap);
       }
@@ -743,14 +779,26 @@
     const thumb = document.createElement('div');
     thumb.className = 'card-thumb' + (isRoster ? ' roster-thumb' : '');
     thumb.innerHTML = await htmlFn(entity, mode);
-    thumb.title = 'Click to download';
-    thumb.addEventListener('click', () => downloadCard(thumb.querySelector('.tcg-card'), filename));
+    // For player cards, clicking opens the profile page.
+    // For roster cards (which represent a club, not a single player), keep the download behavior.
+    const isPlayer = !isRoster && entity && entity.id;
+    thumb.title = isPlayer ? 'Click to view profile' : 'Click to download';
+    thumb.addEventListener('click', () => {
+      if (isPlayer) {
+        location.href = `./player.html?id=${encodeURIComponent(entity.id)}`;
+      } else {
+        downloadCard(thumb.querySelector('.tcg-card'), filename);
+      }
+    });
     wrap.appendChild(thumb);
     const btn = document.createElement('button');
     btn.className = 'download-btn';
     btn.textContent = '⬇ Download PNG';
     btn.dataset.filename = filename;
-    btn.addEventListener('click', () => downloadCard(thumb.querySelector('.tcg-card'), filename));
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      downloadCard(thumb.querySelector('.tcg-card'), filename);
+    });
     wrap.appendChild(btn);
     // Observe the thumb's size and keep the CSS --thumb-size variable up to date
     // so the inner .tcg-card always scales properly (including on mobile / resize).

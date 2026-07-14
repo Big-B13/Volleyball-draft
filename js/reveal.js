@@ -65,7 +65,7 @@ function miniCardHtml({ player, teamColor, pickNum, badgeText, isCut, isCaptain 
   const capClass = isCaptain ? ' captain-card' : '';
   const teamC = teamColor || '#64748b';
   return `
-    <div class="mini-tcg${cutClass}${capClass}" style="--team-c:${teamC};">
+    <a href="./player.html?id=${encodeURIComponent(player.id)}" class="mini-tcg${cutClass}${capClass}" style="--team-c:${teamC}; text-decoration:none; display:block;" title="View profile">
       ${pickBadge}
       <div class="mini-halftone"></div>
       <div class="mini-slash"></div>
@@ -86,7 +86,7 @@ function miniCardHtml({ player, teamColor, pickNum, badgeText, isCut, isCaptain 
           </div>
         `).join('')}
       </div>
-    </div>
+    </a>
   `;
 }
 

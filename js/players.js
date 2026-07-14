@@ -94,6 +94,13 @@ export async function addCustomPlayer(player) {
     setting: parseFloat(player.setting) || 5,
     athletic: parseFloat(player.athletic) || 5,
     bio: (player.bio || '').trim(),
+    // Physical metrics (cm), all optional
+    heightCm:        parseInt(player.heightCm)        || null,
+    standingReachCm: parseInt(player.standingReachCm) || null,
+    spikeTouchCm:    parseInt(player.spikeTouchCm)    || null,
+    blockTouchCm:    parseInt(player.blockTouchCm)    || null,
+    // Optional YouTube highlight URL
+    youtubeUrl: (player.youtubeUrl || '').trim(),
     createdAt: Date.now()
   };
   await set(ref(db, `${CUSTOM_PLAYERS_PATH}/${id}`), clean);
