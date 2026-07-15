@@ -1043,8 +1043,17 @@
     // Zones prevent overlap and keep positional roles cleaner.
     assignZones('home');
     assignZones('away');
-    // Visualize zones so you can see the boundaries — toggled by the checkbox in the pbp panel
+    // Visualize zones — toggled by the checkbox. Uses role-specific colors so
+    // overlapping zones are visible (Libero HUGE, Middle WIDE, Opposite SMALL, etc.)
     court.querySelectorAll('.zone-debug').forEach(el => el.remove());
+    const ROLE_COLORS = {
+      setter:   'rgba(168, 85, 247, 0.75)',   // purple
+      opp:      'rgba(59, 130, 246, 0.75)',   // blue
+      middle:   'rgba(34, 197, 94, 0.75)',    // green (WIDE)
+      outside:  'rgba(251, 191, 36, 0.75)',   // gold
+      leftBack: 'rgba(74, 222, 128, 0.75)',   // light green
+      libero:   'rgba(240, 171, 252, 0.85)'   // pink (HUGE)
+    };
     for (const [pid, z] of Object.entries(PLAYER_ZONE)) {
       const zoneName = PLAYER_ZONE_NAME[pid] || '';
       const player = document.querySelector(`.player-circle[data-pid="${pid}"]`);
@@ -1055,8 +1064,12 @@
       el.style.top  = (z.yMin * 100) + '%';
       el.style.width  = ((z.xMax - z.xMin) * 100) + '%';
       el.style.height = ((z.yMax - z.yMin) * 100) + '%';
-      const label = ZONE_ROLES[zoneName] || zoneName.toUpperCase();
-      el.innerHTML = `<span class="zone-label">${label} · ${escapeHtml(playerName)}</span>`;
+      const color = ROLE_COLORS[zoneName] || 'rgba(251,191,36,0.7)';
+      el.style.borderColor = color;
+      el.style.background = color.replace(/[\d.]+\)/, '0.08)');   // faint fill
+      const label = ZONE_LABEL[zoneName] || zoneName.toUpperCase();
+      const prio = z.priority || '';
+      el.innerHTML = `<span class="zone-label" style="color:${color}">${label} · P${prio} · ${escapeHtml(playerName)}</span>`;
       court.appendChild(el);
     }
     // Ball starts visible at the server's spot (or center if unknown)
@@ -1339,139 +1352,119 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ZONE SYSTEM — matches real volleyball diagram from Muqtar Facebook reference.
-  //   Corner zones (1, 2, 4, 5) are WIDER (they cover more court).
-  //   Middle zones (3 = middle front, 6 = libero back) are NARROWER slices.
-  //   Front row (2, 3, 4) is a bit shallower than back row (1, 5, 6).
+  // ROLE-BASED ZONES — from Big-B's design doc.
+  // Each role has DIFFERENT size + shape. Zones INTENTIONALLY OVERLAP.
+  // Priority number decides who takes a ball in an overlapping area.
   //
-  //   Layout (HOME side, net at x=0.5, endline at x=0):
-  //       x: 0.00 ────── 0.22 ────── 0.50 (net)
-  //       ┌───────────┬───────────┐  Front-row band  (y:0.00-0.35 = Z4 outside)
-  //       │ Z5 LB     │ Z4 OH     │                  (y:0.35-0.65 = Z3 middle, narrow)
-  //       │ (corner)  │ (corner)  │                  (y:0.65-1.00 = Z2 opposite)
-  //       ├───────────┼───────────┤
-  //       │ Z6 LIBERO │ Z3 MIDDLE │  ← both narrow center zones
-  //       │ (mid nar) │ (mid nar) │
-  //       ├───────────┼───────────┤
-  //       │ Z5 LB     │ Z2 OPP    │
-  //       │ (corner)  │ (corner)  │
-  //       └───────────┴───────────┘
-  //   Front (net-side) band spans x:0.22-0.50; Back band spans x:0.00-0.22.
+  // Home center (0..1 court coords) + width/height (0..1 court units).
+  // Zone rectangle = center ± width/2, center ± height/2.
+  //
+  //   Role       | Home (x,y)  | Width | Height | Type   | Priority | Row
+  //   -----------|-------------|-------|--------|--------|----------|-----
+  //   Setter     | (0.20,0.75) | 0.20  | 0.30   | Medium | 2        | back
+  //   Opposite   | (0.375,0.20)| 0.15  | 0.24   | Small  | 3        | front
+  //   Middle     | (0.35,0.50) | 0.28  | 0.18   | WIDE   | 5        | front
+  //   Outside    | (0.35,0.80) | 0.18  | 0.30   | Medium | 3        | front
+  //   Left Back  | (0.10,0.20) | 0.22  | 0.36   | Large  | 4        | back
+  //   Libero     | (0.15,0.50) | 0.28  | 0.40   | HUGE   | 1        | back
   // ═══════════════════════════════════════════════════════════════════════
-  // Front row is a thinner band near the net; back row is deeper.
-  const NET_X = 0.49;      // just inside the net line
-  const FRONT_X_MIN = 0.28;    // front row spans x: 0.28 - 0.49 (thinner strip)
-  const BACK_X_MAX  = 0.28;    // back row spans x: 0.02 - 0.28 (deeper)
-  const BACK_X_MIN  = 0.02;
 
-  // Corner zones (front-outside/opposite, back-left/setter-corner) take more y-space (~36% each).
-  // Middle zones (middle blocker at net, libero back-center) are narrower (~28% y-space).
-  const CORNER_TOP_Y_MAX = 0.36;   // top corner ends here
-  const MIDDLE_Y_MIN     = 0.36;   // middle band starts
-  const MIDDLE_Y_MAX     = 0.64;   // middle band ends
-  const CORNER_BOT_Y_MIN = 0.64;   // bottom corner starts
+  /** Role definitions (home-side coordinates). Priority: 1=highest (libero first). */
+  const ROLE_ZONES_HOME = {
+    setter:     { home: { x: 0.22, y: 0.80 }, width: 0.24, height: 0.36, priority: 2, row: 'back',
+                  attackPos: { x: 0.46, y: 0.55 } },   // runs here on set
+    opp:        { home: { x: 0.38, y: 0.20 }, width: 0.18, height: 0.28, priority: 3, row: 'front',
+                  attackPos: { x: 0.46, y: 0.18 } },
+    middle:     { home: { x: 0.42, y: 0.50 }, width: 0.16, height: 0.60, priority: 5, row: 'front',
+                  attackPos: { x: 0.46, y: 0.50 } },   // WIDE across the net (slide + quick)
+    outside:    { home: { x: 0.38, y: 0.82 }, width: 0.22, height: 0.34, priority: 3, row: 'front',
+                  attackPos: { x: 0.46, y: 0.82 } },
+    leftBack:   { home: { x: 0.12, y: 0.20 }, width: 0.24, height: 0.40, priority: 4, row: 'back',
+                  attackPos: null },
+    libero:     { home: { x: 0.15, y: 0.50 }, width: 0.30, height: 0.70, priority: 1, row: 'back',
+                  attackPos: null }
+  };
+  // Zone label for the debug overlay
+  const ZONE_LABEL = {
+    setter:   'Z1 SETTER',
+    opp:      'Z2 OPPOSITE',
+    middle:   'Z3 MIDDLE',
+    outside:  'Z4 OUTSIDE',
+    leftBack: 'Z5 LEFT-BACK',
+    libero:   'Z6 LIBERO'
+  };
 
-  const ZONES_HOME = {
-    // Front row (net-side band)
-    zone4: { xMin: FRONT_X_MIN, xMax: NET_X,      yMin: 0.02,             yMax: CORNER_TOP_Y_MAX }, // Z4 outside (top corner, wide)
-    zone3: { xMin: FRONT_X_MIN, xMax: NET_X,      yMin: MIDDLE_Y_MIN,     yMax: MIDDLE_Y_MAX },     // Z3 middle (narrow center)
-    zone2: { xMin: FRONT_X_MIN, xMax: NET_X,      yMin: CORNER_BOT_Y_MIN, yMax: 0.98 },             // Z2 opposite (bottom corner, wide)
-    // Back row (endline-side band)
-    zone5: { xMin: BACK_X_MIN,  xMax: BACK_X_MAX, yMin: 0.02,             yMax: CORNER_TOP_Y_MAX }, // Z5 left back (top corner, wide)
-    zone6: { xMin: BACK_X_MIN,  xMax: BACK_X_MAX, yMin: MIDDLE_Y_MIN,     yMax: MIDDLE_Y_MAX },     // Z6 libero (narrow center)
-    zone1: { xMin: BACK_X_MIN,  xMax: BACK_X_MAX, yMin: CORNER_BOT_Y_MIN, yMax: 0.98 }              // Z1 setter start (bottom corner, wide)
-  };
-  // Human-friendly zone descriptions
-  const ZONE_ROLES = {
-    zone1:       'Z1 SETTER-BASE',
-    zone2:       'Z2 OPPOSITE',
-    zone3:       'Z3 MIDDLE',
-    zone4:       'Z4 OUTSIDE',
-    zone5:       'Z5 LEFT-BACK',
-    zone6:       'Z6 LIBERO',
-    setter_zone: 'SETTER (Z1+Z2)'
-  };
-  function mirrorZone(zone) {
+  /** Convert a role's home-side definition to actual rectangle bounds.
+   *  Mirrors across net for away side. */
+  function roleZoneRect(roleKey, side) {
+    const rz = ROLE_ZONES_HOME[roleKey];
+    if (!rz) return null;
+    const cx = side === 'home' ? rz.home.x : (1 - rz.home.x);
+    const cy = rz.home.y;
+    const halfW = rz.width / 2;
+    const halfH = rz.height / 2;
     return {
-      xMin: 1 - zone.xMax, xMax: 1 - zone.xMin,
-      yMin: zone.yMin, yMax: zone.yMax
+      xMin: Math.max(0.01, cx - halfW),
+      xMax: Math.min(0.99, cx + halfW),
+      yMin: Math.max(0.01, cy - halfH),
+      yMax: Math.min(0.99, cy + halfH),
+      priority: rz.priority,
+      row: rz.row,
+      roleKey
     };
   }
-  const PLAYER_ZONE = {};        // pid → zone bounds
-  const PLAYER_ZONE_NAME = {};   // pid → zone name string (for formation lookup)
+
+  const PLAYER_ZONE = {};        // pid → zone bounds (with priority + row + roleKey)
+  const PLAYER_ZONE_NAME = {};   // pid → 'setter' | 'opp' | 'middle' | 'outside' | 'leftBack' | 'libero'
 
   /** Assign each player on a side to their VOLLEYBALL zone by role.
-   *  Real-vball convention: setter Z1 (back-right), OPP Z2 (front-right), MB Z3 (front-mid),
-   *  OH Z4 (front-left), LB Z5 (back-left), Libero Z6 (back-mid). */
+   *  Role-based assignment — each player gets a zone matching their volleyball role.
+   *  If 2 players share a role (e.g. 2 middles), one gets the primary slot and the
+   *  other overflows to the closest remaining role zone. */
   function assignZones(side) {
-    const zoneSet = {};
-    for (const name of Object.keys(ZONES_HOME)) {
-      zoneSet[name] = side === 'home' ? ZONES_HOME[name] : mirrorZone(ZONES_HOME[name]);
-    }
     const players = playersOnSide(side);
-    const taken = new Set();
+    const roleClaimed = new Set();
 
-    // Role → preferred zone (real-vball starting positions)
-    const preferredZone = {
-      setter: 'zone1',   // back-right (serving position)
-      opp:    'zone2',   // front-right
-      mb1:    'zone3',   // front-middle
-      mb2:    'zone3',   // if 2 MBs, one goes here — other will fall back to closest free
-      oh1:    'zone4',   // front-left
-      oh2:    'zone4',   // if 2 OHs, one goes here
-      libero: 'zone6'    // back-middle
+    // Preferred role zone per player (based on classifyRole)
+    const roleForClassified = {
+      setter: 'setter',
+      opp:    'opp',
+      mb1:    'middle',
+      mb2:    'middle',
+      oh1:    'outside',
+      oh2:    'outside',
+      libero: 'libero'
     };
 
-    // Pass 1: assign each player to their role's preferred zone if free.
-    // SETTER gets a special expanded zone that spans zone1 + zone2 (the setter release corridor)
-    // so they can start at the back-right serve position AND run to the net-front target.
-    const claimants = players.map(p => ({ pid: p.pid, role: classifyRole(p.pid), home: p.home }));
-    for (const c of claimants) {
-      if (c.role === 'setter' && !taken.has('zone1') && !taken.has('zone2')) {
-        // Merge zone1 + zone2 into a single L-shaped corridor (approximated as a bigger rectangle)
-        const z1 = zoneSet.zone1;
-        const z2 = zoneSet.zone2;
-        PLAYER_ZONE[c.pid] = {
-          xMin: Math.min(z1.xMin, z2.xMin),
-          xMax: Math.max(z1.xMax, z2.xMax),
-          yMin: Math.min(z1.yMin, z2.yMin),
-          yMax: Math.max(z1.yMax, z2.yMax)
-        };
-        PLAYER_ZONE_NAME[c.pid] = 'setter_zone';   // combined
-        taken.add('zone1');
-        taken.add('zone2');
-        continue;
-      }
-      const pref = preferredZone[c.role];
-      if (pref && !taken.has(pref)) {
-        PLAYER_ZONE[c.pid] = zoneSet[pref];
-        PLAYER_ZONE_NAME[c.pid] = pref;
-        taken.add(pref);
+    // Pass 1: everyone gets their preferred role zone if it's free
+    for (const p of players) {
+      const cls = classifyRole(p.pid);
+      const roleKey = roleForClassified[cls];
+      if (roleKey && !roleClaimed.has(roleKey)) {
+        PLAYER_ZONE[p.pid] = roleZoneRect(roleKey, side);
+        PLAYER_ZONE_NAME[p.pid] = roleKey;
+        roleClaimed.add(roleKey);
       }
     }
 
-    // 2. Everyone else: closest-first assignment to remaining zones
-    const claims = players
-      .filter(p => !PLAYER_ZONE_NAME[p.pid])
-      .map(p => {
-        const distances = Object.entries(zoneSet)
-          .filter(([name]) => !taken.has(name))
-          .map(([name, z]) => {
-            const cx = (z.xMin + z.xMax) / 2;
-            const cy = (z.yMin + z.yMax) / 2;
-            return { name, d: Math.hypot(p.home.x - cx, p.home.y - cy) };
-          }).sort((a, b) => a.d - b.d);
-        return { pid: p.pid, distances };
-      });
-    for (const c of claims.sort((a, b) => a.distances[0].d - b.distances[0].d)) {
-      for (const opt of c.distances) {
-        if (!taken.has(opt.name)) {
-          PLAYER_ZONE[c.pid] = zoneSet[opt.name];
-          PLAYER_ZONE_NAME[c.pid] = opt.name;
-          taken.add(opt.name);
-          break;
-        }
+    // Pass 2: unassigned players (duplicate roles) fill remaining slots by closest home
+    const unassigned = players.filter(p => !PLAYER_ZONE_NAME[p.pid]);
+    const allRoles = Object.keys(ROLE_ZONES_HOME);
+    for (const p of unassigned) {
+      const free = allRoles.filter(r => !roleClaimed.has(r));
+      if (!free.length) continue;
+      // Pick the free role whose home is closest to this player's rotation home
+      let best = free[0], bestD = Infinity;
+      for (const roleKey of free) {
+        const zRect = roleZoneRect(roleKey, side);
+        const cx = (zRect.xMin + zRect.xMax) / 2;
+        const cy = (zRect.yMin + zRect.yMax) / 2;
+        const d = Math.hypot(p.home.x - cx, p.home.y - cy);
+        if (d < bestD) { bestD = d; best = roleKey; }
       }
+      PLAYER_ZONE[p.pid] = roleZoneRect(best, side);
+      PLAYER_ZONE_NAME[p.pid] = best;
+      roleClaimed.add(best);
     }
   }
 
@@ -1493,10 +1486,16 @@
   }
 
   /** Is the player currently in a front-row zone (near the net)?
-   *  Real-vball convention: zones 2, 3, 4 are the FRONT row. Setter (Z1+Z2) counts as front. */
+   *  Front-row roles: opp, middle, outside. Back-row: setter (starts back), leftBack, libero. */
   function isFrontZone(pid) {
     const name = PLAYER_ZONE_NAME[pid];
-    return name === 'zone2' || name === 'zone3' || name === 'zone4' || name === 'setter_zone';
+    return name === 'opp' || name === 'middle' || name === 'outside';
+  }
+
+  /** Get the priority number for a player's current role zone (1 = highest / gets ball first). */
+  function playerZonePriority(pid) {
+    const zone = PLAYER_ZONE[pid];
+    return zone ? (zone.priority || 5) : 5;
   }
 
   /** Position at the net inside a player's zone. */

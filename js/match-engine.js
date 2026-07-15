@@ -167,18 +167,32 @@ function pickHitter(team) {
 }
 
 /** Pick the best defender to receive a serve — usually a back-row player with high defense.
- *  Ball-x (0..1) matters: only players whose zone covers that x are eligible.
- *  If no ball-x provided (fallback), all back-row players are eligible. */
+ *  Priority order (real volleyball): Libero > Setter > OH/OPP > LB > Middle.
+ *  Ball-x (0..1) matters: only players within reach of that x are eligible. */
+function rolePriority(slot) {
+  if (!slot || !slot.player) return 5;
+  const pos = (slot.player.position || '').split('/');
+  if (pos.includes('L') || pos.includes('DS')) return 1;   // Libero highest
+  if (pos.includes('S')) return 2;                          // Setter
+  if (pos.includes('OH') || pos.includes('OP')) return 3;   // Outsides
+  if (pos.includes('MB')) return 5;                         // Middle blocker LAST for digs
+  return 4;
+}
 function pickReceiver(team, ballX) {
   const backRow = [0, 4, 5].map(i => playerAtSpot(team, i)).filter(Boolean);
-  // Filter to only back-row players near the ball's x coordinate.
-  // Each player's spot.x is where they stand — pick those within 0.28 court units.
   let eligible = backRow;
   if (typeof ballX === 'number') {
     eligible = backRow.filter(p => Math.abs(p.spot.x - ballX) < 0.28);
-    if (!eligible.length) eligible = backRow;   // fallback: nobody in range
+    if (!eligible.length) eligible = backRow;
   }
-  const weights = eligible.map(c => Math.pow((c.player.defense || 5), 2));
+  // Weight by defense stat AND role priority (lower priority num = bigger weight)
+  const weights = eligible.map(c => {
+    const def = c.player.defense || 5;
+    const prio = rolePriority(c);
+    // priority 1 (libero) = 3x, priority 5 (middle) = 0.4x
+    const prioMult = 3.0 - (prio - 1) * 0.6;
+    return Math.pow(def, 2) * Math.max(0.2, prioMult);
+  });
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
   for (let i = 0; i < eligible.length; i++) {
@@ -576,6 +590,10 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
     let score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.5;
     score += tr.hustle * 1.2;                              // hustle adds up to +1.2
     if (isBigMoment) score += tr.confidence * 0.8;         // clutch factor
+    // Priority boost: Libero (P1) gets a big bonus, Middle (P5) gets a penalty.
+    // This is the doc's "priority resolves overlap" rule for digging.
+    const prio = rolePriority(d);
+    score += (5 - prio) * 0.6;                             // P1: +2.4, P5: 0
     if (!best || score > best.score) return { d, score };
     return best;
   }, null);
