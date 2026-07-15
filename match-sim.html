@@ -648,18 +648,15 @@
   }
 
   /** Move a player's circle to a new screen position (0..1).
-   *  By default clamps to the player's assigned zone (prevents overlap + keeps positional integrity).
-   *  Pass ignoreZone=true for special plays (block at net, dive, service position).
+   *  ALWAYS clamps to the player's assigned zone — players NEVER leave their zone.
    *  Transition time is proportional to distance AND scales with sim speed. */
-  function movePlayerTo(pid, screenX, screenY, ignoreZone = false) {
+  function movePlayerTo(pid, screenX, screenY) {
     const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
     if (!el) return 0;
-    // Zone clamp — respect the player's home rectangle unless ignoreZone
-    if (!ignoreZone) {
-      const clamped = clampToZone(pid, screenX, screenY);
-      screenX = clamped.x;
-      screenY = clamped.y;
-    }
+    // Zone clamp is MANDATORY — no exceptions. This is the hard boundary.
+    const clamped = clampToZone(pid, screenX, screenY);
+    screenX = clamped.x;
+    screenY = clamped.y;
     // Compute distance from current position
     const from = CURRENT_POS[pid] || { x: screenX, y: screenY };
     const dx = screenX - from.x, dy = screenY - from.y;
@@ -1119,6 +1116,9 @@
   /** Predict where the actor will physically be at the moment of their contact.
    *  PURE — doesn't mutate anything. Used by Phase 3 to aim the ball at the correct meetup
    *  point before the next event fires, so the ball and the next player converge there. */
+  /** Predict where this event's actor makes contact.
+   *  ALWAYS returns a position inside the actor's assigned zone — no exceptions.
+   *  Ball flies to this exact spot so player and ball meet. */
   function predictContactPos(ev, prevEv) {
     if (!ev || !ev.actor || !ev.actor.player) return null;
     const actorPid = ev.actor.player.id;
@@ -1126,102 +1126,64 @@
     if (!actorHome) return null;
     const side = actorHome.side;
     const isHome = side === 'home';
-    const netDir = isHome ? +1 : -1;
-    const role = classifyRole(actorPid);
-    // Where would this player END UP based on formation for this event type?
-    // We use the formation spot directly so ball & player converge exactly.
-    function formationSpot(formationName) {
-      const f = FORMATIONS[formationName];
-      if (!f || !f[role]) return null;
-      return mirrorForSide(f[role], side);
-    }
+    const isFront = isFrontZone(actorPid);
+    const center = zoneCenter(actorPid);
+    let target = center;
 
     switch (ev.type) {
-      case 'serve': {
-        // Server is at their serve position (behind endline)
-        return { x: isHome ? 0.06 : 0.94, y: actorHome.y };
-      }
+      case 'serve':
+      case 'ace':
+        // Behind endline of own zone
+        target = backEdgeOfZone(actorPid, side);
+        break;
       case 'pass': {
-        // Passer runs from their serve_receive formation spot toward the ball's y
-        const base = formationSpot('serve_receive') || { x: actorHome.x + netDir * 0.05, y: actorHome.y };
-        let targetY = base.y;
+        // Passer moves within their zone toward the ball's incoming y
+        let ty = center.y;
         if (prevEv && prevEv.actor && prevEv.actor.spot) {
           const from = toScreen(prevEv.actor.spot);
-          // Passer adjusts within their zone toward incoming ball (small adjustment)
-          const cap = 0.10;
-          const rawDy = (from.y - base.y) * 0.3;
-          targetY = base.y + Math.max(-cap, Math.min(cap, rawDy));
+          ty = center.y + (from.y - center.y) * 0.4;   // 40% pull toward the ball
         }
-        return { x: base.x, y: Math.max(0.08, Math.min(0.92, targetY)) };
+        target = { x: center.x, y: ty };
+        break;
       }
-      case 'set': {
-        // Setter always ends at target zone (formation spot for setter in attack_ready)
-        const base = formationSpot('attack_ready');
-        return base || { x: isHome ? 0.44 : 0.56, y: 0.5 };
-      }
+      case 'set':
+      case 'setter-dump':
+        // Setter contacts at the front of their zone (net edge)
+        target = netEdgeOfZone(actorPid, side);
+        break;
       case 'attack':
       case 'kill':
       case 'attack-error':
       case 'tip': {
-        // Attacker (or tipper) at their pin position at the net.
-        // BACK-ROW attack: hitter takes off from behind the 3m line, not at the net.
-        const netX = isHome ? 0.46 : 0.54;
-        let attackY = actorHome.y;
-        if (role === 'oh1')  attackY = 0.20;
-        else if (role === 'oh2')  attackY = 0.80;
-        else if (role === 'opp')  attackY = 0.72;
-        else if (role === 'mb1' || role === 'mb2') attackY = 0.50;
-        else if (role === 'setter') attackY = 0.50;
-        // If this is a back-row attack, take off ~10% behind the net instead of AT the net
-        if (ev.tactic === 'back-row') {
-          return { x: isHome ? 0.34 : 0.66, y: attackY };
+        // Attacker approaches to the net edge of their zone.
+        // Back-row attack: takeoff at center of zone (behind 3m line).
+        if (ev.tactic === 'back-row' || !isFront) {
+          target = center;   // back-row attacker takes off from zone middle
+        } else {
+          target = netEdgeOfZone(actorPid, side);
         }
-        return { x: netX, y: attackY };
+        break;
       }
-      case 'setter-dump': {
-        // Setter tips from their target zone position (already at the net)
-        const base = formationSpot('attack_ready');
-        return base || { x: isHome ? 0.44 : 0.56, y: 0.5 };
-      }
-      case 'ace': {
-        return { x: isHome ? 0.06 : 0.94, y: actorHome.y };
-      }
-      case 'block': {
-        // Blocker moves to their defense_block formation spot at the net
-        const base = formationSpot('defense_block');
-        if (!base) return { x: isHome ? 0.48 : 0.52, y: actorHome.y };
-        // Optionally shift Y slightly toward the hitter's y for a mobile block
-        let blockY = base.y;
-        if (ev.hitter && ev.hitter.spot) {
-          const hy = toScreen(ev.hitter.spot).y;
-          const cap = 0.10;
-          const rawDy = (hy - base.y) * 0.5;
-          blockY = base.y + Math.max(-cap, Math.min(cap, rawDy));
-        }
-        return { x: base.x, y: Math.max(0.08, Math.min(0.92, blockY)) };
-      }
+      case 'block':
+        // Blocker at the net edge of their zone
+        target = netEdgeOfZone(actorPid, side);
+        break;
       case 'dig': {
-        // Digger dives from their defense_block position toward the ball
-        const base = formationSpot('defense_block') || { x: actorHome.x, y: actorHome.y };
-        let targetX = base.x;
-        let targetY = base.y;
+        // Digger moves within their zone toward the ball's incoming trajectory
+        let tx = center.x, ty = center.y;
         if (prevEv && prevEv.actor && prevEv.actor.spot) {
           const from = toScreen(prevEv.actor.spot);
-          const cap = 0.12;
-          const rawDx = (from.x - base.x) * 0.35;
-          const rawDy = (from.y - base.y) * 0.35;
-          targetX = base.x + Math.max(-cap, Math.min(cap, rawDx));
-          targetY = base.y + Math.max(-cap, Math.min(cap, rawDy));
+          tx = center.x + (from.x - center.x) * 0.3;
+          ty = center.y + (from.y - center.y) * 0.3;
         }
-        // Clamp: stay on own side of net
-        if (isHome) targetX = Math.min(targetX, 0.46);
-        else        targetX = Math.max(targetX, 0.54);
-        targetY = Math.max(0.08, Math.min(0.92, targetY));
-        return { x: targetX, y: targetY };
+        target = { x: tx, y: ty };
+        break;
       }
       default:
         return null;
     }
+    // Final zone clamp — guarantees the position is reachable
+    return clampToZone(actorPid, target.x, target.y);
   }
 
   /** Get all players on a given side (returns array of {pid, home, role}). */
@@ -1275,84 +1237,19 @@
     return 'mb1';
   }
 
-  /** All 6 formations. Coords are for HOME side (x < 0.5). Mirrored for away. */
-  const FORMATIONS = {
-    // Our team is about to serve — server behind endline, others in ready base
-    serve_prep: {
-      setter:  { x: 0.32, y: 0.40 },
-      oh1:     { x: 0.30, y: 0.20 },
-      oh2:     { x: 0.30, y: 0.80 },
-      opp:     { x: 0.32, y: 0.60 },
-      mb1:     { x: 0.42, y: 0.35 },
-      mb2:     { x: 0.42, y: 0.65 },
-      libero:  { x: 0.22, y: 0.50 }
-    },
-    // Opponent served — 3 passers form arc, setter releases to target zone at net
-    // Front-row hitters near net for quick attack, setter runs to (0.44, 0.50)
-    serve_receive: {
-      setter:  { x: 0.44, y: 0.50 },   // target zone: front-middle at net
-      oh1:     { x: 0.22, y: 0.28 },   // passer, curved arc position
-      oh2:     { x: 0.22, y: 0.72 },   // passer, curved arc position
-      opp:     { x: 0.42, y: 0.72 },   // opposite stages near net (right side attack)
-      mb1:     { x: 0.42, y: 0.35 },   // middle blocker near net, ready for quick
-      mb2:     { x: 0.42, y: 0.65 },   // second MB near net
-      libero:  { x: 0.20, y: 0.50 }    // libero is the middle-back passer (center of arc)
-    },
-    // We have the ball, setter about to set — hitters SPREAD OUT for 4-step approach
-    attack_ready: {
-      setter:  { x: 0.44, y: 0.50 },
-      oh1:     { x: 0.15, y: 0.20 },   // OH1 backed off far corner (approach runway)
-      oh2:     { x: 0.15, y: 0.80 },   // OH2 backed off far corner
-      opp:     { x: 0.42, y: 0.75 },   // opposite stages right-back for slide/backset
-      mb1:     { x: 0.30, y: 0.45 },   // MB1 stages middle-front for quick
-      mb2:     { x: 0.30, y: 0.60 },   // MB2 slightly separated
-      libero:  { x: 0.18, y: 0.50 }    // libero holds middle-back for cover
-    },
-    // Opponent has ball, we're reading — perimeter base defense
-    defense_base: {
-      setter:  { x: 0.30, y: 0.80 },   // setter drops back-right to prep transition
-      oh1:     { x: 0.44, y: 0.28 },   // front-row OH near net, ready to block
-      oh2:     { x: 0.18, y: 0.75 },   // back-row OH in perimeter defense (left-back)
-      opp:     { x: 0.44, y: 0.72 },   // opposite front-row, ready to block right side
-      mb1:     { x: 0.44, y: 0.50 },   // MB at net, primary blocker
-      mb2:     { x: 0.20, y: 0.20 },   // back-row MB perimeter (right-back-ish)
-      libero:  { x: 0.16, y: 0.50 }    // libero deep-middle-back
-    },
-    // Opponent about to spike — commit to block wall + perimeter dig positions
-    defense_block: {
-      setter:  { x: 0.28, y: 0.82 },   // deep-back-right for tip coverage + transition
-      oh1:     { x: 0.48, y: 0.28 },   // wall left blocker
-      oh2:     { x: 0.20, y: 0.75 },   // left-back digger (perimeter)
-      opp:     { x: 0.48, y: 0.72 },   // wall right blocker
-      mb1:     { x: 0.48, y: 0.50 },   // wall middle (primary)
-      mb2:     { x: 0.20, y: 0.20 },   // right-back digger (perimeter)
-      libero:  { x: 0.16, y: 0.50 }    // deep-middle-back digger
-    }
-  };
-
-  function mirrorForSide(pos, side) {
-    if (side === 'home') return pos;
-    return { x: 1 - pos.x, y: pos.y };
-  }
-
   // ═══════════════════════════════════════════════════════════════════════
-  // ZONE SYSTEM — each player has an invisible rectangular zone they can freely move within.
-  // Prevents overlap AND keeps positional integrity (setter stays in setter zone, libero stays back).
-  // Zones are defined for HOME side (x < 0.5); mirrored for AWAY.
-  // Layout (6 zones per side, standard rotation grid):
-  //     Front row (x=0.25 → 0.50, closer to net):    zone3(top)   zone2(mid)   zone1(bot)
-  //     Back row  (x=0.00 → 0.25, endline area):     zone4(top)   zone5(mid)   zone6(bot)
-  // Each zone is { xMin, xMax, yMin, yMax } in screen coords.
+  // ZONE SYSTEM — 6 hard-boundary zones per side matching real volleyball rotation positions.
+  // Player NEVER leaves their zone. Ball convergence uses each player's zone-clamped contact.
+  //     zone3 (Front-Left/Outside)   zone2 (Front-Mid/Middle)   zone1 (Front-Right/Opposite)
+  //     zone4 (Back-Left/Left Back)  zone5 (Back-Mid/Libero)    zone6 (Back-Right/Setter)
   // ═══════════════════════════════════════════════════════════════════════
   const ZONES_HOME = {
-    // Back row (endline side)
     zone4: { xMin: 0.02, xMax: 0.25, yMin: 0.02, yMax: 0.36 },  // back-left
-    zone5: { xMin: 0.02, xMax: 0.25, yMin: 0.36, yMax: 0.66 },  // back-mid
-    zone6: { xMin: 0.02, xMax: 0.25, yMin: 0.66, yMax: 0.98 },  // back-right
-    // Front row (net side)
-    zone3: { xMin: 0.25, xMax: 0.50, yMin: 0.02, yMax: 0.36 },  // front-left
-    zone2: { xMin: 0.25, xMax: 0.50, yMin: 0.36, yMax: 0.66 },  // front-mid
-    zone1: { xMin: 0.25, xMax: 0.50, yMin: 0.66, yMax: 0.98 }   // front-right
+    zone5: { xMin: 0.02, xMax: 0.25, yMin: 0.36, yMax: 0.66 },  // back-mid (libero)
+    zone6: { xMin: 0.02, xMax: 0.25, yMin: 0.66, yMax: 0.98 },  // back-right (setter start)
+    zone3: { xMin: 0.25, xMax: 0.49, yMin: 0.02, yMax: 0.36 },  // front-left (outside)
+    zone2: { xMin: 0.25, xMax: 0.49, yMin: 0.36, yMax: 0.66 },  // front-mid (middle)
+    zone1: { xMin: 0.25, xMax: 0.49, yMin: 0.66, yMax: 0.98 }   // front-right (opposite)
   };
   function mirrorZone(zone) {
     return {
@@ -1360,34 +1257,45 @@
       yMin: zone.yMin, yMax: zone.yMax
     };
   }
-  // Assigned zone per player id (set at renderCourt)
-  const PLAYER_ZONE = {};
+  const PLAYER_ZONE = {};        // pid → zone bounds
+  const PLAYER_ZONE_NAME = {};   // pid → zone name string (for formation lookup)
 
-  /** Assign each player on a side to a zone based on their home spot (rotation position).
-   *  This picks the zone whose center is closest to the player's HOME_POS. */
+  /** Assign each player on a side to a zone. Setter always gets zone2 (their release/target).
+   *  Others fill remaining zones by nearest home distance. */
   function assignZones(side) {
     const zoneSet = {};
     for (const name of Object.keys(ZONES_HOME)) {
-      const z = side === 'home' ? ZONES_HOME[name] : mirrorZone(ZONES_HOME[name]);
-      zoneSet[name] = z;
+      zoneSet[name] = side === 'home' ? ZONES_HOME[name] : mirrorZone(ZONES_HOME[name]);
     }
     const players = playersOnSide(side);
     const taken = new Set();
-    // For each player, pick their nearest zone (that isn't taken)
-    // Sort by "how strongly they claim their nearest zone" so the most confident pick first
-    const claims = players.map(p => {
-      const distances = Object.entries(zoneSet).map(([name, z]) => {
-        const cx = (z.xMin + z.xMax) / 2;
-        const cy = (z.yMin + z.yMax) / 2;
-        return { name, d: Math.hypot(p.home.x - cx, p.home.y - cy) };
-      }).sort((a, b) => a.d - b.d);
-      return { pid: p.pid, distances };
-    });
-    // Assign in rounds: give each player their nearest FREE zone
+
+    // 1. Setter → zone2 (their release/target zone, always)
+    const setter = players.find(p => classifyRole(p.pid) === 'setter');
+    if (setter) {
+      PLAYER_ZONE[setter.pid] = zoneSet.zone2;
+      PLAYER_ZONE_NAME[setter.pid] = 'zone2';
+      taken.add('zone2');
+    }
+
+    // 2. Everyone else: closest-first assignment to remaining zones
+    const claims = players
+      .filter(p => !PLAYER_ZONE_NAME[p.pid])
+      .map(p => {
+        const distances = Object.entries(zoneSet)
+          .filter(([name]) => !taken.has(name))
+          .map(([name, z]) => {
+            const cx = (z.xMin + z.xMax) / 2;
+            const cy = (z.yMin + z.yMax) / 2;
+            return { name, d: Math.hypot(p.home.x - cx, p.home.y - cy) };
+          }).sort((a, b) => a.d - b.d);
+        return { pid: p.pid, distances };
+      });
     for (const c of claims.sort((a, b) => a.distances[0].d - b.distances[0].d)) {
       for (const opt of c.distances) {
         if (!taken.has(opt.name)) {
           PLAYER_ZONE[c.pid] = zoneSet[opt.name];
+          PLAYER_ZONE_NAME[c.pid] = opt.name;
           taken.add(opt.name);
           break;
         }
@@ -1395,69 +1303,97 @@
     }
   }
 
-  /** Clamp a target position to the player's assigned zone.
-   *  Returns the clamped {x, y}. If no zone assigned, returns the target unchanged. */
+  /** Clamp a target to the player's zone (with 2% inset so they don't paint the boundary line). */
   function clampToZone(pid, targetX, targetY) {
     const z = PLAYER_ZONE[pid];
     if (!z) return { x: targetX, y: targetY };
     return {
-      x: Math.max(z.xMin, Math.min(z.xMax, targetX)),
-      y: Math.max(z.yMin, Math.min(z.yMax, targetY))
+      x: Math.max(z.xMin + 0.01, Math.min(z.xMax - 0.01, targetX)),
+      y: Math.max(z.yMin + 0.01, Math.min(z.yMax - 0.01, targetY))
     };
   }
-  function moveTeamToFormation(side, formationName, skipPid) {
-    const formation = FORMATIONS[formationName];
+
+  /** Center of a player's zone. */
+  function zoneCenter(pid) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: 0.5, y: 0.5 };
+    return { x: (z.xMin + z.xMax) / 2, y: (z.yMin + z.yMax) / 2 };
+  }
+
+  /** Is the player currently in a front-row zone (near the net)? */
+  function isFrontZone(pid) {
+    const name = PLAYER_ZONE_NAME[pid];
+    return name === 'zone1' || name === 'zone2' || name === 'zone3';
+  }
+
+  /** Position at the net inside a player's zone. */
+  function netEdgeOfZone(pid, side) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: 0.5, y: 0.5 };
+    const netX = side === 'home' ? z.xMax - 0.02 : z.xMin + 0.02;
+    return { x: netX, y: (z.yMin + z.yMax) / 2 };
+  }
+
+  /** Position at the endline inside a player's zone. */
+  function backEdgeOfZone(pid, side) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: 0.5, y: 0.5 };
+    const endX = side === 'home' ? z.xMin + 0.02 : z.xMax - 0.02;
+    return { x: endX, y: (z.yMin + z.yMax) / 2 };
+  }
+  /** Zone-based formations. Each player moves within THEIR zone based on the play phase.
+   *  Formations only tell each player WHERE inside their zone (net/back/center + y bias).
+   *  Because everyone stays in their zone, overlap is impossible by design. */
+  function moveTeamToFormation(side, phase, skipPid) {
     const players = playersOnSide(side);
-    if (!formation) {
-      // Base = everyone home
-      players.forEach(p => {
-        if (p.pid === skipPid) return;
-        movePlayerTo(p.pid, p.home.x, p.home.y);
-      });
-      resolveCollisions(side);
-      return;
+    for (const p of players) {
+      if (p.pid === skipPid) continue;
+      const target = zonePositionForPhase(p.pid, side, phase);
+      if (target) movePlayerTo(p.pid, target.x, target.y);
     }
-    // Available role slots for this formation
-    const availableSlots = Object.keys(formation);
-    // Preferred role per player (from classifyRole)
-    const claims = players
-      .filter(p => p.pid !== skipPid)
-      .map(p => ({ pid: p.pid, preferred: classifyRole(p.pid), home: p.home }));
-    // Two-pass assignment: pass 1 give each player their preferred role IF free.
-    // Pass 2 assign remaining players to the closest free slot (by home distance).
-    const assigned = {};   // pid → slot name
-    const taken = new Set();
-    for (const c of claims) {
-      if (availableSlots.includes(c.preferred) && !taken.has(c.preferred)) {
-        assigned[c.pid] = c.preferred;
-        taken.add(c.preferred);
-      }
+  }
+
+  /** Compute a player's target position INSIDE their zone for a given phase.
+   *  Phases: serve_prep | serve_receive | attack_ready | defense_base | defense_block */
+  function zonePositionForPhase(pid, side, phase) {
+    const front = isFrontZone(pid);
+    const center = zoneCenter(pid);
+    const role = classifyRole(pid);
+    let target = center;
+    switch (phase) {
+      case 'serve_prep':
+        // Everyone at their zone center, back players slightly forward
+        target = center;
+        break;
+      case 'serve_receive':
+        // Passers (back row + libero) push to front of their zone to receive
+        // Front-row hitters lurk at net for quick
+        // Setter runs to net edge (they'll release to target)
+        if (role === 'setter') target = netEdgeOfZone(pid, side);
+        else if (front)        target = center;                   // front-row hitters hold zone
+        else                   target = { x: center.x + (side==='home' ? +0.05 : -0.05), y: center.y };
+        break;
+      case 'attack_ready':
+        // Setter at net edge, front-row hitters back off toward zone endline for approach
+        // Back-row players hold center
+        if (role === 'setter') target = netEdgeOfZone(pid, side);
+        else if (front)        target = backEdgeOfZone(pid, side);   // approach start
+        else                   target = center;
+        break;
+      case 'defense_base':
+        // Reading defense — front row near net, back row centered
+        if (front) target = netEdgeOfZone(pid, side);
+        else       target = center;
+        break;
+      case 'defense_block':
+        // Front row commits to net edge (block wall), back row spreads to zone perimeter
+        if (front) target = netEdgeOfZone(pid, side);
+        else       target = backEdgeOfZone(pid, side);
+        break;
+      default:
+        target = center;
     }
-    // Unassigned players
-    const unassigned = claims.filter(c => !assigned[c.pid]);
-    for (const c of unassigned) {
-      // Pick closest free slot to their home position
-      let bestSlot = null, bestDist = Infinity;
-      for (const slotName of availableSlots) {
-        if (taken.has(slotName)) continue;
-        const spot = mirrorForSide(formation[slotName], side);
-        const d = Math.hypot(spot.x - c.home.x, spot.y - c.home.y);
-        if (d < bestDist) { bestDist = d; bestSlot = slotName; }
-      }
-      if (bestSlot) {
-        assigned[c.pid] = bestSlot;
-        taken.add(bestSlot);
-      }
-    }
-    // Execute the moves (formations are hand-tuned so bypass zone clamp)
-    for (const c of claims) {
-      const slotName = assigned[c.pid];
-      if (!slotName) continue;
-      const spot = mirrorForSide(formation[slotName], side);
-      movePlayerTo(c.pid, spot.x, spot.y, true);
-    }
-    // Post-pass: push overlapping circles apart, clamped to each player's zone
-    resolveCollisions(side);
+    return clampToZone(pid, target.x, target.y);
   }
 
   /** Push overlapping circles apart so they never stack.
@@ -1491,8 +1427,8 @@
             const clampedB = clampToZone(pidB, newBx, newBy);
             newAx = clampedA.x; newAy = clampedA.y;
             newBx = clampedB.x; newBy = clampedB.y;
-            movePlayerTo(pidA, newAx, newAy, true);   // already clamped, skip re-clamp
-            movePlayerTo(pidB, newBx, newBy, true);
+            movePlayerTo(pidA, newAx, newAy);   // already clamped, skip re-clamp
+            movePlayerTo(pidB, newBx, newBy);
             // update in-loop positions
             players[i][1] = { x: newAx, y: newAy };
             players[j][1] = { x: newBx, y: newBy };
@@ -1512,10 +1448,8 @@
     const side = HOME_POS[actorPid].side;
     const otherSide = side === 'home' ? 'away' : 'home';
 
-    // Actor to their contact position (ignore zone — this is a play action, not a resting spot)
-    movePlayerTo(actorPid, target.x, target.y, true);
-    // Note: moveTeamToFormation calls below also use ignoreZone since formations are hand-tuned.
-    // Zones only constrain COLLISION PUSHES via clampToZone in resolveCollisions().
+    // Actor to their contact position — will be zone-clamped by movePlayerTo
+    movePlayerTo(actorPid, target.x, target.y);
 
     // Phase-based team formations
     switch (ev.type) {

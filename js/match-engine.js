@@ -166,17 +166,26 @@ function pickHitter(team) {
   return candidates[0];
 }
 
-/** Pick the best defender to receive a serve — usually a back-row player with high defense */
-function pickReceiver(team) {
+/** Pick the best defender to receive a serve — usually a back-row player with high defense.
+ *  Ball-x (0..1) matters: only players whose zone covers that x are eligible.
+ *  If no ball-x provided (fallback), all back-row players are eligible. */
+function pickReceiver(team, ballX) {
   const backRow = [0, 4, 5].map(i => playerAtSpot(team, i)).filter(Boolean);
-  const weights = backRow.map(c => Math.pow((c.player.defense || 5), 2));
+  // Filter to only back-row players near the ball's x coordinate.
+  // Each player's spot.x is where they stand — pick those within 0.28 court units.
+  let eligible = backRow;
+  if (typeof ballX === 'number') {
+    eligible = backRow.filter(p => Math.abs(p.spot.x - ballX) < 0.28);
+    if (!eligible.length) eligible = backRow;   // fallback: nobody in range
+  }
+  const weights = eligible.map(c => Math.pow((c.player.defense || 5), 2));
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
-  for (let i = 0; i < backRow.length; i++) {
+  for (let i = 0; i < eligible.length; i++) {
     r -= weights[i];
-    if (r <= 0) return backRow[i];
+    if (r <= 0) return eligible[i];
   }
-  return backRow[0];
+  return eligible[0];
 }
 
 /** Pick the setter — team's designated setter (spot 2) or best `setting` stat */
@@ -309,13 +318,20 @@ function pickBlockers(defendingTeam, hitter) {
   return filtered;
 }
 
-/** Get all back-row defenders + spot 4/2 non-blocker (if any) */
-function pickDiggers(defendingTeam, blockers) {
+/** Get defenders eligible to dig — non-blockers whose zone is within reach of the ball target.
+ *  If ballTarget provided, filters to defenders within `range` of the landing spot. */
+function pickDiggers(defendingTeam, blockers, ballTarget, range = 0.35) {
   const blockerIds = new Set(blockers.map(b => b && b.player.id));
   const all = [0, 1, 2, 3, 4, 5]
     .map(i => playerAtSpot(defendingTeam, i))
     .filter(p => p && !blockerIds.has(p.player.id));
-  return all;
+  if (!ballTarget) return all;
+  const eligible = all.filter(p => {
+    const dx = p.spot.x - ballTarget.x;
+    const dy = p.spot.y - ballTarget.y;
+    return Math.sqrt(dx*dx + dy*dy) < range;
+  });
+  return eligible.length ? eligible : all;   // fallback: nobody close, everyone tries
 }
 
 // ============ SIMULATE ONE RALLY ============
@@ -327,9 +343,10 @@ export function simulateRally(match) {
   const receivingTeam = match.serving === 'home' ? match.away : match.home;
   const servingSide = match.serving;
 
-  // 1) Serve
+  // 1) Serve — target a random x on the receiving side, then find nearest passer
   const server = playerAtSpot(servingTeam, 0); // spot 1 = right back = server
-  const receiver = pickReceiver(receivingTeam);
+  const serveTargetX = 0.15 + Math.random() * 0.7;   // random x within the court
+  const receiver = pickReceiver(receivingTeam, serveTargetX);
   events.push({
     type: 'serve',
     fromSpot: server ? server.spot : { x: 0.75, y: 0.9 },
@@ -413,7 +430,7 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
       fromSpot: setter.spot, toSpot: dumpTarget
     });
     // Defense doesn't expect it — high success rate but not automatic
-    const dumpDigger = pickDiggers(defendingTeam, []).reduce((best, d) => {
+    const dumpDigger = pickDiggers(defendingTeam, [], dumpTarget, 0.25).reduce((best, d) => {
       const score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.3;
       if (!best || score > best.score) return { d, score };
       return best;
@@ -462,11 +479,12 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
                           : tactic === 'slide'    ? blockers.slice(0, 1)
                           : blockers;
 
+  const attackTargetSpot = pickAttackTarget(defendingTeam);
   events.push({
     type: 'attack',
     actor: hitter, team: attackingSide,
     fromSpot: hitter.spot,
-    toSpot: pickAttackTarget(defendingTeam),
+    toSpot: attackTargetSpot,
     setQuality, tactic
   });
 
@@ -491,7 +509,7 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
       fromSpot: hitter.spot, toSpot: tipTarget
     });
     // Tips are usually covered — but sometimes score
-    const tipDigger = pickDiggers(defendingTeam, effectiveBlockers).reduce((best, d) => {
+    const tipDigger = pickDiggers(defendingTeam, effectiveBlockers, tipTarget, 0.25).reduce((best, d) => {
       const score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.4;
       const distToTarget = Math.sqrt(Math.pow(d.spot.x - tipTarget.x, 2) + Math.pow(d.spot.y - tipTarget.y, 2));
       const proximityBonus = Math.max(0, 3 - distToTarget * 5);   // closer = easier
@@ -550,7 +568,8 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   // 3. Dig attempt
   // Personality: HUSTLE boosts effective defense (chasing every ball).
   // CONFIDENCE boosts big-moment defense (when score is tight or set point).
-  const diggers = pickDiggers(defendingTeam, effectiveBlockers);
+  // ZONE: only defenders within ~0.35 units of the ball's landing spot can dig.
+  const diggers = pickDiggers(defendingTeam, effectiveBlockers, attackTargetSpot);
   const isBigMoment = match && (match.pointsHome >= 20 || match.pointsAway >= 20);
   const bestDigger = diggers.reduce((best, d) => {
     const tr = t(d);
