@@ -1153,7 +1153,9 @@
     'kill':         'floor', // ball is on the floor now
     'ace':          'floor',
     'block':        'high',  // hands above net
-    'attack-error': 'floor',
+    'attack-net':   'high',   // ball collides with the net at spike height
+    'attack-out':   'floor',  // ball flies out of bounds
+    'attack-error': 'floor',  // legacy alias (safety)
     'serve-error':  'floor',
     'dig':          'low',   // often diving/kneeling
     'setter-dump':  'high',  // setter reaches up and pushes it over
@@ -1221,7 +1223,9 @@
     'pass':    'crouching',
     'dig':     'diving',
     'serve':   'crouching',
-    'attack-error': 'jumping',
+    'attack-net':   'jumping',
+    'attack-out':   'jumping',
+    'attack-error': 'jumping',   // legacy alias
     'serve-error':  'crouching',
     'setter-dump':  'jumping',  // reaches up to push over
     'tip':          'jumping'   // hitter still jumps, just doesn't swing hard
@@ -1268,6 +1272,8 @@
       case 'attack':
       case 'kill':
       case 'attack-error':
+      case 'attack-net':
+      case 'attack-out':
       case 'tip': {
         // Attacker approaches to the net edge of their zone.
         // Back-row attack: takeoff at center of zone (behind 3m line).
@@ -1649,6 +1655,8 @@
       case 'attack':
       case 'kill':
       case 'attack-error':
+      case 'attack-net':
+      case 'attack-out':
         // Attacker running to net. Team still attack_ready (they cover in case of block).
         moveTeamToFormation(side, 'attack_ready', actorPid);
         // Defenders COMMIT to block wall + perimeter dig
@@ -1693,7 +1701,7 @@
     const currActorId = ev.actor && ev.actor.player ? ev.actor.player.id : null;
     const prevActorId = prevEv && prevEv.actor && prevEv.actor.player ? prevEv.actor.player.id : null;
     const nextActorId = nextEv && nextEv.actor && nextEv.actor.player ? nextEv.actor.player.id : null;
-    const isTerminating = ['kill','ace','block','attack-error','serve-error','setter-dump','tip'].includes(ev.type);
+    const isTerminating = ['kill','ace','block','attack-net','attack-out','attack-error','serve-error','setter-dump','tip'].includes(ev.type);
     const skipPhase1 = currActorId && prevActorId && currActorId === prevActorId;
 
     // Non-visual events (point, rotation, set-won, match-won, etc.) — just a small beat
@@ -1706,28 +1714,35 @@
     const stance = STANCE_FOR_EVENT[ev.type] || null;
 
     // Who jumps as the block wall on an incoming attack?
+    // REAL VOLLEYBALL RULE: only FRONT-ROW players can block. Back-row (libero, setter when
+    // rotated back, leftBack) are NEVER allowed to block. We check role zones — if the
+    // player's assigned role is one of the front-row roles (opp/middle/outside), they can
+    // legally form the wall.
     const wallEls = [];
+    const FRONT_ROLES = new Set(['opp', 'middle', 'outside']);
     if ((ev.type === 'attack' || ev.type === 'kill') && ev.actor && ev.actor.spot && match) {
       const attackerOnHome = ev.actor.spot.y > 0.5;
       const defTeam = attackerOnHome ? match.away : match.home;
       if (defTeam && defTeam.lineup) {
-        [1, 2, 3].forEach(rotIdx => {
-          const idx = (rotIdx + defTeam.rotationOffset) % 6;
-          const slot = defTeam.lineup[idx];
-          if (slot && slot.player) {
-            const el = document.querySelector(`.player-circle[data-pid="${slot.player.id}"]`);
-            if (el && el !== actorEl) wallEls.push(el);
-          }
+        defTeam.lineup.forEach(slot => {
+          if (!slot || !slot.player) return;
+          const roleName = PLAYER_ZONE_NAME[slot.player.id];
+          if (!FRONT_ROLES.has(roleName)) return;   // back-row can't block
+          const el = document.querySelector(`.player-circle[data-pid="${slot.player.id}"]`);
+          if (el && el !== actorEl && !wallEls.includes(el)) wallEls.push(el);
         });
       }
     }
-    // On an explicit 'block' event, use engine's blockers array (all 3 front-row)
+    // On an explicit 'block' event, engine picked the blockers — but re-verify they're
+    // front-row roles. If engine gave us a back-row player (shouldn't happen but safety),
+    // silently drop them.
     if (ev.type === 'block' && Array.isArray(ev.blockers)) {
       ev.blockers.forEach(b => {
-        if (b && b.player) {
-          const el = document.querySelector(`.player-circle[data-pid="${b.player.id}"]`);
-          if (el && el !== actorEl && !wallEls.includes(el)) wallEls.push(el);
-        }
+        if (!b || !b.player) return;
+        const roleName = PLAYER_ZONE_NAME[b.player.id];
+        if (!FRONT_ROLES.has(roleName)) return;   // back-row can't block, ignore
+        const el = document.querySelector(`.player-circle[data-pid="${b.player.id}"]`);
+        if (el && el !== actorEl && !wallEls.includes(el)) wallEls.push(el);
       });
     }
 
@@ -1779,7 +1794,7 @@
     if (isTerminating) {
       showBurst(ev);
       try { if (ev.type === 'kill' || ev.type === 'ace') playPick(); } catch (e) {}
-      if (ev.toSpot && ['kill','ace','attack-error'].includes(ev.type)) {
+      if (ev.toSpot && ['kill','ace','attack-net','attack-out','attack-error'].includes(ev.type)) {
         setTimeout(() => showImpactRing(ev.toSpot), stepMs * 0.15);
       }
     }
@@ -1848,8 +1863,12 @@
     const burst = document.createElement('div');
     const label = {
       'kill': 'KILL!', 'ace': 'ACE!', 'block': 'BLOCK!', 'dig': 'DIG!',
-      'attack-error': 'OUT!', 'serve-error': 'NET!',
-      'setter-dump': 'DUMP!', 'tip': 'TIP!'
+      'attack-out':   'OUT!',   // hit past the endline / sideline
+      'attack-net':   'NET!',   // hit into the net
+      'attack-error': 'OUT!',   // legacy fallback
+      'serve-error':  'NET!',   // serve into the net
+      'setter-dump':  'DUMP!',
+      'tip':          'TIP!'
     }[ev.type] || '';
     const cls = ['kill','ace'].includes(ev.type) ? ev.type
       : ev.type === 'block' ? 'block'
@@ -1899,7 +1918,9 @@
       case 'tip':   return `🪶 TIP by ${name(ev.actor)}`;
       case 'block': return `🧱 BLOCKED by ${name(ev.actor)}`;
       case 'dig':   return `🛡 DUG by ${name(ev.actor)}`;
-      case 'attack-error': return `❌ ${name(ev.actor)} hits it out of bounds (OUT!)`;
+      case 'attack-net':   return `🧱 ${name(ev.actor)} hits it INTO THE NET (NET!)`;
+      case 'attack-out':   return `❌ ${name(ev.actor)} hits it out of bounds (OUT!)`;
+      case 'attack-error': return `❌ ${name(ev.actor)} attack error`;   // legacy fallback
       case 'point': return `▶ Point ${ev.team === 'home' ? match.home.name : match.away.name} (${ev.home}-${ev.away})`;
       case 'rotation': return `  ↺ ${ev.team === 'home' ? match.home.name : match.away.name} rotates`;
       case 'set-won':  return `🏁 Set ${ev.setNumber} to ${ev.team === 'home' ? match.home.name : match.away.name} (sets: ${ev.setsHome}-${ev.setsAway})`;

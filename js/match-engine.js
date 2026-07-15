@@ -318,16 +318,31 @@ function pickTipTarget(defendingTeam) {
  *  potential blockers (real blockwall). The engine tags who is the primary vs helpers so the
  *  visual layer can arrange the wall. */
 function pickBlockers(defendingTeam, hitter) {
-  const front = [1, 2, 3].map(i => playerAtSpot(defendingTeam, i)).filter(Boolean);
+  // REAL VOLLEYBALL RULE: only front-row players can block. We pick from rotation spots
+  // 1/2/3 AND additionally verify their POSITION is a legal blocking role (OH/OP/MB).
+  // Libero + DS can NEVER block regardless of rotation.
+  const canBlockRole = (slot) => {
+    if (!slot || !slot.player) return false;
+    const pos = (slot.player.position || '').split('/');
+    // Libero + DS are back-row specialists — always forbidden from blocking
+    if (pos.includes('L') || pos.includes('DS')) return false;
+    return true;
+  };
+  const front = [1, 2, 3]
+    .map(i => playerAtSpot(defendingTeam, i))
+    .filter(canBlockRole);
+  if (!front.length) return [];   // no legal blockers — attacker gets a free swing
+
   const hitterX = hitter && hitter.spot ? hitter.spot.x : 0.5;
   const primaryIdx = hitterX < 0.4 ? 1 : (hitterX > 0.6 ? 3 : 2);
-  const primary = playerAtSpot(defendingTeam, primaryIdx);
-  const ordered = [primary, ...front.filter(f => f && (!primary || f.player.id !== primary.player.id))];
-  // Personality filter: HELPER blockers only jump if they have the discipline for it.
-  // Primary always tries (their assignment). Helpers roll a check on their discipline stat.
-  const filtered = ordered.filter(Boolean).filter((b, idx) => {
-    if (idx === 0) return true;   // primary always jumps
-    return Math.random() < t(b).discipline * 0.9;   // low-discipline players skip the block
+  const primaryCandidate = playerAtSpot(defendingTeam, primaryIdx);
+  const primary = canBlockRole(primaryCandidate) ? primaryCandidate : front[0];
+
+  const ordered = [primary, ...front.filter(f => f.player.id !== primary.player.id)];
+  // Personality: helper blockers may skip if low discipline. Primary always tries.
+  const filtered = ordered.filter((b, idx) => {
+    if (idx === 0) return true;
+    return Math.random() < t(b).discipline * 0.9;
   });
   return filtered;
 }
@@ -570,12 +585,23 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
     return continueRally(match, events, attackingSide, 0.5);
   }
 
-  // 2. Attack error (hitter into net / out) — ball hits net or goes out of bounds
+  // 2. Attack error — hitter either sends it INTO THE NET or OUT OF BOUNDS.
+  //    Split roughly 50/50 (real vball: net faults slightly less common than balls out).
   if (Math.random() < 0.08 - setQuality * 0.05) {
-    events.push({
-      type: 'attack-error', actor: hitter, team: attackingSide,
-      toSpot: { x: hitter.spot.x, y: 0.5 } // into the net
-    });
+    const hitTheNet = Math.random() < 0.4;   // 40% net, 60% out
+    if (hitTheNet) {
+      events.push({
+        type: 'attack-net', actor: hitter, team: attackingSide,
+        toSpot: { x: hitter.spot.x, y: 0.5 }   // ball collides with the net
+      });
+    } else {
+      // Out of bounds — pick a spot beyond the opposing endline
+      const outOfBoundsY = hitter.spot.y > 0.5 ? 0.02 : 0.98;
+      events.push({
+        type: 'attack-out', actor: hitter, team: attackingSide,
+        toSpot: { x: hitter.spot.x, y: outOfBoundsY }
+      });
+    }
     return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
   }
 
