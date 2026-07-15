@@ -772,7 +772,9 @@ function finishPoint(match, events, winningSide) {
     events.push({
       type: 'set-won', team: winner,
       setNumber: match.setNumber,
-      setsHome: match.setsHome, setsAway: match.setsAway
+      setsHome: match.setsHome, setsAway: match.setsAway,
+      // Final set score BEFORE reset (so the visual layer can display "25-23" etc.)
+      finalHome: a, finalAway: b
     });
     // Match over?
     if (match.setsHome === 3 || match.setsAway === 3) {

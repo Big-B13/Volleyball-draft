@@ -22,7 +22,8 @@
   .score-big { font-size: 3rem; font-weight: 900; line-height: 1; color: #fbbf24; letter-spacing: 4px; }
   .set-info { font-size: 0.75rem; color: #94a3b8; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
   .sets-row { display: flex; gap: 6px; justify-content: center; margin-top: 4px; }
-  .set-pill { padding: 2px 8px; background: rgba(255,255,255,0.08); border-radius: 10px; font-size: 0.75rem; color: #cbd5e1; font-weight: 700; }
+  .set-pill { padding: 3px 10px; background: rgba(255,255,255,0.08); border-radius: 10px; font-size: 0.8rem; color: #cbd5e1; font-weight: 700; font-family: monospace; letter-spacing: 0.5px; }
+  .sets-row { flex-wrap: wrap; }
   .set-pill.won { background: #22c55e; color: #052e16; }
 
   .court-wrap {
@@ -683,6 +684,7 @@
   let paused = false;
   let currentChemistryBlob = {};  // raw Firebase chemistry blob for the loaded league
   let currentSynergies = { home: [], away: [] };  // active squad bonuses this match
+  let setScores = [];   // [{setNum, home, away, winner}] appended when each set finishes
 
   function logSynergies(synergies, homeName, awayName) {
     const panel = document.getElementById('log-panel');
@@ -834,6 +836,7 @@
       awayColor: leagueCaptains[awayIdx].color,
       chemistryMap
     });
+    setScores = [];   // fresh set-score history for this match
 
     document.getElementById('setup-card').classList.add('hidden');
     document.getElementById('match-view').classList.remove('hidden');
@@ -898,13 +901,16 @@
     document.getElementById('set-info').textContent = match.matchOver
       ? '🏆 MATCH OVER'
       : `Set ${match.setNumber} · First to ${match.setNumber === 5 ? match.finalSetTarget : match.setTarget}`;
-    // sets row
+    // Sets row: one pill per completed set, showing the final score.
+    // Winning team's color highlights the pill (home color on left team, away on right).
     const setsRow = document.getElementById('sets-row');
-    const totalSets = Math.max(match.setsHome + match.setsAway, 1);
-    const pills = [];
-    for (let i = 0; i < match.setsHome; i++) pills.push('<span class="set-pill won" style="background:' + match.home.color + '; color:#fff;">H</span>');
-    for (let i = 0; i < match.setsAway; i++) pills.push('<span class="set-pill won" style="background:' + match.away.color + '; color:#fff;">A</span>');
-    setsRow.innerHTML = `<span class="set-pill">Sets: ${match.setsHome} - ${match.setsAway}</span>`;
+    const pills = setScores.map(s => {
+      const winColor = s.winner === 'home' ? match.home.color : match.away.color;
+      return `<span class="set-pill won" style="background:${winColor}; color:#fff;" title="Set ${s.setNum}">${s.home}–${s.away}</span>`;
+    });
+    // Overall set tally at the front
+    const tally = `<span class="set-pill" style="background:rgba(0,0,0,0.4);">Sets ${match.setsHome}–${match.setsAway}</span>`;
+    setsRow.innerHTML = tally + ' ' + pills.join(' ');
   }
 
   function renderCourt() {
@@ -1127,6 +1133,12 @@
       const ev = events[i];
       const prev = events[i - 1] || null;
       const next = events[i + 1] || null;
+      // Record set final scores as they happen so the header can display 25-23, 22-25, etc.
+      if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
+        setScores.push({
+          setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team
+        });
+      }
       appendLog(formatEvent(ev), classForEvent(ev));
       await animateEvent(ev, prev, next, ball, shadow);
     }
@@ -1984,7 +1996,12 @@
       case 'attack-error': return `❌ ${name(ev.actor)} attack error`;   // legacy fallback
       case 'point': return `▶ Point ${ev.team === 'home' ? match.home.name : match.away.name} (${ev.home}-${ev.away})`;
       case 'rotation': return `  ↺ ${ev.team === 'home' ? match.home.name : match.away.name} rotates`;
-      case 'set-won':  return `🏁 Set ${ev.setNumber} to ${ev.team === 'home' ? match.home.name : match.away.name} (sets: ${ev.setsHome}-${ev.setsAway})`;
+      case 'set-won': {
+        const winnerName = ev.team === 'home' ? match.home.name : match.away.name;
+        const score = (ev.finalHome != null && ev.finalAway != null)
+          ? ` ${ev.finalHome}-${ev.finalAway}` : '';
+        return `🏁 Set ${ev.setNumber} to ${winnerName}${score}  (sets: ${ev.setsHome}-${ev.setsAway})`;
+      }
       case 'match-won': return `🏆 MATCH WON by ${ev.team === 'home' ? match.home.name : match.away.name}`;
       default: return ev.type;
     }
