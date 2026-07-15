@@ -229,6 +229,84 @@ function isFrontRow(slot) {
  *   - 'fake'    : setter shows one hitter, sets another (weakens the block)
  *   - 'normal'  : standard outside/opposite attack
  */
+// ═══════════════════════════════════════════════════════════════════════
+// CAPABILITY GATES — some players physically CAN'T perform certain moves.
+// Net is at 200cm (2m). Reach = heightCm + 50 (spike touch above head).
+// If a player's reach doesn't clear the net, they physically can't dump/spike over.
+// Skill stats gate HOW OFTEN they attempt it; height gates WHETHER it's possible at all.
+// ═══════════════════════════════════════════════════════════════════════
+
+const NET_HEIGHT_CM = 200;           // net top — real vball is 243cm, we use 2m so more players clear it
+const REACH_OVER_NET_CM = NET_HEIGHT_CM + 5;   // need this much reach to actually hit over
+
+/** Reach above the net (cm). Uses spikeTouchCm if set, otherwise heightCm+50 (typical jump touch). */
+function playerReachCm(slot) {
+  if (!slot || !slot.player) return 220;
+  return slot.player.spikeTouchCm
+      || (slot.player.heightCm ? slot.player.heightCm + 50 : 220);
+}
+function playerBlockReachCm(slot) {
+  if (!slot || !slot.player) return 210;
+  return slot.player.blockTouchCm
+      || (slot.player.heightCm ? slot.player.heightCm + 40 : 210);
+}
+function playerHeightCm(slot) {
+  return slot && slot.player && slot.player.heightCm ? slot.player.heightCm : 175;
+}
+
+/** Can the player physically REACH OVER the net (with jump)? */
+function canReachOverNet(slot) {
+  return playerReachCm(slot) >= REACH_OVER_NET_CM;   // needs to clear 205cm
+}
+
+/** CAN setter dump? Must reach over the net AND have basic attacking chops. */
+function canSetterDump(setter) {
+  if (!setter || !setter.player) return false;
+  if (!canReachOverNet(setter)) return false;        // physically can't reach over
+  const p = setter.player;
+  const atk = p.attack || 5;
+  const set = p.setting || 5;
+  return atk >= 5 && set >= 5.5;                     // needs some touch + attacking sense
+}
+
+/** CAN run a quick attack? Needs athleticism + attack skill + reach over net. */
+function canRunQuick(mb) {
+  if (!mb || !mb.player) return false;
+  if (!canReachOverNet(mb)) return false;
+  const p = mb.player;
+  return (p.athletic || 5) >= 6 && (p.attack || 5) >= 6;
+}
+
+/** CAN run a slide? Needs high athletic (running approach off one foot) + reach. */
+function canRunSlide(mb) {
+  if (!mb || !mb.player) return false;
+  if (!canReachOverNet(mb)) return false;
+  const p = mb.player;
+  return (p.athletic || 5) >= 7 && (p.attack || 5) >= 6;
+}
+
+/** CAN back-row attack? Needs big vertical + attack skill + reach.
+ *  Real vball: back-row attacks require jumping from behind 3m line then landing back. */
+function canBackRowAttack(hitter) {
+  if (!hitter || !hitter.player) return false;
+  if (!canReachOverNet(hitter)) return false;
+  const p = hitter.player;
+  return (p.athletic || 5) >= 6.5 && (p.attack || 5) >= 6;
+}
+
+/** CAN tip effectively? Needs enough reach to place the ball over + basic touch. */
+function canTip(hitter) {
+  if (!hitter || !hitter.player) return false;
+  if (!canReachOverNet(hitter)) return false;
+  return (hitter.player.setting || 5) >= 4;
+}
+
+/** CAN fake a set? Setter needs high skill to sell the fake convincingly. */
+function canFakeSet(setter) {
+  if (!setter || !setter.player) return false;
+  return (setter.player.setting || 5) >= 6.5;
+}
+
 function chooseAttackTactic(team, setter, incomingQuality) {
   const hasPos = (slot, code) => slot && (slot.player.position || '').split('/').includes(code);
   const frontRow = [1, 2, 3].map(i => playerAtSpot(team, i)).filter(Boolean);
@@ -242,24 +320,26 @@ function chooseAttackTactic(team, setter, incomingQuality) {
   const setterTr = t(setter);
   const flashMult = 0.5 + setterTr.showboat * 1.5;   // 0.5x - 2x tactic frequency
 
-  // ── QUICK ATTACK ── setter loves running middles when they trust them
-  if (incomingQuality > 0.85 && middles.length && Math.random() < 0.15 * flashMult) {
-    // Prefer the middle with best chemistry to the setter (or highest attack)
-    const mb = pickWithChemistry(middles, setter);
+  // ── QUICK ATTACK ── GATED: only middles with 6+ athletic AND 6+ attack AND reach 300cm+
+  const quickCapableMiddles = middles.filter(canRunQuick);
+  if (incomingQuality > 0.85 && quickCapableMiddles.length && Math.random() < 0.15 * flashMult) {
+    const mb = pickWithChemistry(quickCapableMiddles, setter);
     return { hitter: mb, tactic: 'quick' };
   }
-  // ── SLIDE ── needs a hustling middle who can run
-  if (incomingQuality > 0.7 && middles.length && Math.random() < 0.08 * flashMult) {
-    const mb = middles[middles.length - 1];
+  // ── SLIDE ── GATED: only middles with 7+ athletic can run the slide approach
+  const slideCapableMiddles = middles.filter(canRunSlide);
+  if (incomingQuality > 0.7 && slideCapableMiddles.length && Math.random() < 0.08 * flashMult) {
+    const mb = slideCapableMiddles[slideCapableMiddles.length - 1];
     return { hitter: mb, tactic: 'slide' };
   }
-  // ── BACK-ROW ATTACK ── setter goes to their best back-row option (with bias)
-  if (incomingQuality > 0.75 && backHitters.length && Math.random() < 0.10 * flashMult) {
-    const br = pickWithChemistry(backHitters, setter);
+  // ── BACK-ROW ATTACK ── GATED: needs big vertical + attack (canBackRowAttack)
+  const backRowCapable = backHitters.filter(canBackRowAttack);
+  if (incomingQuality > 0.75 && backRowCapable.length && Math.random() < 0.10 * flashMult) {
+    const br = pickWithChemistry(backRowCapable, setter);
     return { hitter: br, tactic: 'back-row' };
   }
-  // ── FAKE SET ── high-showboat trick play
-  if (frontRow.length >= 2 && Math.random() < 0.08 * flashMult) {
+  // ── FAKE SET ── GATED: setter needs 7+ setting skill to sell the fake
+  if (canFakeSet(setter) && frontRow.length >= 2 && Math.random() < 0.08 * flashMult) {
     const eligible = outsides.length ? outsides : frontRow;
     const real = pickWithChemistry(eligible, setter);
     const decoyPool = frontRow.filter(s => s.player.id !== real.player.id
@@ -445,12 +525,16 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
 
   // ═══ TACTIC 1: SETTER DUMP ═══
   // Front-row setters may dump the ball over on touch 2 — catches defense flat-footed.
-  // Personality-driven: SHOWBOAT setters love this. CONFIDENT setters try it in big moments.
+  // GATED: setter must be TALL ENOUGH to reach over the net (canSetterDump).
+  // Short setters CANNOT do this — they physically can't get the ball over.
+  // Personality: SHOWBOAT setters try it more, CONFIDENT setters try it in big moments.
   const setterIsFrontRow = isFrontRow(setter);
   const setterTraits = t(setter);
-  const dumpChance = setterIsFrontRow && incomingQuality > 0.7
-    ? 0.03 + setterTraits.showboat * 0.20 + setterTraits.confidence * 0.05
-    : 0;   // 3-28% based on personality
+  // Dump chance: 0.5-4% per rally when eligible (setter must be front-row AND canSetterDump).
+  // Since setter is only in front row 3 of 6 rotations, this averages to ~1-2% of ALL rallies.
+  const dumpChance = (setterIsFrontRow && incomingQuality > 0.75 && canSetterDump(setter))
+    ? 0.008 + setterTraits.showboat * 0.03 + setterTraits.confidence * 0.008
+    : 0;
   if (Math.random() < dumpChance) {
     // SETTER DUMP! Ball tipped over the net to an open spot.
     const dumpTarget = pickAttackTarget(defendingTeam);
@@ -521,15 +605,17 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   // 1. Block: primary blocker's defense + wall bonus vs hitter's attack quality.
   //    Wall bonus scales with the number of blockers (2-man block > 1-man) AND their reach.
   // ═══ TACTIC 3: TIP / ROLL SHOT ═══
+  // GATED: hitter needs decent touch (canTip) to place the ball softly.
   // Aggression trait matters: low-aggression = tipper, high = hammer.
   // Also facing a big wall or bad set → smart hitters tip more.
   const wallSize = effectiveBlockers.length;
   const hitterTr = t(hitter);
   const baseTip = (wallSize >= 2 ? 0.15 : 0.05);
   const badSetBonus = (setQuality < 0.55 ? 0.10 : 0);
-  // Aggression 0.5 = base rate; 0.0 = +25% tip; 1.0 = -20% tip
   const aggressionAdj = (0.5 - hitterTr.aggression) * 0.45;
-  const tipChance = Math.max(0.02, baseTip + badSetBonus + aggressionAdj);
+  const tipChance = canTip(hitter)
+    ? Math.max(0.02, baseTip + badSetBonus + aggressionAdj)
+    : 0;    // players without touch can't tip
   if (Math.random() < tipChance && tactic !== 'quick') {
     // TIP! Ball placed behind the block into an open spot
     const tipTarget = pickTipTarget(defendingTeam);
@@ -554,13 +640,16 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
 
   const primaryBlockerDef = effectiveBlockers[0] ? (effectiveBlockers[0].player.defense || 5) : 3;
   const wallBonus = (wallSize - 1) * 0.3; // small bonus per extra blocker (+0.3 / +0.6)
+  // Reach bonuses scaled to the 200cm net. Blocker reach measured from block-touch (heightCm+40).
+  // Every 15cm above the net (215cm+) gives +1 to their block strength.
   const reachBonus = effectiveBlockers.reduce((s, b) => {
-    const reach = b.player.blockTouchCm || (b.player.heightCm ? b.player.heightCm + 45 : 300);
-    return s + Math.max(0, (reach - 300) / 25); // every 25cm above 3m = +1
+    const reach = b.player.blockTouchCm || (b.player.heightCm ? b.player.heightCm + 40 : 215);
+    return s + Math.max(0, (reach - (NET_HEIGHT_CM + 15)) / 15);
   }, 0) / Math.max(1, wallSize);
   const attackerEffective = (hitter.player.attack || 5) * setQuality;
-  const spikeReach = hitter.player.spikeTouchCm || (hitter.player.heightCm ? hitter.player.heightCm + 50 : 315);
-  const attackerReachEdge = Math.max(0, (spikeReach - 315) / 20); // taller attackers get above the wall
+  const spikeReach = hitter.player.spikeTouchCm || (hitter.player.heightCm ? hitter.player.heightCm + 50 : 225);
+  // Attackers who reach 20cm+ ABOVE the net get above the wall bonus.
+  const attackerReachEdge = Math.max(0, (spikeReach - (NET_HEIGHT_CM + 20)) / 15);
   const blockChance = statCheck(
     primaryBlockerDef + wallBonus + reachBonus - attackerReachEdge * 0.5,
     attackerEffective,

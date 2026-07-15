@@ -528,7 +528,7 @@
         <div class="pbp-header">
           <h3>📋 Play-by-play</h3>
           <label class="pbp-toggle">
-            <input type="checkbox" id="toggle-zones" checked>
+            <input type="checkbox" id="toggle-zones">
             <span>Show zones</span>
           </label>
         </div>
@@ -1210,6 +1210,61 @@
     return durMs;
   }
 
+  /** Serve ceremony: server bounces the ball, tosses it up, catches contact, then serves.
+   *  Takes ~4s at 1× speed, scales with sim speed. Ball starts in server's hand → tosses
+   *  high above them → peaks → drops back → contact. */
+  async function performServeCeremony(ev, ball, shadow, actorEl) {
+    if (!ev.actor || !ev.actor.player || !ball) return;
+    const pid = ev.actor.player.id;
+    // Where the server is standing
+    const servePos = predictContactPos(ev, null);
+    if (!servePos) return;
+    // Make sure the server is AT their serve position first
+    movePlayerTo(pid, servePos.x, servePos.y);
+    const walkMs = WALK_TIMES[pid] || 0;
+    // Wait for server to arrive
+    await sleep(Math.min(walkMs + 100, 1200 / speed));
+
+    // Place ball on the server (start of ceremony)
+    setBallPos(ball, shadow, { x: servePos.x, y: servePos.y }, 200 / speed);
+    setBallHeight(ball, shadow, 'low');
+    await sleep(220 / speed);
+
+    // Bounce dribble x2 (down, up, down, up) — quick bounces
+    for (let i = 0; i < 2; i++) {
+      setBallHeight(ball, shadow, 'floor');
+      await sleep(180 / speed);
+      setBallHeight(ball, shadow, 'low');
+      await sleep(180 / speed);
+    }
+
+    // Big toss — ball goes HIGH and stays there briefly
+    setBallHeight(ball, shadow, 'high');
+    // Bump ball's y up slightly to feel like it's rising above head (nudge -3% y = upward on screen)
+    const tossY = Math.max(0.03, servePos.y - 0.06);
+    setBallPos(ball, shadow, { x: servePos.x, y: tossY }, 700 / speed);
+    await sleep(900 / speed);
+
+    // Peak — hover for a beat (server winds up)
+    await sleep(350 / speed);
+
+    // Ball drops back to contact height at server's spot
+    setBallPos(ball, shadow, { x: servePos.x, y: servePos.y }, 500 / speed);
+    setBallHeight(ball, shadow, 'mid');
+    // Server does a small crouch → jump animation right at contact
+    if (actorEl) {
+      actorEl.classList.add('crouching');
+      await sleep(200 / speed);
+      actorEl.classList.remove('crouching');
+      actorEl.classList.add('jumping');
+      await sleep(300 / speed);
+      actorEl.classList.remove('jumping');
+    } else {
+      await sleep(500 / speed);
+    }
+    // Total ceremony time: bounce(720) + toss(900) + hover(350) + drop(500) + swing(500) ≈ 3-4s at 1×
+  }
+
   // Stance for the actor of this event type ("go DOWN for a save, UP for a spike…")
   //   jumping   = leap upward (attack/kill/ace/block/set)
   //   crouching = slight bend (pass/receive)
@@ -1708,6 +1763,12 @@
     if (!ev.actor && !ev.toSpot) {
       await sleep(stepMs * 0.3);
       return;
+    }
+
+    // SERVE CEREMONY: 4 seconds (at 1× speed) of toss + settle before the serve.
+    // Only for the FIRST event of a rally (no prev event).
+    if (ev.type === 'serve' && !prevEv) {
+      await performServeCeremony(ev, ball, shadow, actorEl);
     }
 
     const contactLevel = HEIGHT_AT_CONTACT[ev.type] || 'mid';
