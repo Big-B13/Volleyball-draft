@@ -648,11 +648,18 @@
   }
 
   /** Move a player's circle to a new screen position (0..1).
-   *  Transition time is proportional to distance AND scales with sim speed, so at 4× speed
-   *  players don't lag behind the ball. Returns the actual walk time in ms. */
-  function movePlayerTo(pid, screenX, screenY) {
+   *  By default clamps to the player's assigned zone (prevents overlap + keeps positional integrity).
+   *  Pass ignoreZone=true for special plays (block at net, dive, service position).
+   *  Transition time is proportional to distance AND scales with sim speed. */
+  function movePlayerTo(pid, screenX, screenY, ignoreZone = false) {
     const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
     if (!el) return 0;
+    // Zone clamp — respect the player's home rectangle unless ignoreZone
+    if (!ignoreZone) {
+      const clamped = clampToZone(pid, screenX, screenY);
+      screenX = clamped.x;
+      screenY = clamped.y;
+    }
     // Compute distance from current position
     const from = CURRENT_POS[pid] || { x: screenX, y: screenY };
     const dx = screenX - from.x, dy = screenY - from.y;
@@ -936,6 +943,23 @@
         `;
         court.appendChild(circle);
       });
+    }
+    // Assign each player to their invisible zone (based on their home rotation spot).
+    // Zones prevent overlap and keep positional roles cleaner.
+    assignZones('home');
+    assignZones('away');
+    // Debug: visualize zones if ?debug=zones is in the URL
+    if (new URLSearchParams(location.search).get('debug') === 'zones') {
+      court.querySelectorAll('.zone-debug').forEach(el => el.remove());
+      for (const [pid, z] of Object.entries(PLAYER_ZONE)) {
+        const el = document.createElement('div');
+        el.className = 'zone-debug';
+        el.style.cssText = `position:absolute; left:${z.xMin*100}%; top:${z.yMin*100}%; ` +
+          `width:${(z.xMax-z.xMin)*100}%; height:${(z.yMax-z.yMin)*100}%; ` +
+          `border:2px dashed rgba(251,191,36,0.5); box-sizing:border-box; pointer-events:none; z-index:1;`;
+        el.innerHTML = `<span style="position:absolute;top:2px;left:4px;color:#fbbf24;font-size:0.65rem;font-family:monospace">${pid}</span>`;
+        court.appendChild(el);
+      }
     }
     // Ball starts visible at the server's spot (or center if unknown)
     const ball = document.createElement('div');
@@ -1311,7 +1335,76 @@
     return { x: 1 - pos.x, y: pos.y };
   }
 
-  /** Move an ENTIRE TEAM into a named formation. Skips actor (they have their own target). */
+  // ═══════════════════════════════════════════════════════════════════════
+  // ZONE SYSTEM — each player has an invisible rectangular zone they can freely move within.
+  // Prevents overlap AND keeps positional integrity (setter stays in setter zone, libero stays back).
+  // Zones are defined for HOME side (x < 0.5); mirrored for AWAY.
+  // Layout (6 zones per side, standard rotation grid):
+  //     Front row (x=0.25 → 0.50, closer to net):    zone3(top)   zone2(mid)   zone1(bot)
+  //     Back row  (x=0.00 → 0.25, endline area):     zone4(top)   zone5(mid)   zone6(bot)
+  // Each zone is { xMin, xMax, yMin, yMax } in screen coords.
+  // ═══════════════════════════════════════════════════════════════════════
+  const ZONES_HOME = {
+    // Back row (endline side)
+    zone4: { xMin: 0.02, xMax: 0.25, yMin: 0.02, yMax: 0.36 },  // back-left
+    zone5: { xMin: 0.02, xMax: 0.25, yMin: 0.36, yMax: 0.66 },  // back-mid
+    zone6: { xMin: 0.02, xMax: 0.25, yMin: 0.66, yMax: 0.98 },  // back-right
+    // Front row (net side)
+    zone3: { xMin: 0.25, xMax: 0.50, yMin: 0.02, yMax: 0.36 },  // front-left
+    zone2: { xMin: 0.25, xMax: 0.50, yMin: 0.36, yMax: 0.66 },  // front-mid
+    zone1: { xMin: 0.25, xMax: 0.50, yMin: 0.66, yMax: 0.98 }   // front-right
+  };
+  function mirrorZone(zone) {
+    return {
+      xMin: 1 - zone.xMax, xMax: 1 - zone.xMin,
+      yMin: zone.yMin, yMax: zone.yMax
+    };
+  }
+  // Assigned zone per player id (set at renderCourt)
+  const PLAYER_ZONE = {};
+
+  /** Assign each player on a side to a zone based on their home spot (rotation position).
+   *  This picks the zone whose center is closest to the player's HOME_POS. */
+  function assignZones(side) {
+    const zoneSet = {};
+    for (const name of Object.keys(ZONES_HOME)) {
+      const z = side === 'home' ? ZONES_HOME[name] : mirrorZone(ZONES_HOME[name]);
+      zoneSet[name] = z;
+    }
+    const players = playersOnSide(side);
+    const taken = new Set();
+    // For each player, pick their nearest zone (that isn't taken)
+    // Sort by "how strongly they claim their nearest zone" so the most confident pick first
+    const claims = players.map(p => {
+      const distances = Object.entries(zoneSet).map(([name, z]) => {
+        const cx = (z.xMin + z.xMax) / 2;
+        const cy = (z.yMin + z.yMax) / 2;
+        return { name, d: Math.hypot(p.home.x - cx, p.home.y - cy) };
+      }).sort((a, b) => a.d - b.d);
+      return { pid: p.pid, distances };
+    });
+    // Assign in rounds: give each player their nearest FREE zone
+    for (const c of claims.sort((a, b) => a.distances[0].d - b.distances[0].d)) {
+      for (const opt of c.distances) {
+        if (!taken.has(opt.name)) {
+          PLAYER_ZONE[c.pid] = zoneSet[opt.name];
+          taken.add(opt.name);
+          break;
+        }
+      }
+    }
+  }
+
+  /** Clamp a target position to the player's assigned zone.
+   *  Returns the clamped {x, y}. If no zone assigned, returns the target unchanged. */
+  function clampToZone(pid, targetX, targetY) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: targetX, y: targetY };
+    return {
+      x: Math.max(z.xMin, Math.min(z.xMax, targetX)),
+      y: Math.max(z.yMin, Math.min(z.yMax, targetY))
+    };
+  }
   function moveTeamToFormation(side, formationName, skipPid) {
     const formation = FORMATIONS[formationName];
     const players = playersOnSide(side);
@@ -1321,26 +1414,93 @@
         if (p.pid === skipPid) return;
         movePlayerTo(p.pid, p.home.x, p.home.y);
       });
+      resolveCollisions(side);
       return;
     }
-    // Track which spots have been assigned to avoid overlap (2 MBs both want mb1 slot)
-    const usedSpots = new Set();
-    players.forEach(p => {
-      if (p.pid === skipPid) return;
-      let role = classifyRole(p.pid);
-      // If this role's spot is taken (e.g. 2 MBs, only 1 mb1 slot), try alt
-      if (usedSpots.has(role)) {
-        if (role === 'mb1') role = 'mb2';
-        else if (role === 'mb2') role = 'mb1';
-        else if (role === 'oh1') role = 'oh2';
-        else if (role === 'oh2') role = 'oh1';
+    // Available role slots for this formation
+    const availableSlots = Object.keys(formation);
+    // Preferred role per player (from classifyRole)
+    const claims = players
+      .filter(p => p.pid !== skipPid)
+      .map(p => ({ pid: p.pid, preferred: classifyRole(p.pid), home: p.home }));
+    // Two-pass assignment: pass 1 give each player their preferred role IF free.
+    // Pass 2 assign remaining players to the closest free slot (by home distance).
+    const assigned = {};   // pid → slot name
+    const taken = new Set();
+    for (const c of claims) {
+      if (availableSlots.includes(c.preferred) && !taken.has(c.preferred)) {
+        assigned[c.pid] = c.preferred;
+        taken.add(c.preferred);
       }
-      const spot = formation[role];
-      if (!spot) return;
-      usedSpots.add(role);
-      const mirrored = mirrorForSide(spot, side);
-      movePlayerTo(p.pid, mirrored.x, mirrored.y);
+    }
+    // Unassigned players
+    const unassigned = claims.filter(c => !assigned[c.pid]);
+    for (const c of unassigned) {
+      // Pick closest free slot to their home position
+      let bestSlot = null, bestDist = Infinity;
+      for (const slotName of availableSlots) {
+        if (taken.has(slotName)) continue;
+        const spot = mirrorForSide(formation[slotName], side);
+        const d = Math.hypot(spot.x - c.home.x, spot.y - c.home.y);
+        if (d < bestDist) { bestDist = d; bestSlot = slotName; }
+      }
+      if (bestSlot) {
+        assigned[c.pid] = bestSlot;
+        taken.add(bestSlot);
+      }
+    }
+    // Execute the moves (formations are hand-tuned so bypass zone clamp)
+    for (const c of claims) {
+      const slotName = assigned[c.pid];
+      if (!slotName) continue;
+      const spot = mirrorForSide(formation[slotName], side);
+      movePlayerTo(c.pid, spot.x, spot.y, true);
+    }
+    // Post-pass: push overlapping circles apart, clamped to each player's zone
+    resolveCollisions(side);
+  }
+
+  /** Push overlapping circles apart so they never stack.
+   *  Uses CURRENT_POS (which movePlayerTo updates). Runs a few iterations for stability. */
+  const MIN_SEPARATION = 0.075;   // ~7.5% of court width — 2 circles' radius
+  function resolveCollisions(sideFilter) {
+    const players = Object.entries(CURRENT_POS).filter(([pid]) => {
+      if (!sideFilter) return true;
+      return HOME_POS[pid] && HOME_POS[pid].side === sideFilter;
     });
+    for (let iter = 0; iter < 4; iter++) {
+      let anyPush = false;
+      for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+          const [pidA, posA] = players[i];
+          const [pidB, posB] = players[j];
+          const dx = posA.x - posB.x;
+          const dy = posA.y - posB.y;
+          const d = Math.hypot(dx, dy);
+          if (d < MIN_SEPARATION && d > 0.0001) {
+            anyPush = true;
+            const push = (MIN_SEPARATION - d) / 2;
+            const nx = dx / d, ny = dy / d;
+            // Push both players apart, then clamp to each player's zone (keeps positional order)
+            let newAx = posA.x + nx * push;
+            let newAy = posA.y + ny * push;
+            let newBx = posB.x - nx * push;
+            let newBy = posB.y - ny * push;
+            // Zone clamp — respects side boundaries automatically
+            const clampedA = clampToZone(pidA, newAx, newAy);
+            const clampedB = clampToZone(pidB, newBx, newBy);
+            newAx = clampedA.x; newAy = clampedA.y;
+            newBx = clampedB.x; newBy = clampedB.y;
+            movePlayerTo(pidA, newAx, newAy, true);   // already clamped, skip re-clamp
+            movePlayerTo(pidB, newBx, newBy, true);
+            // update in-loop positions
+            players[i][1] = { x: newAx, y: newAy };
+            players[j][1] = { x: newBx, y: newBy };
+          }
+        }
+      }
+      if (!anyPush) break;
+    }
   }
 
   /** Choreograph movement for a given event.
@@ -1352,8 +1512,10 @@
     const side = HOME_POS[actorPid].side;
     const otherSide = side === 'home' ? 'away' : 'home';
 
-    // Actor to their contact position
-    movePlayerTo(actorPid, target.x, target.y);
+    // Actor to their contact position (ignore zone — this is a play action, not a resting spot)
+    movePlayerTo(actorPid, target.x, target.y, true);
+    // Note: moveTeamToFormation calls below also use ignoreZone since formations are hand-tuned.
+    // Zones only constrain COLLISION PUSHES via clampToZone in resolveCollisions().
 
     // Phase-based team formations
     switch (ev.type) {
@@ -1407,6 +1569,8 @@
         moveTeamToFormation(otherSide, 'defense_base', null);
         break;
     }
+    // Final pass: resolve any remaining overlaps globally (both sides)
+    resolveCollisions(null);
     return target;
   }
 
