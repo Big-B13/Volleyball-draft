@@ -1085,14 +1085,13 @@
     ball.className = 'ball spin h-low';
     const shadow = document.createElement('div');
     shadow.className = 'ball-shadow h-low';
-    // Find who's actually serving — the player whose position includes 'S' (setter) on the
-    // serving team. The rotation makes them the server at start of rally.
+    // Find who's actually serving — MUST match the engine's logic exactly.
+    // Engine uses playerAtSpot(team, 0) = lineup[(0 + rotationOffset) % 6].
     const servingTeam = match[match.serving];
     let serverSlot = null;
     if (servingTeam && servingTeam.lineup) {
-      // Prefer explicit setter, else rotation spot 1
-      serverSlot = servingTeam.lineup.find(s => s && (s.player.position || '').split('/').includes('S'))
-                || servingTeam.lineup[(0 + servingTeam.rotationOffset) % 6];
+      const idx = (0 + servingTeam.rotationOffset) % 6;
+      serverSlot = servingTeam.lineup[idx];
     }
     // Move the server OUTSIDE the court immediately (behind their endline).
     // Home serves from x=-0.05 (left of court), Away serves from x=1.05 (right of court).
