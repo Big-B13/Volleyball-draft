@@ -357,33 +357,37 @@
     padding: 8px 16px; font-size: 0.9rem;
   }
 
-  /* Side-by-side layout: court on the left (fixed), play-by-play on the right (fixed) */
+  /* ═══ ABSOLUTELY FIXED-SIZE LAYOUT — nothing here resizes based on content ═══ */
   .match-grid {
-    display: grid;
-    grid-template-columns: 900px 320px;
-    grid-template-rows: 450px;   /* lock the row height so nothing stretches */
-    gap: 16px;
-    margin: 0 auto 16px;
-    justify-content: center;
-    max-width: 100%;
-    overflow: hidden;
+    display: grid !important;
+    grid-template-columns: 900px 340px !important;
+    grid-template-rows: 460px !important;
+    gap: 16px !important;
+    margin: 0 auto 16px auto !important;
+    justify-content: center !important;
+    width: fit-content !important;
+    max-width: 100% !important;
   }
   .match-grid .court-wrap {
-    margin: 0;
-    max-width: none;
-    height: 450px;   /* enforce identical height inside the grid */
-    width: 900px;
+    margin: 0 !important;
+    width: 900px !important;
+    height: 460px !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    box-sizing: border-box !important;
   }
   .pbp-panel {
-    background: rgba(15,23,42,0.7); border-radius: 12px; padding: 12px;
-    display: flex; flex-direction: column;
+    width: 340px !important;
+    height: 460px !important;
+    box-sizing: border-box !important;
+    padding: 12px !important;
+    background: rgba(15,23,42,0.7); border-radius: 12px;
+    display: flex !important; flex-direction: column !important;
     border: 1px solid rgba(255,255,255,0.08);
-    height: 450px;               /* exactly matches court height */
-    width: 320px;
-    box-sizing: border-box;
-    overflow: hidden;            /* never grow */
+    overflow: hidden !important;   /* NEVER grow */
   }
   .pbp-header {
+    flex: 0 0 auto !important;
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 10px; gap: 8px;
   }
@@ -398,9 +402,9 @@
   }
   .pbp-toggle input { accent-color: #fbbf24; margin: 0; cursor: pointer; }
   .log-panel {
-    flex: 1 1 auto;      /* fills remaining space in the fixed-height panel */
-    min-height: 0;
-    overflow-y: auto;
+    flex: 1 1 0 !important;   /* fills remaining space and NO MORE */
+    min-height: 0 !important;
+    overflow-y: auto !important;   /* scroll internally when text overflows */
     background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
     font-family: 'Segoe UI', -apple-system, system-ui, sans-serif;
     font-size: 0.82rem; line-height: 1.5;
@@ -411,12 +415,13 @@
   .log-entry.point { color: #fbbf24; font-weight: 700; font-size: 0.9rem; margin: 4px 0; }
   .log-entry.setwon { color: #22c55e; font-weight: 900; padding: 8px 0; border-top: 1px solid rgba(34,197,94,0.3); border-bottom: 1px solid rgba(34,197,94,0.3); }
   .log-entry.matchwon { color: #f97316; font-weight: 900; font-size: 1rem; padding: 10px 0; }
-  /* Zones overlay (invisible by default; toggle turns them on) */
+  /* Zones overlay */
   .zone-debug {
     position: absolute; box-sizing: border-box;
-    border: 2px dashed rgba(251,191,36,0.5);
+    border: 2px dashed rgba(251,191,36,0.55);
     pointer-events: none; z-index: 1;
     opacity: 0; transition: opacity 0.2s;
+    background: rgba(251,191,36,0.03);
   }
   .zones-visible .zone-debug { opacity: 1; }
   .zone-debug .zone-label {
@@ -425,23 +430,21 @@
     font-family: monospace; font-weight: 900; letter-spacing: 1px;
     text-shadow: 0 0 4px rgba(0,0,0,0.9);
   }
-  @media (max-width: 1260px) {
-    /* Narrow window: stack court above panel, each fixed size */
+  @media (max-width: 1300px) {
     .match-grid {
-      grid-template-columns: minmax(0, 900px);
-      grid-template-rows: 450px 300px;
+      grid-template-columns: 720px 300px !important;
+      grid-template-rows: 380px !important;
     }
-    .match-grid .court-wrap { width: 100%; max-width: 900px; }
-    .pbp-panel { width: 100%; height: 300px; max-width: 900px; }
+    .match-grid .court-wrap { width: 720px !important; height: 380px !important; }
+    .pbp-panel { width: 300px !important; height: 380px !important; }
   }
-  @media (max-width: 720px) {
-    /* Mobile: shrink both to viewport width, keep aspect */
+  @media (max-width: 1050px) {
     .match-grid {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto auto;
+      grid-template-columns: minmax(0, 900px) !important;
+      grid-template-rows: 380px 260px !important;
     }
-    .match-grid .court-wrap { width: 100%; height: 250px; }
-    .pbp-panel { width: 100%; height: 260px; }
+    .match-grid .court-wrap { width: 100% !important; max-width: 900px !important; height: 380px !important; }
+    .pbp-panel { width: 100% !important; max-width: 900px !important; height: 260px !important; }
   }
 
   #match-picker { padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; }
@@ -1336,23 +1339,47 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ZONE SYSTEM — 6 hard-boundary zones per side using REAL volleyball numbering.
-  //   Zone 1 = back-right (Setter start / server)
-  //   Zone 2 = front-right (Opposite)
-  //   Zone 3 = front-center (Middle)
-  //   Zone 4 = front-left (Outside)
-  //   Zone 5 = back-left (Left Back)
-  //   Zone 6 = back-center (Libero)
-  // Court is horizontal — net at x=0.5. HOME is left half (x<0.5), endline at x=0.
-  // For HOME, "right" (in the court's own frame) = larger y, "left" = smaller y.
+  // ZONE SYSTEM — matches real volleyball diagram from Muqtar Facebook reference.
+  //   Corner zones (1, 2, 4, 5) are WIDER (they cover more court).
+  //   Middle zones (3 = middle front, 6 = libero back) are NARROWER slices.
+  //   Front row (2, 3, 4) is a bit shallower than back row (1, 5, 6).
+  //
+  //   Layout (HOME side, net at x=0.5, endline at x=0):
+  //       x: 0.00 ────── 0.22 ────── 0.50 (net)
+  //       ┌───────────┬───────────┐  Front-row band  (y:0.00-0.35 = Z4 outside)
+  //       │ Z5 LB     │ Z4 OH     │                  (y:0.35-0.65 = Z3 middle, narrow)
+  //       │ (corner)  │ (corner)  │                  (y:0.65-1.00 = Z2 opposite)
+  //       ├───────────┼───────────┤
+  //       │ Z6 LIBERO │ Z3 MIDDLE │  ← both narrow center zones
+  //       │ (mid nar) │ (mid nar) │
+  //       ├───────────┼───────────┤
+  //       │ Z5 LB     │ Z2 OPP    │
+  //       │ (corner)  │ (corner)  │
+  //       └───────────┴───────────┘
+  //   Front (net-side) band spans x:0.22-0.50; Back band spans x:0.00-0.22.
   // ═══════════════════════════════════════════════════════════════════════
+  // Front row is a thinner band near the net; back row is deeper.
+  const NET_X = 0.49;      // just inside the net line
+  const FRONT_X_MIN = 0.28;    // front row spans x: 0.28 - 0.49 (thinner strip)
+  const BACK_X_MAX  = 0.28;    // back row spans x: 0.02 - 0.28 (deeper)
+  const BACK_X_MIN  = 0.02;
+
+  // Corner zones (front-outside/opposite, back-left/setter-corner) take more y-space (~36% each).
+  // Middle zones (middle blocker at net, libero back-center) are narrower (~28% y-space).
+  const CORNER_TOP_Y_MAX = 0.36;   // top corner ends here
+  const MIDDLE_Y_MIN     = 0.36;   // middle band starts
+  const MIDDLE_Y_MAX     = 0.64;   // middle band ends
+  const CORNER_BOT_Y_MIN = 0.64;   // bottom corner starts
+
   const ZONES_HOME = {
-    zone1: { xMin: 0.02, xMax: 0.25, yMin: 0.66, yMax: 0.98 },  // back-right (setter)
-    zone2: { xMin: 0.25, xMax: 0.49, yMin: 0.66, yMax: 0.98 },  // front-right (opposite)
-    zone3: { xMin: 0.25, xMax: 0.49, yMin: 0.36, yMax: 0.66 },  // front-center (middle)
-    zone4: { xMin: 0.25, xMax: 0.49, yMin: 0.02, yMax: 0.36 },  // front-left (outside)
-    zone5: { xMin: 0.02, xMax: 0.25, yMin: 0.02, yMax: 0.36 },  // back-left (left back)
-    zone6: { xMin: 0.02, xMax: 0.25, yMin: 0.36, yMax: 0.66 }   // back-center (libero)
+    // Front row (net-side band)
+    zone4: { xMin: FRONT_X_MIN, xMax: NET_X,      yMin: 0.02,             yMax: CORNER_TOP_Y_MAX }, // Z4 outside (top corner, wide)
+    zone3: { xMin: FRONT_X_MIN, xMax: NET_X,      yMin: MIDDLE_Y_MIN,     yMax: MIDDLE_Y_MAX },     // Z3 middle (narrow center)
+    zone2: { xMin: FRONT_X_MIN, xMax: NET_X,      yMin: CORNER_BOT_Y_MIN, yMax: 0.98 },             // Z2 opposite (bottom corner, wide)
+    // Back row (endline-side band)
+    zone5: { xMin: BACK_X_MIN,  xMax: BACK_X_MAX, yMin: 0.02,             yMax: CORNER_TOP_Y_MAX }, // Z5 left back (top corner, wide)
+    zone6: { xMin: BACK_X_MIN,  xMax: BACK_X_MAX, yMin: MIDDLE_Y_MIN,     yMax: MIDDLE_Y_MAX },     // Z6 libero (narrow center)
+    zone1: { xMin: BACK_X_MIN,  xMax: BACK_X_MAX, yMin: CORNER_BOT_Y_MIN, yMax: 0.98 }              // Z1 setter start (bottom corner, wide)
   };
   // Human-friendly zone descriptions
   const ZONE_ROLES = {
