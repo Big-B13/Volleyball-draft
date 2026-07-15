@@ -27,9 +27,11 @@
 
   .court-wrap {
     position: relative;
-    max-width: 1000px;
+    /* Hard-locked size — never dynamically resizes based on log length. */
+    width: 100%;
+    max-width: 900px;
+    height: 450px;    /* fixed height (2:1 aspect at 900px wide) */
     margin: 0 auto 16px;
-    aspect-ratio: 18 / 9;
     /* Indoor gym floor: wooden planks + subtle court paint */
     background:
       /* Court paint zones (two shades of blue-teal so the play area pops) */
@@ -355,19 +357,31 @@
     padding: 8px 16px; font-size: 0.9rem;
   }
 
-  /* Side-by-side layout: court on the left, play-by-play on the right */
+  /* Side-by-side layout: court on the left (fixed), play-by-play on the right (fixed) */
   .match-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
+    grid-template-columns: 900px 320px;
+    grid-template-rows: 450px;   /* lock the row height so nothing stretches */
     gap: 16px;
-    margin-bottom: 16px;
-    align-items: stretch;
+    margin: 0 auto 16px;
+    justify-content: center;
+    max-width: 100%;
+    overflow: hidden;
   }
-  .match-grid .court-wrap { margin: 0; max-width: 100%; }
+  .match-grid .court-wrap {
+    margin: 0;
+    max-width: none;
+    height: 450px;   /* enforce identical height inside the grid */
+    width: 900px;
+  }
   .pbp-panel {
-    background: rgba(15,23,42,0.7); border-radius: 12px; padding: 14px;
-    display: flex; flex-direction: column; min-height: 0;
+    background: rgba(15,23,42,0.7); border-radius: 12px; padding: 12px;
+    display: flex; flex-direction: column;
     border: 1px solid rgba(255,255,255,0.08);
+    height: 450px;               /* exactly matches court height */
+    width: 320px;
+    box-sizing: border-box;
+    overflow: hidden;            /* never grow */
   }
   .pbp-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -384,7 +398,8 @@
   }
   .pbp-toggle input { accent-color: #fbbf24; margin: 0; cursor: pointer; }
   .log-panel {
-    flex: 1; min-height: 400px; max-height: 640px;
+    flex: 1 1 auto;      /* fills remaining space in the fixed-height panel */
+    min-height: 0;
     overflow-y: auto;
     background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
     font-family: 'Segoe UI', -apple-system, system-ui, sans-serif;
@@ -410,9 +425,23 @@
     font-family: monospace; font-weight: 900; letter-spacing: 1px;
     text-shadow: 0 0 4px rgba(0,0,0,0.9);
   }
-  @media (max-width: 900px) {
-    .match-grid { grid-template-columns: 1fr; }
-    .log-panel { min-height: 240px; max-height: 320px; }
+  @media (max-width: 1260px) {
+    /* Narrow window: stack court above panel, each fixed size */
+    .match-grid {
+      grid-template-columns: minmax(0, 900px);
+      grid-template-rows: 450px 300px;
+    }
+    .match-grid .court-wrap { width: 100%; max-width: 900px; }
+    .pbp-panel { width: 100%; height: 300px; max-width: 900px; }
+  }
+  @media (max-width: 720px) {
+    /* Mobile: shrink both to viewport width, keep aspect */
+    .match-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto;
+    }
+    .match-grid .court-wrap { width: 100%; height: 250px; }
+    .pbp-panel { width: 100%; height: 260px; }
   }
 
   #match-picker { padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; }
@@ -1023,7 +1052,8 @@
       el.style.top  = (z.yMin * 100) + '%';
       el.style.width  = ((z.xMax - z.xMin) * 100) + '%';
       el.style.height = ((z.yMax - z.yMin) * 100) + '%';
-      el.innerHTML = `<span class="zone-label">${zoneName.toUpperCase()} · ${escapeHtml(playerName)}</span>`;
+      const label = ZONE_ROLES[zoneName] || zoneName.toUpperCase();
+      el.innerHTML = `<span class="zone-label">${label} · ${escapeHtml(playerName)}</span>`;
       court.appendChild(el);
     }
     // Ball starts visible at the server's spot (or center if unknown)
@@ -1306,18 +1336,33 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ZONE SYSTEM — 6 hard-boundary zones per side matching real volleyball rotation positions.
-  // Player NEVER leaves their zone. Ball convergence uses each player's zone-clamped contact.
-  //     zone3 (Front-Left/Outside)   zone2 (Front-Mid/Middle)   zone1 (Front-Right/Opposite)
-  //     zone4 (Back-Left/Left Back)  zone5 (Back-Mid/Libero)    zone6 (Back-Right/Setter)
+  // ZONE SYSTEM — 6 hard-boundary zones per side using REAL volleyball numbering.
+  //   Zone 1 = back-right (Setter start / server)
+  //   Zone 2 = front-right (Opposite)
+  //   Zone 3 = front-center (Middle)
+  //   Zone 4 = front-left (Outside)
+  //   Zone 5 = back-left (Left Back)
+  //   Zone 6 = back-center (Libero)
+  // Court is horizontal — net at x=0.5. HOME is left half (x<0.5), endline at x=0.
+  // For HOME, "right" (in the court's own frame) = larger y, "left" = smaller y.
   // ═══════════════════════════════════════════════════════════════════════
   const ZONES_HOME = {
-    zone4: { xMin: 0.02, xMax: 0.25, yMin: 0.02, yMax: 0.36 },  // back-left
-    zone5: { xMin: 0.02, xMax: 0.25, yMin: 0.36, yMax: 0.66 },  // back-mid (libero)
-    zone6: { xMin: 0.02, xMax: 0.25, yMin: 0.66, yMax: 0.98 },  // back-right (setter start)
-    zone3: { xMin: 0.25, xMax: 0.49, yMin: 0.02, yMax: 0.36 },  // front-left (outside)
-    zone2: { xMin: 0.25, xMax: 0.49, yMin: 0.36, yMax: 0.66 },  // front-mid (middle)
-    zone1: { xMin: 0.25, xMax: 0.49, yMin: 0.66, yMax: 0.98 }   // front-right (opposite)
+    zone1: { xMin: 0.02, xMax: 0.25, yMin: 0.66, yMax: 0.98 },  // back-right (setter)
+    zone2: { xMin: 0.25, xMax: 0.49, yMin: 0.66, yMax: 0.98 },  // front-right (opposite)
+    zone3: { xMin: 0.25, xMax: 0.49, yMin: 0.36, yMax: 0.66 },  // front-center (middle)
+    zone4: { xMin: 0.25, xMax: 0.49, yMin: 0.02, yMax: 0.36 },  // front-left (outside)
+    zone5: { xMin: 0.02, xMax: 0.25, yMin: 0.02, yMax: 0.36 },  // back-left (left back)
+    zone6: { xMin: 0.02, xMax: 0.25, yMin: 0.36, yMax: 0.66 }   // back-center (libero)
+  };
+  // Human-friendly zone descriptions
+  const ZONE_ROLES = {
+    zone1:       'Z1 SETTER-BASE',
+    zone2:       'Z2 OPPOSITE',
+    zone3:       'Z3 MIDDLE',
+    zone4:       'Z4 OUTSIDE',
+    zone5:       'Z5 LEFT-BACK',
+    zone6:       'Z6 LIBERO',
+    setter_zone: 'SETTER (Z1+Z2)'
   };
   function mirrorZone(zone) {
     return {
@@ -1328,8 +1373,9 @@
   const PLAYER_ZONE = {};        // pid → zone bounds
   const PLAYER_ZONE_NAME = {};   // pid → zone name string (for formation lookup)
 
-  /** Assign each player on a side to a zone. Setter always gets zone2 (their release/target).
-   *  Others fill remaining zones by nearest home distance. */
+  /** Assign each player on a side to their VOLLEYBALL zone by role.
+   *  Real-vball convention: setter Z1 (back-right), OPP Z2 (front-right), MB Z3 (front-mid),
+   *  OH Z4 (front-left), LB Z5 (back-left), Libero Z6 (back-mid). */
   function assignZones(side) {
     const zoneSet = {};
     for (const name of Object.keys(ZONES_HOME)) {
@@ -1338,12 +1384,43 @@
     const players = playersOnSide(side);
     const taken = new Set();
 
-    // 1. Setter → zone2 (their release/target zone, always)
-    const setter = players.find(p => classifyRole(p.pid) === 'setter');
-    if (setter) {
-      PLAYER_ZONE[setter.pid] = zoneSet.zone2;
-      PLAYER_ZONE_NAME[setter.pid] = 'zone2';
-      taken.add('zone2');
+    // Role → preferred zone (real-vball starting positions)
+    const preferredZone = {
+      setter: 'zone1',   // back-right (serving position)
+      opp:    'zone2',   // front-right
+      mb1:    'zone3',   // front-middle
+      mb2:    'zone3',   // if 2 MBs, one goes here — other will fall back to closest free
+      oh1:    'zone4',   // front-left
+      oh2:    'zone4',   // if 2 OHs, one goes here
+      libero: 'zone6'    // back-middle
+    };
+
+    // Pass 1: assign each player to their role's preferred zone if free.
+    // SETTER gets a special expanded zone that spans zone1 + zone2 (the setter release corridor)
+    // so they can start at the back-right serve position AND run to the net-front target.
+    const claimants = players.map(p => ({ pid: p.pid, role: classifyRole(p.pid), home: p.home }));
+    for (const c of claimants) {
+      if (c.role === 'setter' && !taken.has('zone1') && !taken.has('zone2')) {
+        // Merge zone1 + zone2 into a single L-shaped corridor (approximated as a bigger rectangle)
+        const z1 = zoneSet.zone1;
+        const z2 = zoneSet.zone2;
+        PLAYER_ZONE[c.pid] = {
+          xMin: Math.min(z1.xMin, z2.xMin),
+          xMax: Math.max(z1.xMax, z2.xMax),
+          yMin: Math.min(z1.yMin, z2.yMin),
+          yMax: Math.max(z1.yMax, z2.yMax)
+        };
+        PLAYER_ZONE_NAME[c.pid] = 'setter_zone';   // combined
+        taken.add('zone1');
+        taken.add('zone2');
+        continue;
+      }
+      const pref = preferredZone[c.role];
+      if (pref && !taken.has(pref)) {
+        PLAYER_ZONE[c.pid] = zoneSet[pref];
+        PLAYER_ZONE_NAME[c.pid] = pref;
+        taken.add(pref);
+      }
     }
 
     // 2. Everyone else: closest-first assignment to remaining zones
@@ -1388,10 +1465,11 @@
     return { x: (z.xMin + z.xMax) / 2, y: (z.yMin + z.yMax) / 2 };
   }
 
-  /** Is the player currently in a front-row zone (near the net)? */
+  /** Is the player currently in a front-row zone (near the net)?
+   *  Real-vball convention: zones 2, 3, 4 are the FRONT row. Setter (Z1+Z2) counts as front. */
   function isFrontZone(pid) {
     const name = PLAYER_ZONE_NAME[pid];
-    return name === 'zone1' || name === 'zone2' || name === 'zone3';
+    return name === 'zone2' || name === 'zone3' || name === 'zone4' || name === 'setter_zone';
   }
 
   /** Position at the net inside a player's zone. */
