@@ -355,16 +355,65 @@
     padding: 8px 16px; font-size: 0.9rem;
   }
 
-  .log-panel {
-    max-height: 200px; overflow-y: auto;
-    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
-    font-family: monospace; font-size: 0.8rem;
-    color: #cbd5e1;
+  /* Side-by-side layout: court on the left, play-by-play on the right */
+  .match-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+    align-items: stretch;
   }
-  .log-entry { padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
-  .log-entry.point { color: #fbbf24; font-weight: 700; }
-  .log-entry.setwon { color: #22c55e; font-weight: 900; }
-  .log-entry.matchwon { color: #f97316; font-weight: 900; font-size: 1rem; }
+  .match-grid .court-wrap { margin: 0; max-width: 100%; }
+  .pbp-panel {
+    background: rgba(15,23,42,0.7); border-radius: 12px; padding: 14px;
+    display: flex; flex-direction: column; min-height: 0;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .pbp-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; gap: 8px;
+  }
+  .pbp-header h3 {
+    color: #fbbf24; font-size: 0.9rem; letter-spacing: 2px;
+    text-transform: uppercase; margin: 0;
+  }
+  .pbp-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.75rem; color: #cbd5e1; cursor: pointer;
+    padding: 4px 8px; border-radius: 6px; background: rgba(30,41,59,0.6);
+  }
+  .pbp-toggle input { accent-color: #fbbf24; margin: 0; cursor: pointer; }
+  .log-panel {
+    flex: 1; min-height: 400px; max-height: 640px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
+    font-family: 'Segoe UI', -apple-system, system-ui, sans-serif;
+    font-size: 0.82rem; line-height: 1.5;
+    color: #cbd5e1;
+    scrollbar-width: thin;
+  }
+  .log-entry { padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+  .log-entry.point { color: #fbbf24; font-weight: 700; font-size: 0.9rem; margin: 4px 0; }
+  .log-entry.setwon { color: #22c55e; font-weight: 900; padding: 8px 0; border-top: 1px solid rgba(34,197,94,0.3); border-bottom: 1px solid rgba(34,197,94,0.3); }
+  .log-entry.matchwon { color: #f97316; font-weight: 900; font-size: 1rem; padding: 10px 0; }
+  /* Zones overlay (invisible by default; toggle turns them on) */
+  .zone-debug {
+    position: absolute; box-sizing: border-box;
+    border: 2px dashed rgba(251,191,36,0.5);
+    pointer-events: none; z-index: 1;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .zones-visible .zone-debug { opacity: 1; }
+  .zone-debug .zone-label {
+    position: absolute; top: 3px; left: 5px;
+    color: rgba(251,191,36,0.9); font-size: 0.65rem;
+    font-family: monospace; font-weight: 900; letter-spacing: 1px;
+    text-shadow: 0 0 4px rgba(0,0,0,0.9);
+  }
+  @media (max-width: 900px) {
+    .match-grid { grid-template-columns: 1fr; }
+    .log-panel { min-height: 240px; max-height: 320px; }
+  }
 
   #match-picker { padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; }
   #match-picker select { max-width: 100%; }
@@ -433,12 +482,26 @@
       </div>
     </div>
 
-    <div class="court-wrap" id="court">
-      <div class="attack-line-far"></div>
-      <div class="attack-line-near"></div>
-      <div class="net"></div>
-      <div class="side-label home" id="side-label-home">HOME</div>
-      <div class="side-label away" id="side-label-away">AWAY</div>
+    <!-- Side-by-side layout: court on the left, play-by-play on the right -->
+    <div class="match-grid">
+      <div class="court-wrap" id="court">
+        <div class="attack-line-far"></div>
+        <div class="attack-line-near"></div>
+        <div class="net"></div>
+        <div class="side-label home" id="side-label-home">HOME</div>
+        <div class="side-label away" id="side-label-away">AWAY</div>
+      </div>
+
+      <div class="pbp-panel">
+        <div class="pbp-header">
+          <h3>📋 Play-by-play</h3>
+          <label class="pbp-toggle">
+            <input type="checkbox" id="toggle-zones" checked>
+            <span>Show zones</span>
+          </label>
+        </div>
+        <div class="log-panel" id="log-panel"></div>
+      </div>
     </div>
 
     <div class="controls">
@@ -451,11 +514,6 @@
       </select>
       <button onclick="finishInstantly()" class="secondary">⏩ Simulate to end</button>
       <button onclick="resetSim()" class="secondary">↺ New match</button>
-    </div>
-
-    <div class="card">
-      <h3 style="color:#fbbf24; font-size:0.9rem; letter-spacing:2px; text-transform:uppercase; margin-bottom:8px;">📋 Play-by-play</h3>
-      <div class="log-panel" id="log-panel"></div>
     </div>
   </div>
 </div>
@@ -747,6 +805,13 @@
 
     document.getElementById('setup-card').classList.add('hidden');
     document.getElementById('match-view').classList.remove('hidden');
+    // Zones-visible toggle wiring (only once per match)
+    const zonesToggle = document.getElementById('toggle-zones');
+    const applyZonesToggle = () => {
+      document.getElementById('court').classList.toggle('zones-visible', zonesToggle.checked);
+    };
+    zonesToggle.onchange = applyZonesToggle;
+    applyZonesToggle();
     renderHeader();
     renderCourt();
     logSeed();
@@ -846,6 +911,7 @@
         circle.dataset.pid = slot.player.id;
         circle.dataset.side = side;   // 'home' or 'away' — used for movement logic
         circle.dataset.role = slot.player.position || '';   // 'S' / 'OH' / 'MB' / 'L' etc.
+        circle.dataset.playerName = slot.player.name || slot.player.id;   // for zone debug labels
         circle.style.left = (screen.x * 100) + '%';
         circle.style.top = (screen.y * 100) + '%';
         circle.style.borderColor = team.color;
@@ -945,18 +1011,20 @@
     // Zones prevent overlap and keep positional roles cleaner.
     assignZones('home');
     assignZones('away');
-    // Debug: visualize zones if ?debug=zones is in the URL
-    if (new URLSearchParams(location.search).get('debug') === 'zones') {
-      court.querySelectorAll('.zone-debug').forEach(el => el.remove());
-      for (const [pid, z] of Object.entries(PLAYER_ZONE)) {
-        const el = document.createElement('div');
-        el.className = 'zone-debug';
-        el.style.cssText = `position:absolute; left:${z.xMin*100}%; top:${z.yMin*100}%; ` +
-          `width:${(z.xMax-z.xMin)*100}%; height:${(z.yMax-z.yMin)*100}%; ` +
-          `border:2px dashed rgba(251,191,36,0.5); box-sizing:border-box; pointer-events:none; z-index:1;`;
-        el.innerHTML = `<span style="position:absolute;top:2px;left:4px;color:#fbbf24;font-size:0.65rem;font-family:monospace">${pid}</span>`;
-        court.appendChild(el);
-      }
+    // Visualize zones so you can see the boundaries — toggled by the checkbox in the pbp panel
+    court.querySelectorAll('.zone-debug').forEach(el => el.remove());
+    for (const [pid, z] of Object.entries(PLAYER_ZONE)) {
+      const zoneName = PLAYER_ZONE_NAME[pid] || '';
+      const player = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+      const playerName = player ? (player.dataset.playerName || pid) : pid;
+      const el = document.createElement('div');
+      el.className = 'zone-debug';
+      el.style.left = (z.xMin * 100) + '%';
+      el.style.top  = (z.yMin * 100) + '%';
+      el.style.width  = ((z.xMax - z.xMin) * 100) + '%';
+      el.style.height = ((z.yMax - z.yMin) * 100) + '%';
+      el.innerHTML = `<span class="zone-label">${zoneName.toUpperCase()} · ${escapeHtml(playerName)}</span>`;
+      court.appendChild(el);
     }
     // Ball starts visible at the server's spot (or center if unknown)
     const ball = document.createElement('div');
@@ -1706,7 +1774,8 @@
   }
 
   function formatEvent(ev) {
-    const name = (a) => a && a.player ? (a.player.nickname || a.player.name) : '?';
+    // Use real player names (not nicknames) — easier to follow the play-by-play
+    const name = (a) => a && a.player ? (a.player.name || a.player.nickname || '?') : '?';
     switch (ev.type) {
       case 'serve': return `🎾 ${name(ev.actor)} serves…`;
       case 'ace':   return `⚡ ACE! ${name(ev.actor)} — untouchable serve`;
