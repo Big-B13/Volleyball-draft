@@ -740,15 +740,17 @@
   }
 
   /** Move a player's circle to a new screen position (0..1).
-   *  ALWAYS clamps to the player's assigned zone — players NEVER leave their zone.
-   *  Transition time is proportional to distance AND scales with sim speed. */
-  function movePlayerTo(pid, screenX, screenY) {
+   *  Normally clamps to the player's assigned zone. Pass force=true to bypass
+   *  (used only for serves — server stands BEHIND the endline, outside the court). */
+  function movePlayerTo(pid, screenX, screenY, force = false) {
     const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
     if (!el) return 0;
-    // Zone clamp is MANDATORY — no exceptions. This is the hard boundary.
-    const clamped = clampToZone(pid, screenX, screenY);
-    screenX = clamped.x;
-    screenY = clamped.y;
+    if (!force) {
+      // Zone clamp — the hard boundary for all normal play movement.
+      const clamped = clampToZone(pid, screenX, screenY);
+      screenX = clamped.x;
+      screenY = clamped.y;
+    }
     // Compute distance from current position
     const from = CURRENT_POS[pid] || { x: screenX, y: screenY };
     const dx = screenX - from.x, dy = screenY - from.y;
@@ -1231,8 +1233,8 @@
     // Where the server is standing
     const servePos = predictContactPos(ev, null);
     if (!servePos) return;
-    // Make sure the server is AT their serve position first
-    movePlayerTo(pid, servePos.x, servePos.y);
+    // Make sure the server is AT their serve position first (BEHIND the endline, outside court)
+    movePlayerTo(pid, servePos.x, servePos.y, true);
     const walkMs = WALK_TIMES[pid] || 0;
     // Wait for server to arrive
     await sleep(Math.min(walkMs + 100, 1200 / speed));
@@ -1318,8 +1320,10 @@
     switch (ev.type) {
       case 'serve':
       case 'ace':
-        // Behind endline of own zone
-        target = backEdgeOfZone(actorPid, side);
+        // Server stands BEHIND the endline. The inner court boundary starts at ~x=0.015
+        // (the white line at inset 8px on a 900px court). Server at x=0.005 is behind that
+        // line — visually outside the play area. Uses force=true to bypass zone clamp.
+        target = { x: side === 'home' ? 0.005 : 0.995, y: center.y };
         break;
       case 'pass': {
         // Passer moves within their zone toward the ball's incoming y
@@ -1693,8 +1697,10 @@
     const side = HOME_POS[actorPid].side;
     const otherSide = side === 'home' ? 'away' : 'home';
 
-    // Actor to their contact position — will be zone-clamped by movePlayerTo
-    movePlayerTo(actorPid, target.x, target.y);
+    // Actor to their contact position. Serves & aces let the server go OUTSIDE the court
+    // (behind the endline) — bypass the zone clamp with force=true.
+    const isServe = (ev.type === 'serve' || ev.type === 'ace');
+    movePlayerTo(actorPid, target.x, target.y, isServe);
 
     // Phase-based team formations
     switch (ev.type) {
