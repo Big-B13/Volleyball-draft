@@ -650,6 +650,95 @@ function populatePositionDropdown(allPlayers) {
   });
 }
 
+/** ROSTER TIP SYSTEM — analyzes user's current picks and suggests what role/skill they still need.
+ *  Considers: captain's own linked player role, all picks made so far, and remaining picks.
+ *  Returns a { level, text } object or null if no tip. */
+function analyzeRosterAndSuggest(myCaptainIdx) {
+  if (myCaptainIdx == null) return null;
+  const cap = state.captains[myCaptainIdx];
+  if (!cap) return null;
+  const myPicks = (state.picks || []).filter(p => p.captainIdx === myCaptainIdx);
+  const myPlayers = myPicks.map(pk => state.players.find(pp => pp.id === pk.playerId)).filter(Boolean);
+  // Add captain themselves (if linked to a player) as part of the roster
+  if (cap.linkedPlayerId) {
+    const capPlayer = state.players.find(p => p.id === cap.linkedPlayerId);
+    if (capPlayer) myPlayers.push(capPlayer);
+  }
+  // Count role presence — each player counts for all their position tags (e.g. "OH/OP" = both)
+  const roleCounts = { S: 0, OH: 0, OP: 0, MB: 0, L: 0, DS: 0 };
+  for (const p of myPlayers) {
+    const posTags = (p.position || '').split('/').map(s => s.trim().toUpperCase());
+    for (const tag of posTags) {
+      if (roleCounts[tag] !== undefined) roleCounts[tag]++;
+    }
+  }
+  const totalRoster = myPlayers.length;
+  const remaining = state.picksPerTeam - myPicks.length;
+  // A "full" 6-player team should have: 1 setter, 2 outsides, 2 middles, 1 libero (typical 5-1)
+  const idealCounts = { S: 1, OH: 2, MB: 2, L: 1 };
+
+  const missing = [];
+  const nice = [];
+  // Priority order: setter > libero > middle > outside (based on how essential)
+  const priorityChecks = [
+    { key: 'S',  label: '🎯 Setter',          essential: true,  msg: 'Every team needs a setter — they run the offense on the 2nd touch.' },
+    { key: 'L',  label: '🛡️ Libero',           essential: true,  msg: 'A libero locks down back-row defense (highest dig priority).' },
+    { key: 'MB', label: '🧱 Middle Blocker',   essential: true,  msg: 'Middles anchor the block wall — you\'ll get stuffed without one.' },
+    { key: 'OH', label: '💥 Outside Hitter',  essential: true,  msg: 'Outsides are your main attackers on the left pin.' },
+  ];
+  for (const check of priorityChecks) {
+    const have = roleCounts[check.key] || 0;
+    const need = idealCounts[check.key] || 0;
+    if (have < need) missing.push({ ...check, have, need, gap: need - have });
+  }
+
+  // If they have all essentials, suggest a stat improvement (weakest stat area)
+  if (!missing.length && myPlayers.length) {
+    // Calculate team stat averages
+    const stats = { attack: 0, serve: 0, defense: 0, setting: 0, athletic: 0 };
+    for (const p of myPlayers) {
+      for (const k of Object.keys(stats)) stats[k] += (+p[k] || 5);
+    }
+    for (const k of Object.keys(stats)) stats[k] /= myPlayers.length;
+    // Find the weakest stat
+    let weakestKey = null, weakestVal = 999;
+    for (const [k, v] of Object.entries(stats)) {
+      if (v < weakestVal) { weakestVal = v; weakestKey = k; }
+    }
+    if (weakestVal < 6.5) {
+      const labels = { attack: 'attacking', serve: 'serving', defense: 'defense/passing', setting: 'setting', athletic: 'athleticism' };
+      return {
+        level: 'improve',
+        text: `✨ Your roster is complete on roles. Your weakest area is <b>${labels[weakestKey]}</b> (avg ${weakestVal.toFixed(1)}) — consider a player who's strong there.`
+      };
+    }
+    return {
+      level: 'good',
+      text: `✅ Your roster looks well-balanced! Pick whoever you want.`
+    };
+  }
+
+  if (!missing.length) return null;
+
+  // Build the tip. If they have very few picks left, be urgent.
+  const urgent = missing.length >= remaining;
+  const topMissing = missing[0];   // highest priority missing role
+  const shortList = missing.slice(0, 3);
+  const roleList = shortList.map(m =>
+    `<b>${m.label}</b>${m.gap > 1 ? ` ×${m.gap}` : ''}`
+  ).join(', ');
+
+  let text;
+  if (urgent) {
+    text = `⚠️ <b>Only ${remaining} pick${remaining !== 1 ? 's' : ''} left</b> and you still need: ${roleList}. Prioritize these!`;
+  } else if (missing.length === 1) {
+    text = `💡 You could still use a ${topMissing.label}. ${topMissing.msg}`;
+  } else {
+    text = `💡 You might want to grab: ${roleList}. Most important: ${topMissing.msg}`;
+  }
+  return { level: urgent ? 'urgent' : 'suggest', text };
+}
+
 async function renderMyTurn(onClock, whoHtml) {
   document.getElementById('waiting').classList.add('hidden');
   const m = document.getElementById('my-turn');
@@ -660,6 +749,36 @@ async function renderMyTurn(onClock, whoHtml) {
   const round = Math.floor(state.currentPick / numCaptains) + 1;
   document.getElementById('my-round-info').textContent =
     `Round ${round} of ${state.picksPerTeam} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * numCaptains}`;
+
+  // Roster tip — only show when it's YOUR turn (this render function only runs then)
+  const tipEl = document.getElementById('roster-tip');
+  if (tipEl) {
+    const tip = analyzeRosterAndSuggest(myCaptainIdx);
+    if (tip) {
+      tipEl.innerHTML = tip.text;
+      tipEl.style.display = '';
+      // Color by urgency
+      if (tip.level === 'urgent') {
+        tipEl.style.background = 'rgba(239,68,68,0.15)';
+        tipEl.style.borderLeftColor = '#ef4444';
+        tipEl.style.color = '#fecaca';
+      } else if (tip.level === 'good') {
+        tipEl.style.background = 'rgba(34,197,94,0.12)';
+        tipEl.style.borderLeftColor = '#22c55e';
+        tipEl.style.color = '#bbf7d0';
+      } else if (tip.level === 'improve') {
+        tipEl.style.background = 'rgba(139,92,246,0.12)';
+        tipEl.style.borderLeftColor = '#a78bfa';
+        tipEl.style.color = '#ddd6fe';
+      } else {
+        tipEl.style.background = 'rgba(251,191,36,0.12)';
+        tipEl.style.borderLeftColor = '#fbbf24';
+        tipEl.style.color = '#fef3c7';
+      }
+    } else {
+      tipEl.style.display = 'none';
+    }
+  }
 
   const pickedIds = new Set((state.picks || []).map(p => p.playerId));
   const displayOrder = state.displayOrder || state.players.map(p => p.id);

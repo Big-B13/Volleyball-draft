@@ -178,8 +178,33 @@ function rolePriority(slot) {
   if (pos.includes('MB')) return 5;                         // Middle blocker LAST for digs
   return 4;
 }
-function pickReceiver(team, ballX) {
+/** LIBERO SUBSTITUTION RULE (real volleyball 19.3.2):
+ *  A libero rotates in for the middle blocker whenever the MB is in the back row.
+ *  This function returns the back-row players with any MB replaced by the libero.
+ *  If no libero on the team, returns back row as-is. */
+function backRowWithLiberoSub(team) {
   const backRow = [0, 4, 5].map(i => playerAtSpot(team, i)).filter(Boolean);
+  // Find the libero on this team
+  const libero = team.lineup.find(s => {
+    if (!s || !s.player) return false;
+    const pos = (s.player.position || '').split('/');
+    return pos.includes('L');
+  });
+  if (!libero) return backRow;
+  // Replace any middle blocker in back row with the libero (libero plays their defensive spot)
+  const isMiddle = (slot) => (slot.player.position || '').split('/').includes('MB');
+  return backRow.map(slot => {
+    if (isMiddle(slot)) {
+      // Libero substitutes in — inherits the MB's spot for defensive positioning
+      return { ...libero, spot: slot.spot };
+    }
+    return slot;
+  });
+}
+
+function pickReceiver(team, ballX) {
+  // Libero-sub aware back row: MB replaced by libero when they'd be receiving
+  const backRow = backRowWithLiberoSub(team);
   let eligible = backRow;
   if (typeof ballX === 'number') {
     eligible = backRow.filter(p => Math.abs(p.spot.x - ballX) < 0.28);
@@ -189,7 +214,6 @@ function pickReceiver(team, ballX) {
   const weights = eligible.map(c => {
     const def = c.player.defense || 5;
     const prio = rolePriority(c);
-    // priority 1 (libero) = 3x, priority 5 (middle) = 0.4x
     const prioMult = 3.0 - (prio - 1) * 0.6;
     return Math.pow(def, 2) * Math.max(0.2, prioMult);
   });
@@ -230,7 +254,88 @@ function isFrontRow(slot) {
  *   - 'normal'  : standard outside/opposite attack
  */
 // ═══════════════════════════════════════════════════════════════════════
-// CAPABILITY GATES — some players physically CAN'T perform certain moves.
+// MOMENTUM SYSTEM — team on a hot streak gets stat boosts. Cold team loses them.
+// ═══════════════════════════════════════════════════════════════════════
+function initMomentum(match) {
+  if (!match.momentum) {
+    match.momentum = {
+      home: { streak: 0, boost: 0 },
+      away: { streak: 0, boost: 0 }
+    };
+  }
+}
+
+/** Return stat boost from momentum for a given side (0, 0.2, 0.5, or 0.8). */
+function momentumBoost(match, side) {
+  if (!match || !match.momentum) return 0;
+  return match.momentum[side].boost;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// COLD STREAK — individual player errors compound into a temporary debuff.
+// Recover after 2 successful plays.
+// ═══════════════════════════════════════════════════════════════════════
+function initPlayerStreaks(match) {
+  if (!match.playerStreaks) match.playerStreaks = {};   // pid → { fails, cleans, penalty }
+}
+
+/** Record that a player MISSED a play (bad pass, missed serve, attack error, etc.) */
+function recordFail(match, pid) {
+  if (!pid) return;
+  initPlayerStreaks(match);
+  const s = match.playerStreaks[pid] || { fails: 0, cleans: 0, penalty: 0 };
+  s.fails++;
+  s.cleans = 0;
+  // 2 fails in a row → -0.5 to their stats. Persists until they redeem.
+  if (s.fails >= 2) s.penalty = 0.5;
+  if (s.fails >= 4) s.penalty = 1.0;   // brutal cold streak
+  match.playerStreaks[pid] = s;
+}
+
+/** Record a successful play (good pass, dig, kill, ace). */
+function recordSuccess(match, pid) {
+  if (!pid) return;
+  initPlayerStreaks(match);
+  const s = match.playerStreaks[pid] || { fails: 0, cleans: 0, penalty: 0 };
+  s.cleans++;
+  if (s.cleans >= 2) {
+    s.penalty = 0;   // redeemed — cold streak broken
+    s.fails = 0;
+  }
+  match.playerStreaks[pid] = s;
+}
+
+/** Get a player's current stat penalty (0 = normal, 0.5 or 1.0 = cold). */
+function playerPenalty(match, pid) {
+  if (!match || !match.playerStreaks || !pid) return 0;
+  return (match.playerStreaks[pid] || {}).penalty || 0;
+}
+
+/** Effective stat = raw stat + team momentum boost - personal cold penalty.
+ *  Clamped 1-10. */
+function effectiveStat(slot, statName, match, side) {
+  if (!slot || !slot.player) return 5;
+  const raw = slot.player[statName] || 5;
+  const boost = momentumBoost(match, side);
+  const penalty = playerPenalty(match, slot.player.id);
+  return Math.max(1, Math.min(10, raw + boost - penalty));
+}
+
+/** Called after a point is scored to update momentum tracking. */
+function updateMomentum(match, winnerSide) {
+  initMomentum(match);
+  const loserSide = winnerSide === 'home' ? 'away' : 'home';
+  match.momentum[winnerSide].streak++;
+  match.momentum[loserSide].streak = 0;
+  match.momentum[loserSide].boost  = 0;   // losing team loses their momentum
+  const streak = match.momentum[winnerSide].streak;
+  match.momentum[winnerSide].boost =
+    streak >= 5 ? 0.8 :
+    streak >= 4 ? 0.5 :
+    streak >= 3 ? 0.2 : 0;
+}
+
+
 // Net is at 200cm (2m). Reach = heightCm + 50 (spike touch above head).
 // If a player's reach doesn't clear the net, they physically can't dump/spike over.
 // Skill stats gate HOW OFTEN they attempt it; height gates WHETHER it's possible at all.
@@ -367,7 +472,9 @@ function pickWithChemistry(candidates, setter) {
     // Bond adds up to 3x weight for a best friend
     // Bond dramatically boosts weight for close teammates:
     //   bond 0.0 → 1x   |  bond 0.3 → 3.4x  |  bond 0.6 → 8.2x  |  bond 1.0 → 17x
-    return Math.pow(atk, 2) * (1 + bond * bond * 16);
+    // Bond boosts weight but doesn't dominate — high-attack players still get plenty of sets
+    //   bond 0.0 → 1x   |  bond 0.5 → 2x  |  bond 0.7 → 3x  |  bond 1.0 → 5x
+    return Math.pow(atk, 2) * (1 + bond * bond * 4);
   });
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
@@ -431,8 +538,10 @@ function pickBlockers(defendingTeam, hitter) {
  *  If ballTarget provided, filters to defenders within `range` of the landing spot. */
 function pickDiggers(defendingTeam, blockers, ballTarget, range = 0.35) {
   const blockerIds = new Set(blockers.map(b => b && b.player.id));
-  const all = [0, 1, 2, 3, 4, 5]
-    .map(i => playerAtSpot(defendingTeam, i))
+  // LIBERO SUBSTITUTION: back-row middles are replaced by the libero for defensive plays.
+  const backRow = backRowWithLiberoSub(defendingTeam);
+  const frontRow = [1, 2, 3].map(i => playerAtSpot(defendingTeam, i)).filter(Boolean);
+  const all = [...frontRow, ...backRow]
     .filter(p => p && !blockerIds.has(p.player.id));
   if (!ballTarget) return all;
   const eligible = all.filter(p => {
@@ -440,7 +549,7 @@ function pickDiggers(defendingTeam, blockers, ballTarget, range = 0.35) {
     const dy = p.spot.y - ballTarget.y;
     return Math.sqrt(dx*dx + dy*dy) < range;
   });
-  return eligible.length ? eligible : all;   // fallback: nobody close, everyone tries
+  return eligible.length ? eligible : all;
 }
 
 // ============ SIMULATE ONE RALLY ============
@@ -464,19 +573,30 @@ export function simulateRally(match) {
     team: servingSide
   });
 
-  // Ace check: server's serve vs receiver's defense (lower base = fewer aces).
-  // Personality: aggressive + confident servers go for it harder → more aces AND more errors.
+  // Ace check: server's SERVE stat vs receiver's DEFENSE stat, with:
+  //   - Momentum boost (server's team hot streak → +0.2 to +0.8 serve)
+  //   - Cold streak penalty (server's personal fails)
+  //   - Aggression bonus (aggressive servers go for aces harder → more aces AND more errors)
+  //   - Confidence clutch bonus at score ≥20
   const serverTr = t(server);
-  const aggBonus = (serverTr.aggression - 0.5) * 0.06;   // ±3%
+  const receiverTr = t(receiver);
+  const aggBonus = (serverTr.aggression - 0.5) * 0.06;
   const bigMoment = match && (match.pointsHome >= 20 || match.pointsAway >= 20);
-  const clutchBonus = bigMoment ? (serverTr.confidence - 0.5) * 0.05 : 0;   // ±2.5% clutch
-  const aceChance = statCheck(server?.player.serve, receiver?.player.defense,
+  const clutchBonus = bigMoment ? (serverTr.confidence - 0.5) * 0.05 : 0;
+  const effServe = effectiveStat(server, 'serve', match, servingSide);
+  const effReceiveDef = effectiveStat(receiver, 'defense', match, servingSide === 'home' ? 'away' : 'home');
+  // Setting stat helps passing too now (touch/ball control)
+  const effReceiveSet = effectiveStat(receiver, 'setting', match, servingSide === 'home' ? 'away' : 'home');
+  const receiverSkill = effReceiveDef * 0.7 + effReceiveSet * 0.3;
+  const aceChance = statCheck(effServe, receiverSkill,
                               0.05 + aggBonus + clutchBonus, 0.35);
   if (aceChance) {
     events.push({
       type: 'ace', actor: server, team: servingSide, target: receiver,
       toSpot: receiver ? receiver.spot : { x: 0.5, y: 0.15 }
     });
+    recordSuccess(match, server?.player?.id);   // ace = server hot
+    recordFail(match, receiver?.player?.id);    // aced on = receiver cold
     return finishPoint(match, events, servingSide);
   }
 
@@ -488,25 +608,52 @@ export function simulateRally(match) {
       type: 'serve-error', actor: server, team: servingSide,
       toSpot: { x: 0.5, y: 0.5 }
     });
+    recordFail(match, server?.player?.id);   // missed serve = cold
     return finishPoint(match, events, servingSide === 'home' ? 'away' : 'home');
   }
 
-  // 2) Pass (reception)
-  events.push({ type: 'pass', actor: receiver, team: servingSide === 'home' ? 'away' : 'home' });
-  // Pass quality: base random + trait bonuses.
-  //  - Passer's DEFENSE stat + HUSTLE improve base
-  //  - CHEMISTRY with the setter improves accuracy (they know each other's tendencies)
-  const receivingTeamRef = servingSide === 'home' ? match.away : match.home;
+  // ══ PASS RECEPTION ══
+  // Passer skill = 70% DEFENSE + 30% SETTING (touch matters for ball control).
+  // Fail chance: high serve stat + low receiver skill = ~15-25% missed pass.
+  // On a miss: rally continues with a bad pass (setter scrambles) or dies on floor.
+  const receivingSide = servingSide === 'home' ? 'away' : 'home';
+  const receivingTeamRef = match[receivingSide];
   const receivingSetter = pickSetter(receivingTeamRef);
   const rTr = t(receiver);
   const chemBonus = receiver && receivingSetter && receiver.player && receivingSetter.player
     ? ((rTr.chemistry || {})[receivingSetter.player.id] || 0) * 0.12
     : 0;
   const hustleBonus = rTr.hustle * 0.10;
-  const passQuality = Math.min(1.0, Math.random() * 0.35 + 0.55 + chemBonus + hustleBonus);
-
-  // 3) Set
-  return continueRally(match, events, servingSide === 'home' ? 'away' : 'home', passQuality);
+  // Effective passer skill (with momentum + cold streak)
+  const passerDef = effectiveStat(receiver, 'defense', match, receivingSide);
+  const passerSet = effectiveStat(receiver, 'setting', match, receivingSide);
+  const passerSkill = passerDef * 0.7 + passerSet * 0.3;
+  // Fail chance = high server + low passer. Base 8% error at even skill.
+  // (effServe/10 - passerSkill/10) shifts from -0.9 to +0.9
+  const skillGap = (effServe / 10) - (passerSkill / 10);
+  const missChance = Math.max(0.02, Math.min(0.35, 0.08 + skillGap * 0.20 - hustleBonus * 0.5));
+  if (Math.random() < missChance) {
+    // BAD PASS — either dies immediately or leaves a really weak set
+    events.push({ type: 'pass-error', actor: receiver, team: receivingSide,
+                  toSpot: { x: receiver.spot.x, y: receiver.spot.y } });
+    recordFail(match, receiver?.player?.id);
+    // 60% chance the ball dies on the floor immediately (dropped pass)
+    if (Math.random() < 0.6) {
+      return finishPoint(match, events, servingSide);
+    }
+    // 40% chance a scrappy setter still gets to it — rally continues with terrible incoming quality
+    events.push({ type: 'pass', actor: receiver, team: receivingSide });
+    return continueRally(match, events, receivingSide, 0.25);
+  }
+  // Good pass
+  events.push({ type: 'pass', actor: receiver, team: receivingSide });
+  recordSuccess(match, receiver?.player?.id);
+  // Pass quality: better passer + hustle + chem → tighter pass → better set
+  const passQuality = Math.min(1.0,
+    Math.random() * 0.25 + 0.45 +
+    (passerSkill - 5) * 0.06 +      // above-avg passer bumps up
+    chemBonus + hustleBonus);
+  return continueRally(match, events, receivingSide, passQuality);
 }
 
 /** Continue the rally on the side that's now attacking */
@@ -638,39 +785,52 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
     return finishPoint(match, events, attackingSide);
   }
 
-  const primaryBlockerDef = effectiveBlockers[0] ? (effectiveBlockers[0].player.defense || 5) : 3;
-  const wallBonus = (wallSize - 1) * 0.3; // small bonus per extra blocker (+0.3 / +0.6)
-  // Reach bonuses scaled to the 200cm net. Blocker reach measured from block-touch (heightCm+40).
-  // Every 15cm above the net (215cm+) gives +1 to their block strength.
+  // ══ BLOCK CALCULATION ══
+  // Blocker skill = 60% DEFENSE + 40% ATHLETIC (jump/timing matters as much as reading).
+  // Wall bonus scales with the number of blockers (2-man block > 1-man).
+  // Reach bonuses scaled to the 200cm net (+1 per 15cm above 215cm reach).
+  const defSide = attackingSide === 'home' ? 'away' : 'home';
+  const primaryBlockerSkill = effectiveBlockers[0]
+    ? (effectiveStat(effectiveBlockers[0], 'defense', match, defSide) * 0.6 +
+       effectiveStat(effectiveBlockers[0], 'athletic', match, defSide) * 0.4)
+    : 3;
+  const wallBonus = (wallSize - 1) * 0.3;
   const reachBonus = effectiveBlockers.reduce((s, b) => {
     const reach = b.player.blockTouchCm || (b.player.heightCm ? b.player.heightCm + 40 : 215);
     return s + Math.max(0, (reach - (NET_HEIGHT_CM + 15)) / 15);
   }, 0) / Math.max(1, wallSize);
-  const attackerEffective = (hitter.player.attack || 5) * setQuality;
+  // Attacker: 100% ATTACK stat × set quality. Cold attackers hit weaker; hot momentum boosts.
+  const effAttack = effectiveStat(hitter, 'attack', match, attackingSide);
+  const attackerEffective = effAttack * setQuality;
   const spikeReach = hitter.player.spikeTouchCm || (hitter.player.heightCm ? hitter.player.heightCm + 50 : 225);
-  // Attackers who reach 20cm+ ABOVE the net get above the wall bonus.
   const attackerReachEdge = Math.max(0, (spikeReach - (NET_HEIGHT_CM + 20)) / 15);
   const blockChance = statCheck(
-    primaryBlockerDef + wallBonus + reachBonus - attackerReachEdge * 0.5,
+    primaryBlockerSkill + wallBonus + reachBonus - attackerReachEdge * 0.5,
     attackerEffective,
-    -0.02,  // very low base — blocks require a real edge
+    -0.02,
     0.35
   );
   if (blockChance) {
     // BLOCK! Primary blocker gets credit but the whole wall reaches up.
     const blocker = effectiveBlockers[0] || effectiveBlockers[Math.floor(Math.random() * effectiveBlockers.length)];
-    // Ball ricochets back onto the hitter's side of the court
+    // "Wipe off the block" chance: strong attackers (attack ≥7) sometimes bounce off blockers
+    // for a rebound they can recover. This gives the ATTACK stat meaning even when blocked.
+    const wipeOffChance = Math.max(0, (effAttack - 6.5) * 0.10);   // atk 7→5%, atk 9→25%
     const hitterSideY = hitter.spot.y > 0.5 ? 0.85 : 0.15;
     events.push({
-      type: 'block', actor: blocker, team: attackingSide === 'home' ? 'away' : 'home', hitter,
-      blockers: effectiveBlockers, // full array so the visual layer can draw the blockwall
+      type: 'block', actor: blocker, team: defSide, hitter,
+      blockers: effectiveBlockers,
       toSpot: { x: hitter.spot.x, y: hitterSideY }
     });
-    // Blocked ball often lands on hitter's side; sometimes recovered on their side. Assume ~70% point for blocker.
-    if (Math.random() < 0.7) {
-      return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
+    recordSuccess(match, blocker?.player?.id);   // blocker hot
+    // If the attacker wipes off: recovered on their side, no fail
+    if (Math.random() < wipeOffChance) {
+      return continueRally(match, events, attackingSide, 0.5);
     }
-    // Recovered by attacker's team — becomes another rally on their side
+    recordFail(match, hitter?.player?.id);   // got stuffed = cold
+    if (Math.random() < 0.7) {
+      return finishPoint(match, events, defSide);
+    }
     return continueRally(match, events, attackingSide, 0.5);
   }
 
@@ -691,6 +851,7 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
         toSpot: { x: hitter.spot.x, y: outOfBoundsY }
       });
     }
+    recordFail(match, hitter?.player?.id);   // hit into net / out = cold
     return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
   }
 
@@ -702,22 +863,25 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   const isBigMoment = match && (match.pointsHome >= 20 || match.pointsAway >= 20);
   const bestDigger = diggers.reduce((best, d) => {
     const tr = t(d);
-    let score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.5;
-    score += tr.hustle * 1.2;                              // hustle adds up to +1.2
-    if (isBigMoment) score += tr.confidence * 0.8;         // clutch factor
-    // Priority boost: Libero (P1) gets a big bonus, Middle (P5) gets a penalty.
-    // This is the doc's "priority resolves overlap" rule for digging.
+    // Effective stats include team momentum + cold penalty
+    const effDef = effectiveStat(d, 'defense', match, defSide);
+    const effAth = effectiveStat(d, 'athletic', match, defSide);
+    let score = effDef + effAth * 0.5;
+    score += tr.hustle * 1.2;
+    if (isBigMoment) score += tr.confidence * 0.8;
+    // Priority: Libero digs everything, Middle rarely digs
     const prio = rolePriority(d);
-    score += (5 - prio) * 0.6;                             // P1: +2.4, P5: 0
+    score += (5 - prio) * 0.6;
     if (!best || score > best.score) return { d, score };
     return best;
   }, null);
   if (bestDigger) {
     const digChance = statCheck(bestDigger.score, attackerEffective * 1.1, 0.35);
     if (digChance) {
-      events.push({ type: 'dig', actor: bestDigger.d, team: attackingSide === 'home' ? 'away' : 'home' });
+      events.push({ type: 'dig', actor: bestDigger.d, team: defSide });
+      recordSuccess(match, bestDigger.d?.player?.id);   // dig = hot
       const digQuality = Math.random() * 0.4 + 0.5;
-      return continueRally(match, events, attackingSide === 'home' ? 'away' : 'home', digQuality, maxTouches);
+      return continueRally(match, events, defSide, digQuality, maxTouches);
     }
   }
 
@@ -726,6 +890,7 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
     ? events[events.length - 1].toSpot
     : pickAttackTarget(defendingTeam);
   events.push({ type: 'kill', actor: hitter, team: attackingSide, toSpot: killLandSpot });
+  recordSuccess(match, hitter?.player?.id);   // kill = hot
   return finishPoint(match, events, attackingSide);
 }
 
@@ -749,10 +914,15 @@ function finishPoint(match, events, winningSide) {
   const prevServing = match.serving;
   if (winningSide === 'home') match.pointsHome++;
   else match.pointsAway++;
+  // Update team momentum (hot streak boost / lose it on point loss)
+  updateMomentum(match, winningSide);
+  const streak = match.momentum ? match.momentum[winningSide].streak : 0;
+  const boost = match.momentum ? match.momentum[winningSide].boost : 0;
   events.push({
     type: 'point',
     team: winningSide,
-    home: match.pointsHome, away: match.pointsAway
+    home: match.pointsHome, away: match.pointsAway,
+    streak, boost   // let the visual layer light up the team on fire
   });
   // Rotate if side-out
   if (prevServing !== winningSide) {

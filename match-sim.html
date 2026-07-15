@@ -240,6 +240,43 @@
     border: 1.5px solid #fbbf24;
     box-shadow: 0 0 6px rgba(251,191,36,0.6);
   }
+  /* HOT STREAK / MOMENTUM — fiery aura around players when team is on a hot streak */
+  .player-circle.hot-lvl1 {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6),
+                0 0 12px rgba(255,140,0,0.7),
+                0 0 20px rgba(255,80,0,0.4);
+    animation: fireFlicker1 1.2s ease-in-out infinite;
+  }
+  .player-circle.hot-lvl2 {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6),
+                0 0 16px rgba(255,120,0,0.9),
+                0 0 28px rgba(255,60,0,0.6);
+    animation: fireFlicker2 1s ease-in-out infinite;
+  }
+  .player-circle.hot-lvl3 {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6),
+                0 0 22px rgba(255,80,0,1),
+                0 0 40px rgba(255,40,0,0.8),
+                0 0 60px rgba(255,0,0,0.4);
+    animation: fireFlicker3 0.6s ease-in-out infinite;
+  }
+  @keyframes fireFlicker1 {
+    0%,100% { filter: drop-shadow(0 0 4px rgba(255,140,0,0.6)); }
+    50%     { filter: drop-shadow(0 0 8px rgba(255,80,0,0.9)); }
+  }
+  @keyframes fireFlicker2 {
+    0%,100% { filter: drop-shadow(0 0 6px rgba(255,120,0,0.8)); }
+    50%     { filter: drop-shadow(0 0 12px rgba(255,60,0,1)); }
+  }
+  @keyframes fireFlicker3 {
+    0%,100% { filter: drop-shadow(0 0 10px rgba(255,80,0,1)) hue-rotate(-5deg); }
+    50%     { filter: drop-shadow(0 0 20px rgba(255,40,0,1)) hue-rotate(5deg); }
+  }
+  /* COLD STREAK — subtle desaturated look on individual struggling players */
+  .player-circle.cold {
+    filter: grayscale(0.4) brightness(0.75);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.7), 0 0 6px rgba(80,120,180,0.4);
+  }
   /* FULL tier synergies get pink outline + brighter glow */
   .player-circle .synergy-badge.full {
     border-color: #f0abfc;
@@ -349,6 +386,21 @@
   @keyframes impactRing {
     0%   { opacity: 0.9; transform: translate(-50%, -50%) scale(0.2); border-width: 4px; }
     100% { opacity: 0;   transform: translate(-50%, -50%) scale(2.2); border-width: 1px; }
+  }
+  /* Rotation badge — appears on the side that just rotated */
+  .rotation-badge {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    color: #fbbf24; font-weight: 900; font-size: 1.4rem;
+    letter-spacing: 3px; text-transform: uppercase;
+    text-shadow: 0 0 12px rgba(0,0,0,1), 0 0 6px rgba(0,0,0,1), 0 2px 4px rgba(0,0,0,1);
+    pointer-events: none; z-index: 15;
+    animation: rotBadge 1.4s ease-out forwards;
+  }
+  @keyframes rotBadge {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.6) rotate(-90deg); }
+    30%  { opacity: 1; transform: translate(-50%, -50%) scale(1.2) rotate(0deg); }
+    70%  { opacity: 1; transform: translate(-50%, -50%) scale(1.0) rotate(0deg); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9) rotate(90deg); }
   }
 
   .controls {
@@ -489,12 +541,17 @@
           <select id="away-team"></select>
         </div>
       </div>
-      <div class="row-btns" style="margin-top: 14px;">
+      <div class="row-btns" style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
         <button onclick="startMatch()">▶️ Start match</button>
+        <button onclick="simulate100Matches()" class="secondary" title="Run 100 headless matches to see predicted win %, common scores, MVPs">
+          📊 Predict outcome (100 matches)
+        </button>
       </div>
       <p id="roster-note" style="color:#94a3b8; font-size:0.8rem; margin-top:10px;">
         Loading rosters…
       </p>
+      <!-- Prediction results panel (hidden until 100-match sim is run) -->
+      <div id="predict-panel" style="display:none; margin-top:16px; padding:16px; background:rgba(15,23,42,0.85); border-radius:8px; border-left:4px solid #fbbf24;"></div>
     </div>
   </div>
 
@@ -686,6 +743,30 @@
   let currentSynergies = { home: [], away: [] };  // active squad bonuses this match
   let setScores = [];   // [{setNum, home, away, winner}] appended when each set finishes
 
+  /** Repaint hot-streak (fire) and cold-streak visuals on every player circle.
+   *  Team momentum drives fire tier (0/1/2/3), player cold streak adds .cold desaturation. */
+  function updateMomentumVisuals(pointEvent) {
+    if (!match) return;
+    const momH = match.momentum ? match.momentum.home : { streak: 0, boost: 0 };
+    const momA = match.momentum ? match.momentum.away : { streak: 0, boost: 0 };
+    const streaks = match.playerStreaks || {};
+    // Determine tier for each side (0 = none, 1 = warm, 2 = hot, 3 = on fire)
+    const fireTier = (streak) => streak >= 5 ? 3 : streak >= 4 ? 2 : streak >= 3 ? 1 : 0;
+    const homeTier = fireTier(momH.streak);
+    const awayTier = fireTier(momA.streak);
+    document.querySelectorAll('.player-circle').forEach(el => {
+      // Clear old tiers
+      el.classList.remove('hot-lvl1','hot-lvl2','hot-lvl3','cold');
+      const pid = el.dataset.pid;
+      const side = el.dataset.side;
+      const tier = side === 'home' ? homeTier : awayTier;
+      if (tier > 0) el.classList.add('hot-lvl' + tier);
+      // Cold streak — individual penalty
+      const penalty = (streaks[pid] || {}).penalty || 0;
+      if (penalty >= 0.5) el.classList.add('cold');
+    });
+  }
+
   function logSynergies(synergies, homeName, awayName) {
     const panel = document.getElementById('log-panel');
     if (!panel) return;
@@ -839,6 +920,10 @@
       chemistryMap
     });
     setScores = [];   // fresh set-score history for this match
+    // Reset rotation state for new match
+    SIDE_ROTATIONS.home = 0;
+    SIDE_ROTATIONS.away = 0;
+    for (const k of Object.keys(ORIGINAL_ZONE)) delete ORIGINAL_ZONE[k];
 
     document.getElementById('setup-card').classList.add('hidden');
     document.getElementById('match-view').classList.remove('hidden');
@@ -886,6 +971,165 @@
     renderHeader();
     scrollLog();
     try { playReveal(); } catch (e) {}
+  };
+
+  /** Run 100 headless matches with the currently selected teams — great for balance testing
+   *  and predicting how a matchup will play out. Shows win %, avg score, top MVPs, etc. */
+  window.simulate100Matches = async () => {
+    const homeIdx = parseInt(document.getElementById('home-team').value);
+    const awayIdx = parseInt(document.getElementById('away-team').value);
+    if (isNaN(homeIdx) || isNaN(awayIdx)) return alert('Pick teams first.');
+    if (homeIdx === awayIdx) return alert('Pick different teams for home and away.');
+    const panel = document.getElementById('predict-panel');
+    panel.style.display = '';
+    panel.innerHTML = `<div style="color:#fbbf24; font-weight:900;">🎲 Running 100 matches…</div>`;
+    // Build rosters once (identical for each of the 100 runs)
+    const usedIds = new Set();
+    const rawHome = getRoster(homeIdx, usedIds);
+    const rawAway = getRoster(awayIdx, usedIds);
+    if (rawHome.length < 6 || rawAway.length < 6) {
+      panel.innerHTML = `<div style="color:#ef4444;">Not enough players to fill both rosters.</div>`;
+      return;
+    }
+    const homeSyn = applySynergiesToRoster(rawHome);
+    const awaySyn = applySynergiesToRoster(rawAway);
+    const homeRoster = homeSyn.boostedRoster;
+    const awayRoster = awaySyn.boostedRoster;
+    let chemistryMap = {};
+    try {
+      const chemBlob = await loadLeagueChemistry(lgSel.value);
+      chemistryMap = buildChemistryMap(chemBlob, PLAYER_TRAITS);
+    } catch (e) {}
+    // Tally results
+    const N = 100;
+    let homeWins = 0, awayWins = 0;
+    const finalSets = { '3-0': 0, '3-1': 0, '3-2': 0, '0-3': 0, '1-3': 0, '2-3': 0 };
+    const playerStats = {};   // pid → { kills, blocks, aces, digs, mvps }
+    const tacticCount = { normal: 0, quick: 0, slide: 0, 'back-row': 0, fake: 0, dumps: 0, tips: 0 };
+    const homeName = leagueCaptains[homeIdx].team;
+    const awayName = leagueCaptains[awayIdx].team;
+
+    // Yield to browser between batches so the UI updates
+    const runBatch = (start, size) => new Promise(resolve => {
+      setTimeout(() => {
+        for (let i = start; i < start + size && i < N; i++) {
+          const m = createMatch({
+            homeTeam: homeRoster, awayTeam: awayRoster,
+            homeName, awayName,
+            homeColor: leagueCaptains[homeIdx].color,
+            awayColor: leagueCaptains[awayIdx].color,
+            chemistryMap
+          });
+          const matchStats = {};
+          while (!m.matchOver) {
+            const events = simulateRally(m);
+            for (const ev of events) {
+              const actorPid = ev.actor?.player?.id;
+              if (actorPid) {
+                if (!matchStats[actorPid]) matchStats[actorPid] = { kills:0, blocks:0, aces:0, digs:0 };
+                if (ev.type === 'kill') matchStats[actorPid].kills++;
+                if (ev.type === 'block') matchStats[actorPid].blocks++;
+                if (ev.type === 'ace') matchStats[actorPid].aces++;
+                if (ev.type === 'dig') matchStats[actorPid].digs++;
+              }
+              if (ev.tactic && tacticCount[ev.tactic] !== undefined) tacticCount[ev.tactic]++;
+              if (ev.type === 'setter-dump') tacticCount.dumps++;
+              if (ev.type === 'tip') tacticCount.tips++;
+            }
+          }
+          // Record match result
+          if (m.setsHome > m.setsAway) homeWins++;
+          else awayWins++;
+          const key = `${m.setsHome}-${m.setsAway}`;
+          if (finalSets[key] !== undefined) finalSets[key]++;
+          // MVP for this match = highest kills + blocks*1.5 + aces*1.5
+          let mvpPid = null, mvpScore = -1;
+          for (const [pid, s] of Object.entries(matchStats)) {
+            const score = s.kills + s.blocks * 1.5 + s.aces * 1.5 + s.digs * 0.5;
+            if (score > mvpScore) { mvpScore = score; mvpPid = pid; }
+            // Accumulate season stats
+            if (!playerStats[pid]) playerStats[pid] = { kills:0, blocks:0, aces:0, digs:0, mvps:0, name: '' };
+            playerStats[pid].kills  += s.kills;
+            playerStats[pid].blocks += s.blocks;
+            playerStats[pid].aces   += s.aces;
+            playerStats[pid].digs   += s.digs;
+          }
+          if (mvpPid) {
+            if (!playerStats[mvpPid]) playerStats[mvpPid] = { kills:0, blocks:0, aces:0, digs:0, mvps:0, name: '' };
+            playerStats[mvpPid].mvps++;
+          }
+        }
+        panel.innerHTML = `<div style="color:#fbbf24; font-weight:900;">🎲 Running matches… ${Math.min(start+size, N)} / ${N}</div>`;
+        resolve();
+      }, 10);
+    });
+
+    // Run in 10 batches of 10 so the UI doesn't freeze
+    for (let b = 0; b < N; b += 10) {
+      await runBatch(b, 10);
+    }
+
+    // Attach player names + sort MVPs
+    for (const pid of Object.keys(playerStats)) {
+      const p = PLAYERS_BY_ID[pid];
+      playerStats[pid].name = p ? (p.name || pid) : pid;
+    }
+    const topMvps = Object.values(playerStats)
+      .filter(s => s.mvps > 0)
+      .sort((a,b) => b.mvps - a.mvps)
+      .slice(0, 5);
+
+    // Render results
+    const homePct = (homeWins / N * 100).toFixed(0);
+    const awayPct = (awayWins / N * 100).toFixed(0);
+    const homeColor = leagueCaptains[homeIdx].color;
+    const awayColor = leagueCaptains[awayIdx].color;
+    const scoreRows = Object.entries(finalSets)
+      .filter(([k,v]) => v > 0)
+      .sort((a,b) => b[1] - a[1])
+      .map(([k,v]) => `<tr><td style="padding:4px 8px;color:#cbd5e1;font-family:monospace;">${k}</td><td style="padding:4px 8px;color:#fbbf24;font-weight:900;">${v}×</td></tr>`)
+      .join('');
+    const mvpRows = topMvps.map((s,i) =>
+      `<tr>
+        <td style="padding:4px 8px;color:#fbbf24;">#${i+1}</td>
+        <td style="padding:4px 8px;color:#e2e8f0;font-weight:700;">${escapeHtml(s.name)}</td>
+        <td style="padding:4px 8px;color:#f0abfc;">${s.mvps} MVP${s.mvps>1?'s':''}</td>
+        <td style="padding:4px 8px;color:#94a3b8;font-size:0.85em;">${s.kills}K · ${s.blocks}B · ${s.aces}A · ${s.digs}D</td>
+      </tr>`).join('');
+
+    panel.innerHTML = `
+      <h3 style="margin-top:0; color:#fbbf24;">📊 100-Match Prediction</h3>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+        <div style="text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:8px; border-top:4px solid ${homeColor};">
+          <div style="color:${homeColor}; font-weight:900; font-size:1.1rem;">${escapeHtml(homeName)}</div>
+          <div style="font-size:2.5rem; font-weight:900; color:#fbbf24; margin:8px 0;">${homePct}%</div>
+          <div style="color:#94a3b8; font-size:0.85rem;">${homeWins} wins</div>
+        </div>
+        <div style="text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:8px; border-top:4px solid ${awayColor};">
+          <div style="color:${awayColor}; font-weight:900; font-size:1.1rem;">${escapeHtml(awayName)}</div>
+          <div style="font-size:2.5rem; font-weight:900; color:#fbbf24; margin:8px 0;">${awayPct}%</div>
+          <div style="color:#94a3b8; font-size:0.85rem;">${awayWins} wins</div>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div>
+          <h4 style="color:#fbbf24; font-size:0.9rem; letter-spacing:1px; text-transform:uppercase; margin:0 0 8px 0;">Most common results</h4>
+          <table style="width:100%; border-collapse:collapse;">${scoreRows}</table>
+        </div>
+        <div>
+          <h4 style="color:#fbbf24; font-size:0.9rem; letter-spacing:1px; text-transform:uppercase; margin:0 0 8px 0;">Top 5 MVPs</h4>
+          <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">${mvpRows || '<tr><td style="color:#94a3b8;">No MVPs recorded</td></tr>'}</table>
+        </div>
+      </div>
+      <div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.1);">
+        <h4 style="color:#fbbf24; font-size:0.9rem; letter-spacing:1px; text-transform:uppercase; margin:0 0 6px 0;">Tactics across ${N} matches</h4>
+        <div style="color:#cbd5e1; font-size:0.85rem; font-family:monospace;">
+          🎭 Dumps: ${tacticCount.dumps} · 🪶 Tips: ${tacticCount.tips} ·
+          ⚡ Quicks: ${tacticCount.quick} · 🏃 Slides: ${tacticCount.slide} ·
+          🎯 Back-row: ${tacticCount['back-row']} · 🎭 Fakes: ${tacticCount.fake}
+        </div>
+      </div>
+    `;
   };
 
   function renderHeader() {
@@ -1047,10 +1291,23 @@
         court.appendChild(circle);
       });
     }
-    // Assign each player to their invisible zone (based on their home rotation spot).
+    // Assign each player to their invisible zone (based on role + current rotation shift).
     // Zones prevent overlap and keep positional roles cleaner.
     assignZones('home');
     assignZones('away');
+    // Snap each circle to its assigned zone's center (so rotations "stick" visually).
+    for (const [pid, zRect] of Object.entries(PLAYER_ZONE)) {
+      const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+      if (!el) continue;
+      const cx = (zRect.xMin + zRect.xMax) / 2;
+      const cy = (zRect.yMin + zRect.yMax) / 2;
+      el.style.transitionDuration = '0s';   // instant snap (no animation on rebuild)
+      el.style.left = (cx * 100) + '%';
+      el.style.top  = (cy * 100) + '%';
+      CURRENT_POS[pid] = { x: cx, y: cy };
+      // Restore transition on next frame so future moves animate normally
+      requestAnimationFrame(() => { el.style.transitionDuration = ''; });
+    }
     // Visualize zones — toggled by the checkbox. Uses role-specific colors so
     // overlapping zones are visible (Libero HUGE, Middle WIDE, Opposite SMALL, etc.)
     court.querySelectorAll('.zone-debug').forEach(el => el.remove());
@@ -1169,6 +1426,10 @@
           setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team
         });
       }
+      // On a point event: update fire/cold visual states based on team momentum + player streaks
+      if (ev.type === 'point') {
+        updateMomentumVisuals(ev);
+      }
       appendLog(formatEvent(ev), classForEvent(ev));
       await animateEvent(ev, prev, next, ball, shadow);
     }
@@ -1178,10 +1439,64 @@
     ['active','jumping','diving','crouching','walking'].forEach(cls => {
       document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
     });
-    // At end of rally, refresh court in case of rotation
+    // Did a rotation happen this rally? Animate the clockwise walk!
+    const rotationEvents = events.filter(e => e.type === 'rotation');
+    for (const rotEv of rotationEvents) {
+      showRotationBadge(rotEv.team);
+      await animateClockwiseRotation(rotEv.team);
+    }
+    // At end of rally, refresh court (renderCourt uses updated SIDE_ROTATIONS)
     renderCourt();
     // Restart idle motion for between-rally moments (subtle)
     startIdleMotion();
+  }
+
+  /** Animate the clockwise rotation walk of all 6 players on `side`.
+   *  Each player moves from their CURRENT zone → the NEXT zone clockwise (Z1→Z6→Z5→Z4→Z3→Z2→Z1).
+   *  Uses direct DOM manipulation (bypasses movePlayerTo's zone clamp so they can walk into
+   *  another zone's rectangle). Increments SIDE_ROTATIONS so subsequent renderCourt calls
+   *  place them there permanently. */
+  async function animateClockwiseRotation(side) {
+    const players = playersOnSide(side);
+    if (!players.length) return;
+    const currentRotations = SIDE_ROTATIONS[side] || 0;
+    const nextRotations = currentRotations + 1;
+    // Compute each player's new zone center
+    const walkMs = Math.max(700, 1400 / speed);
+    let anyMoved = false;
+    for (const p of players) {
+      const orig = ORIGINAL_ZONE[p.pid];
+      if (!orig) continue;
+      const newZoneName = shiftZoneClockwise(orig, nextRotations);
+      const newZoneRect = roleZoneRect(newZoneName, side);
+      if (!newZoneRect) continue;
+      const cx = (newZoneRect.xMin + newZoneRect.xMax) / 2;
+      const cy = (newZoneRect.yMin + newZoneRect.yMax) / 2;
+      const el = document.querySelector(`.player-circle[data-pid="${p.pid}"]`);
+      if (!el) continue;
+      // Direct DOM move — bypasses zone clamp (which would trap them in old zone)
+      el.classList.add('walking');
+      el.style.transition = `left ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), top ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), transform 0.32s cubic-bezier(0.34,1.4,0.64,1), filter 0.3s, box-shadow 0.3s`;
+      el.style.left = (cx * 100) + '%';
+      el.style.top  = (cy * 100) + '%';
+      CURRENT_POS[p.pid] = { x: cx, y: cy };
+      anyMoved = true;
+    }
+    // Now commit the rotation count so renderCourt puts them there permanently
+    SIDE_ROTATIONS[side] = nextRotations;
+    if (anyMoved) await sleep(walkMs + 100);
+  }
+
+  function showRotationBadge(side) {
+    const court = document.getElementById('court');
+    // Remove any old badges first
+    court.querySelectorAll('.rotation-badge').forEach(el => el.remove());
+    const badge = document.createElement('div');
+    badge.className = 'rotation-badge';
+    badge.textContent = '↻ ROTATION';
+    badge.style.left = side === 'home' ? '15%' : '85%';
+    court.appendChild(badge);
+    setTimeout(() => badge.remove(), 1400 / speed);
   }
 
   // Height profile per event type: what height is the ball AT the moment of this touch,
@@ -1195,9 +1510,10 @@
     'kill':         'floor', // ball is on the floor now
     'ace':          'floor',
     'block':        'high',  // hands above net
-    'attack-net':   'high',   // ball collides with the net at spike height
-    'attack-out':   'floor',  // ball flies out of bounds
-    'attack-error': 'floor',  // legacy alias (safety)
+    'attack-net':   'high',
+    'attack-out':   'floor',
+    'attack-error': 'floor',
+    'pass-error':   'floor',   // missed pass — ball drops
     'serve-error':  'floor',
     'dig':          'low',   // often diving/kneeling
     'setter-dump':  'high',  // setter reaches up and pushes it over
@@ -1318,7 +1634,8 @@
     'serve':   'crouching',
     'attack-net':   'jumping',
     'attack-out':   'jumping',
-    'attack-error': 'jumping',   // legacy alias
+    'attack-error': 'jumping',
+    'pass-error':   'diving',    // whiffed on the pass
     'serve-error':  'crouching',
     'setter-dump':  'jumping',  // reaches up to push over
     'tip':          'jumping'   // hitter still jumps, just doesn't swing hard
@@ -1349,12 +1666,13 @@
         // Uses force=true to bypass zone clamp. Court overflow is set to visible.
         target = { x: side === 'home' ? -0.05 : 1.05, y: center.y };
         break;
-      case 'pass': {
+      case 'pass':
+      case 'pass-error': {
         // Passer moves within their zone toward the ball's incoming y
         let ty = center.y;
         if (prevEv && prevEv.actor && prevEv.actor.spot) {
           const from = toScreen(prevEv.actor.spot);
-          ty = center.y + (from.y - center.y) * 0.4;   // 40% pull toward the ball
+          ty = center.y + (from.y - center.y) * 0.4;
         }
         target = { x: center.x, y: ty };
         break;
@@ -1518,43 +1836,58 @@
   const PLAYER_ZONE = {};        // pid → zone bounds (with priority + row + roleKey)
   const PLAYER_ZONE_NAME = {};   // pid → 'setter' | 'opp' | 'middle' | 'outside' | 'leftBack' | 'libero'
 
-  /** Assign each player on a side to their VOLLEYBALL zone by role.
-   *  Role-based assignment — each player gets a zone matching their volleyball role.
-   *  If 2 players share a role (e.g. 2 middles), one gets the primary slot and the
-   *  other overflows to the closest remaining role zone. */
+  /** Clockwise cycle order: Z1 → Z6 → Z5 → Z4 → Z3 → Z2 → Z1
+   *  Real volleyball rotation direction (viewed from above). */
+  const ZONE_CYCLE = ['setter', 'libero', 'leftBack', 'outside', 'middle', 'opp'];
+
+  /** Per-side rotation count. Increments each time that side wins a side-out. */
+  const SIDE_ROTATIONS = { home: 0, away: 0 };
+
+  /** ORIGINAL role zone per player (based on their volleyball position). Never changes. */
+  const ORIGINAL_ZONE = {};
+
+  /** Given original zone + rotations, return CURRENT zone name. */
+  function shiftZoneClockwise(originalZoneName, rotations) {
+    const idx = ZONE_CYCLE.indexOf(originalZoneName);
+    if (idx < 0) return originalZoneName;
+    return ZONE_CYCLE[(idx + rotations) % ZONE_CYCLE.length];
+  }
+
+  /** Assign each player to their zone. Uses their ORIGINAL role zone shifted CLOCKWISE
+   *  by SIDE_ROTATIONS[side] steps — so after each rotation, everyone occupies the next
+   *  zone in the clockwise cycle. */
   function assignZones(side) {
     const players = playersOnSide(side);
     const roleClaimed = new Set();
+    const rotations = SIDE_ROTATIONS[side] || 0;
 
-    // Preferred role zone per player (based on classifyRole)
     const roleForClassified = {
-      setter: 'setter',
-      opp:    'opp',
-      mb1:    'middle',
-      mb2:    'middle',
-      oh1:    'outside',
-      oh2:    'outside',
+      setter: 'setter', opp: 'opp',
+      mb1: 'middle', mb2: 'middle',
+      oh1: 'outside', oh2: 'outside',
       libero: 'libero'
     };
 
-    // Pass 1: everyone gets their preferred role zone if it's free
+    // Pass 1: determine each player's ORIGINAL (pre-rotation) role zone.
+    // Only compute this on the first assignment or if not set (persists across rotations).
     for (const p of players) {
-      const cls = classifyRole(p.pid);
-      const roleKey = roleForClassified[cls];
-      if (roleKey && !roleClaimed.has(roleKey)) {
-        PLAYER_ZONE[p.pid] = roleZoneRect(roleKey, side);
-        PLAYER_ZONE_NAME[p.pid] = roleKey;
-        roleClaimed.add(roleKey);
+      if (!ORIGINAL_ZONE[p.pid]) {
+        const cls = classifyRole(p.pid);
+        const roleKey = roleForClassified[cls];
+        if (roleKey && !roleClaimed.has(roleKey)) {
+          ORIGINAL_ZONE[p.pid] = roleKey;
+          roleClaimed.add(roleKey);
+        }
+      } else {
+        roleClaimed.add(ORIGINAL_ZONE[p.pid]);
       }
     }
-
-    // Pass 2: unassigned players (duplicate roles) fill remaining slots by closest home
-    const unassigned = players.filter(p => !PLAYER_ZONE_NAME[p.pid]);
+    // Pass 2: overflow players (duplicate roles) get closest free zone
+    const unassigned = players.filter(p => !ORIGINAL_ZONE[p.pid]);
     const allRoles = Object.keys(ROLE_ZONES_HOME);
     for (const p of unassigned) {
       const free = allRoles.filter(r => !roleClaimed.has(r));
       if (!free.length) continue;
-      // Pick the free role whose home is closest to this player's rotation home
       let best = free[0], bestD = Infinity;
       for (const roleKey of free) {
         const zRect = roleZoneRect(roleKey, side);
@@ -1563,9 +1896,17 @@
         const d = Math.hypot(p.home.x - cx, p.home.y - cy);
         if (d < bestD) { bestD = d; best = roleKey; }
       }
-      PLAYER_ZONE[p.pid] = roleZoneRect(best, side);
-      PLAYER_ZONE_NAME[p.pid] = best;
+      ORIGINAL_ZONE[p.pid] = best;
       roleClaimed.add(best);
+    }
+
+    // Pass 3: apply rotation shift — assign CURRENT zone based on original + rotations
+    for (const p of players) {
+      const orig = ORIGINAL_ZONE[p.pid];
+      if (!orig) continue;
+      const currentZoneName = shiftZoneClockwise(orig, rotations);
+      PLAYER_ZONE[p.pid] = roleZoneRect(currentZoneName, side);
+      PLAYER_ZONE_NAME[p.pid] = currentZoneName;
     }
   }
 
@@ -1739,9 +2080,9 @@
         // Serve terminated. Positions stay as-is (rally ends).
         break;
       case 'pass':
-        // We just received. Setter is running to target, hitters back off for approach.
+      case 'pass-error':
+        // We received (or tried to). Setter runs to target, hitters back off for approach.
         moveTeamToFormation(side, 'attack_ready', actorPid);
-        // Opposing team switches to DEFENSE BASE (reading incoming attack)
         moveTeamToFormation(otherSide, 'defense_base', null);
         break;
       case 'set':
@@ -1798,7 +2139,7 @@
     const currActorId = ev.actor && ev.actor.player ? ev.actor.player.id : null;
     const prevActorId = prevEv && prevEv.actor && prevEv.actor.player ? prevEv.actor.player.id : null;
     const nextActorId = nextEv && nextEv.actor && nextEv.actor.player ? nextEv.actor.player.id : null;
-    const isTerminating = ['kill','ace','block','attack-net','attack-out','attack-error','serve-error','setter-dump','tip'].includes(ev.type);
+    const isTerminating = ['kill','ace','block','attack-net','attack-out','attack-error','pass-error','serve-error','setter-dump','tip'].includes(ev.type);
     const skipPhase1 = currActorId && prevActorId && currActorId === prevActorId;
 
     // Non-visual events (point, rotation, set-won, match-won, etc.) — just a small beat
@@ -1966,10 +2307,11 @@
     const burst = document.createElement('div');
     const label = {
       'kill': 'KILL!', 'ace': 'ACE!', 'block': 'BLOCK!', 'dig': 'DIG!',
-      'attack-out':   'OUT!',   // hit past the endline / sideline
-      'attack-net':   'NET!',   // hit into the net
-      'attack-error': 'OUT!',   // legacy fallback
-      'serve-error':  'NET!',   // serve into the net
+      'attack-out':   'OUT!',
+      'attack-net':   'NET!',
+      'attack-error': 'OUT!',
+      'pass-error':   'MISS!',   // missed pass
+      'serve-error':  'NET!',
       'setter-dump':  'DUMP!',
       'tip':          'TIP!'
     }[ev.type] || '';
@@ -2023,8 +2365,15 @@
       case 'dig':   return `🛡 DUG by ${name(ev.actor)}`;
       case 'attack-net':   return `🧱 ${name(ev.actor)} hits it INTO THE NET (NET!)`;
       case 'attack-out':   return `❌ ${name(ev.actor)} hits it out of bounds (OUT!)`;
+      case 'pass-error':   return `😬 ${name(ev.actor)} missed the pass!`;
       case 'attack-error': return `❌ ${name(ev.actor)} attack error`;   // legacy fallback
-      case 'point': return `▶ Point ${ev.team === 'home' ? match.home.name : match.away.name} (${ev.home}-${ev.away})`;
+      case 'point': {
+        const teamName = ev.team === 'home' ? match.home.name : match.away.name;
+        const flame = (ev.streak >= 5) ? ' 🔥🔥🔥 ON FIRE!' :
+                      (ev.streak >= 4) ? ' 🔥🔥 STREAK!' :
+                      (ev.streak >= 3) ? ' 🔥 hot streak' : '';
+        return `▶ Point ${teamName} (${ev.home}-${ev.away})${flame}`;
+      }
       case 'rotation': return `  ↺ ${ev.team === 'home' ? match.home.name : match.away.name} rotates`;
       case 'set-won': {
         const winnerName = ev.team === 'home' ? match.home.name : match.away.name;
