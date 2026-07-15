@@ -1093,16 +1093,29 @@
       const idx = (0 + servingTeam.rotationOffset) % 6;
       serverSlot = servingTeam.lineup[idx];
     }
-    // Move the server OUTSIDE the court immediately (behind their endline).
-    // Home serves from x=-0.05 (left of court), Away serves from x=1.05 (right of court).
+    // Move the server OUTSIDE the court immediately — INSTANT snap, no walk animation.
+    // (Between rallies is a natural break, so teleport is fine and prevents the "ball at
+    //  outside spot but player still walking" bug.)
     let serveOriginX = 0.5, serveOriginY = 0.5;
     if (serverSlot && serverSlot.player) {
       const isHome = match.serving === 'home';
       const serverHome = HOME_POS[serverSlot.player.id];
       serveOriginX = isHome ? -0.05 : 1.05;
       serveOriginY = serverHome ? serverHome.y : 0.5;
-      // Snap server to that spot (bypass zone clamp with force=true)
-      movePlayerTo(serverSlot.player.id, serveOriginX, serveOriginY, true);
+      // Snap server INSTANTLY to that spot (bypass zone clamp + transition)
+      const serverEl = document.querySelector(`.player-circle[data-pid="${serverSlot.player.id}"]`);
+      if (serverEl) {
+        // Kill the walk animation for this snap
+        serverEl.style.transitionDuration = '0s';
+        serverEl.style.left = (serveOriginX * 100) + '%';
+        serverEl.style.top  = (serveOriginY * 100) + '%';
+        CURRENT_POS[serverSlot.player.id] = { x: serveOriginX, y: serveOriginY };
+        WALK_TIMES[serverSlot.player.id] = 0;
+        // Restore transition on next frame so future moves animate normally
+        requestAnimationFrame(() => {
+          serverEl.style.transitionDuration = '';
+        });
+      }
     }
     // Ball starts in the server's hand (same position, behind the endline)
     ball.style.left = (serveOriginX * 100) + '%';
@@ -1245,14 +1258,10 @@
   async function performServeCeremony(ev, ball, shadow, actorEl) {
     if (!ev.actor || !ev.actor.player || !ball) return;
     const pid = ev.actor.player.id;
-    // Where the server is standing
-    const servePos = predictContactPos(ev, null);
+    // Use the server's ACTUAL current position (set by renderCourt as an instant snap).
+    // This guarantees the ball is exactly where the server is standing.
+    const servePos = CURRENT_POS[pid] || predictContactPos(ev, null);
     if (!servePos) return;
-    // Make sure the server is AT their serve position first (BEHIND the endline, outside court)
-    movePlayerTo(pid, servePos.x, servePos.y, true);
-    const walkMs = WALK_TIMES[pid] || 0;
-    // Wait for server to arrive
-    await sleep(Math.min(walkMs + 100, 1200 / speed));
 
     // Place ball on the server (start of ceremony)
     setBallPos(ball, shadow, { x: servePos.x, y: servePos.y }, 200 / speed);
