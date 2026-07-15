@@ -223,6 +223,30 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.5);
     z-index: 4; pointer-events: none;
   }
+  /* Synergy badges — cluster on bottom of circle when player is in an active squad */
+  .player-circle .synergy-badges {
+    position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 2px; z-index: 4; pointer-events: none;
+    animation: synergyPulse 2s ease-in-out infinite;
+  }
+  .player-circle .synergy-badge {
+    background: rgba(15,23,42,0.95);
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem;
+    border: 1.5px solid #fbbf24;
+    box-shadow: 0 0 6px rgba(251,191,36,0.6);
+  }
+  /* FULL tier synergies get pink outline + brighter glow */
+  .player-circle .synergy-badge.full {
+    border-color: #f0abfc;
+    box-shadow: 0 0 8px rgba(240,171,252,0.9), 0 0 14px rgba(240,171,252,0.5);
+    background: linear-gradient(135deg, rgba(240,171,252,0.15), rgba(15,23,42,0.95));
+  }
+  @keyframes synergyPulse {
+    0%, 100% { filter: drop-shadow(0 0 3px rgba(251,191,36,0.5)); }
+    50%      { filter: drop-shadow(0 0 8px rgba(251,191,36,0.9)); }
+  }
   /* Fallback initials when no photo */
   .player-circle .initials {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -307,6 +331,7 @@
   }
   .action-burst.kill  { color: #22ff88; }
   .action-burst.ace   { color: #ffd93d; }
+  .action-burst.trick { color: #f0abfc; }  /* setter dumps & tips: pink/magenta for trick shots */
   .action-burst.block { color: #c084fc; }
   .action-burst.dig   { color: #60d3ff; }
   .action-burst.error { color: #ff5f5f; }
@@ -360,6 +385,8 @@
     <a href="./index.html">🏠 Home</a>
     <a href="./standings.html">📊 Standings</a>
     <a href="./player-stats.html">🌟 Player stats</a>
+    <a href="./chemistry.html">💚 Chemistry</a>
+    <a href="./synergies.html">⚡ Synergies</a>
     <a href="./match-sim.html" class="active">🎮 Match Sim</a>
   </nav>
 
@@ -440,7 +467,9 @@
   import { escapeHtml, shuffle } from "./js/util.js";
   import { createMatch, simulateRally, playerAtSpot } from "./js/match-engine.js";
   import { getAllPlayers } from "./js/players.js";
-  import { photoPathFor, getInitials } from "./js/data.js";
+  import { photoPathFor, getInitials, traitsFor, PLAYER_TRAITS } from "./js/data.js";
+  import { loadLeagueChemistry, buildChemistryMap, formatChemistry, chemistryScore } from "./js/chemistry.js";
+  import { applySynergiesToRoster, synergyChemistryFloor } from "./js/synergies.js";
   import { PHOTO_CONFIG } from "./js/photo-config.js";
   import { playPick, playYourTurn, playReveal } from "./js/sounds.js";
 
@@ -562,6 +591,27 @@
   // ============ SIM RUNTIME ============
   let match = null;
   let paused = false;
+  let currentChemistryBlob = {};  // raw Firebase chemistry blob for the loaded league
+  let currentSynergies = { home: [], away: [] };  // active squad bonuses this match
+
+  function logSynergies(synergies, homeName, awayName) {
+    const panel = document.getElementById('log-panel');
+    if (!panel) return;
+    for (const [side, arr] of [['home', synergies.home], ['away', synergies.away]]) {
+      if (!arr.length) continue;
+      const teamName = side === 'home' ? homeName : awayName;
+      for (const { synergy, activeMembers, tier } of arr) {
+        const div = document.createElement('div');
+        div.className = 'log-entry setwon';
+        div.style.color = tier === 'full' ? '#f0abfc' : '#fbbf24';
+        const tierTag = tier === 'full'
+          ? `<span style="color:#f0abfc;background:rgba(240,171,252,0.2);padding:1px 6px;border-radius:4px;font-size:0.7rem;margin-left:6px">🌟 FULL SQUAD (${activeMembers.length}/${synergy.players.length})</span>`
+          : `<span style="color:#94a3b8;font-size:0.75rem">(${activeMembers.length}/${synergy.players.length})</span>`;
+        div.innerHTML = `${synergy.icon} <b>${synergy.name}</b> active for ${escapeHtml(teamName)} ${tierTag} — ${synergy.description}`;
+        panel.appendChild(div);
+      }
+    }
+  }
   let speed = 1;
   let rallyTimer = null;
   let idleTimer = null;   // interval for subtle player sway animation
@@ -572,6 +622,10 @@
   // can be aimed at their ACTUAL location, not their rotation home — fixes the ball/player
   // disconnect bug where the ball missed the player after they walked.
   const CURRENT_POS = {};
+  // Time (ms) the last movePlayerTo() call will take for each player. Used so Phase 2
+  // can wait for the player to arrive before releasing the ball — prevents "ball there,
+  // player 5 miles away" bug.
+  const WALK_TIMES = {};
 
   /** Every ~1.5s, nudge each player-circle by a tiny random offset via CSS variables.
    *  Very subtle — just enough that nobody looks frozen. Doesn't fight the walking/jumping. */
@@ -593,14 +647,34 @@
     if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
   }
 
-  /** Move a player's circle to a new screen position (0..1). Smooth 0.55s transition. */
+  /** Move a player's circle to a new screen position (0..1).
+   *  Transition time is proportional to distance AND scales with sim speed, so at 4× speed
+   *  players don't lag behind the ball. Returns the actual walk time in ms. */
   function movePlayerTo(pid, screenX, screenY) {
     const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
-    if (!el) return;
+    if (!el) return 0;
+    // Compute distance from current position
+    const from = CURRENT_POS[pid] || { x: screenX, y: screenY };
+    const dx = screenX - from.x, dy = screenY - from.y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    // Player speed: ~0.9 court units per second at 1× speed → ~1100ms per unit
+    // Scale by sim speed so at 4× speed players still keep up with the ball
+    const speedFactor = 1100 / speed;
+    const walkMs = Math.max(120, d * speedFactor);   // 120ms floor for tiny shifts
     el.classList.add('walking');
+    el.style.transitionDuration = (walkMs / 1000) + 's';
+    // Also set the left/top transitions individually (overrides the CSS default)
+    el.style.setProperty('transition',
+      `left ${walkMs/1000}s cubic-bezier(0.4, 0.0, 0.2, 1), ` +
+      `top ${walkMs/1000}s cubic-bezier(0.4, 0.0, 0.2, 1), ` +
+      `transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1), ` +
+      `filter 0.3s, box-shadow 0.3s`);
     el.style.left = (screenX * 100) + '%';
     el.style.top  = (screenY * 100) + '%';
     CURRENT_POS[pid] = { x: screenX, y: screenY };
+    // Track the walk time for this player so Phase 2 knows how long to wait
+    WALK_TIMES[pid] = walkMs;
+    return walkMs;
   }
   /** Snap a player back to their home spot (rotation position). */
   function restorePlayer(pid) {
@@ -613,23 +687,58 @@
     Object.keys(HOME_POS).forEach(pid => restorePlayer(pid));
   }
 
-  window.startMatch = () => {
+  window.startMatch = async () => {
     const homeIdx = parseInt(document.getElementById('home-team').value);
     const awayIdx = parseInt(document.getElementById('away-team').value);
     if (isNaN(homeIdx) || isNaN(awayIdx)) return alert('Pick a team for both home and away.');
     if (homeIdx === awayIdx) return alert('Pick different teams for home and away.');
     const usedIds = new Set();
-    const homeRoster = getRoster(homeIdx, usedIds);
-    const awayRoster = getRoster(awayIdx, usedIds);
-    if (homeRoster.length < 6) return alert(`Home team only has ${homeRoster.length} players (need 6). Not enough players in the pool.`);
-    if (awayRoster.length < 6) return alert(`Away team only has ${awayRoster.length} players (need 6). Not enough players in the pool.`);
+    const rawHomeRoster = getRoster(homeIdx, usedIds);
+    const rawAwayRoster = getRoster(awayIdx, usedIds);
+    if (rawHomeRoster.length < 6) return alert(`Home team only has ${rawHomeRoster.length} players (need 6). Not enough players in the pool.`);
+    if (rawAwayRoster.length < 6) return alert(`Away team only has ${rawAwayRoster.length} players (need 6). Not enough players in the pool.`);
+
+    // ═══ Apply SYNERGIES (squad bonuses) to each roster BEFORE creating the match ═══
+    const homeSynResult = applySynergiesToRoster(rawHomeRoster);
+    const awaySynResult = applySynergiesToRoster(rawAwayRoster);
+    const homeRoster = homeSynResult.boostedRoster;
+    const awayRoster = awaySynResult.boostedRoster;
+    currentSynergies = {
+      home: homeSynResult.activeSynergies,
+      away: awaySynResult.activeSynergies
+    };
+    logSynergies(currentSynergies, leagueCaptains[homeIdx].team, leagueCaptains[awayIdx].team);
+
+    // Load persistent chemistry for this league and merge with preset personal bonds
+    let chemistryMap = {};
+    try {
+      const chemBlob = await loadLeagueChemistry(lgSel.value);
+      chemistryMap = buildChemistryMap(chemBlob, PLAYER_TRAITS);
+      currentChemistryBlob = chemBlob;
+      // Overlay synergy chemistry floors — squadmates snap to at least their squad's floor
+      for (const syn of [...currentSynergies.home, ...currentSynergies.away]) {
+        const floor = syn.synergy.boost?.chemistryFloor || 0;
+        if (!floor) continue;
+        for (const pA of syn.activeMembers) {
+          for (const pB of syn.activeMembers) {
+            if (pA === pB) continue;
+            if (!chemistryMap[pA]) chemistryMap[pA] = {};
+            chemistryMap[pA][pB] = Math.max(chemistryMap[pA][pB] || 0, floor);
+          }
+        }
+      }
+      console.log('[chemistry] Loaded map for', Object.keys(chemistryMap).length, 'players');
+    } catch (e) {
+      console.warn('[chemistry] Failed to load, using presets only:', e);
+    }
 
     match = createMatch({
       homeTeam: homeRoster, awayTeam: awayRoster,
       homeName: leagueCaptains[homeIdx].team,
       awayName: leagueCaptains[awayIdx].team,
       homeColor: leagueCaptains[homeIdx].color,
-      awayColor: leagueCaptains[awayIdx].color
+      awayColor: leagueCaptains[awayIdx].color,
+      chemistryMap
     });
 
     document.getElementById('setup-card').classList.add('hidden');
@@ -704,6 +813,7 @@
     // Reset position maps for the new lineup
     for (const k of Object.keys(HOME_POS)) delete HOME_POS[k];
     for (const k of Object.keys(CURRENT_POS)) delete CURRENT_POS[k];
+    for (const k of Object.keys(WALK_TIMES)) delete WALK_TIMES[k];
     // Update side labels with team names
     document.getElementById('side-label-home').textContent = match.home.name;
     document.getElementById('side-label-home').style.color = match.home.color;
@@ -777,20 +887,51 @@
         // Rich hover label showing the actual stats driving the sim
         const statLine = `ATK ${(+p.attack||5).toFixed(1)} · SRV ${(+p.serve||5).toFixed(1)} · DEF ${(+p.defense||5).toFixed(1)} · SET ${(+p.setting||5).toFixed(1)} · ATH ${(+p.athletic||5).toFixed(1)}`;
         const heightLine = p.heightCm ? `${p.heightCm}cm · ${p.position || 'OH'}` : (p.position || 'OH');
+        // Personality traits (0..1 sliders that shape behavior)
+        const tr = traitsFor(p.id);
+        const traitBar = (v) => '▓'.repeat(Math.round(v * 5)) + '░'.repeat(5 - Math.round(v * 5));
+        const traitLine = `AGG ${traitBar(tr.aggression)}  SHOW ${traitBar(tr.showboat)}  HUS ${traitBar(tr.hustle)}`;
+        // Top-3 chemistry teammates (from persistent Firebase blob)
+        const teammatesOnField = team.lineup
+          .map(s => s?.player).filter(x => x && x.id !== p.id);
+        const chemsList = teammatesOnField
+          .map(tm => ({ pid: tm.id, name: tm.nickname || tm.name,
+                        score: chemistryScore(p.id, tm.id, currentChemistryBlob,
+                                              (traitsFor(p.id).chemistry || {}),
+                                              (traitsFor(tm.id).chemistry || {})) }))
+          .filter(c => c.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+        const chemLine = chemsList.length
+          ? '💚 ' + chemsList.map(c => `${escapeHtml(c.name)} ${c.score}`).join(' · ')
+          : '';
 
         // Jump height scales with athletic stat (5=default 20px, 8=28px, 3=14px)
         const athletic = +p.athletic || 5;
         const jumpPx = Math.round(14 + (athletic - 3) * 3); // 3→14px, 5→20px, 8→29px
         circle.style.setProperty('--jump-height', `-${jumpPx}px`);
 
+        // Synergy badges attached by applySynergiesToRoster
+        const synBadges = p._synergyBadges || [];
+        const synIconsHtml = synBadges.map(b =>
+          `<span class="synergy-badge ${b.tier === 'full' ? 'full' : ''}" title="${escapeHtml(b.name)}${b.tier === 'full' ? ' (FULL SQUAD)' : ''}">${b.icon}</span>`
+        ).join('');
+        const synLine = synBadges.length
+          ? '⚡ ' + synBadges.map(b => `${b.icon} ${escapeHtml(b.name)}${b.tier === 'full' ? ' 🌟' : ''}`).join(' · ')
+          : '';
+
         circle.innerHTML = `
           <span class="initials">${escapeHtml(getInitials(p.name))}</span>
           <span class="num" style="color:${team.color}">${p.jerseyNum || '?'}</span>
           ${isElite ? `<span class="elite-badge" title="Overall ${overall.toFixed(1)}">★</span>` : ''}
+          ${synIconsHtml ? `<span class="synergy-badges">${synIconsHtml}</span>` : ''}
           <div class="label">
             <div class="label-name">${escapeHtml(p.nickname || p.name)}</div>
             <div class="label-sub">${escapeHtml(heightLine)}</div>
             <div class="label-stats">${statLine}</div>
+            <div class="label-stats" style="color:#c084fc;">${traitLine}</div>
+            ${chemLine ? `<div class="label-stats" style="color:#4ade80;">${chemLine}</div>` : ''}
+            ${synLine ? `<div class="label-stats" style="color:#fbbf24; font-weight:900;">${synLine}</div>` : ''}
           </div>
         `;
         court.appendChild(circle);
@@ -879,18 +1020,19 @@
     'block':        'high',  // hands above net
     'attack-error': 'floor',
     'serve-error':  'floor',
-    'dig':          'low'    // often diving/kneeling
+    'dig':          'low',   // often diving/kneeling
+    'setter-dump':  'high',  // setter reaches up and pushes it over
+    'tip':          'high'   // hitter jumps but softly places
   };
-  // Height mid-flight (between this contact and the next). If a ball travels from setter (high)
-  // to attacker (high), it arcs — pick 'high'. Pass upward to setter = 'high'. Attack to
-  // opponent = attacker sends it hard, but the ball rises then falls — call it 'high'.
   const HEIGHT_MIDFLIGHT_AFTER = {
-    'serve':  'high',  // serve arcs high
-    'pass':   'high',  // pass arcs up to setter
-    'set':    'high',  // set arcs up to hitter
-    'attack': 'high',  // spike travels above net then falls
-    'dig':    'high',  // dig pops up
-    'block':  'low',   // ricochet, comes down quick
+    'serve':       'high',
+    'pass':        'high',
+    'set':         'high',
+    'attack':      'high',
+    'dig':         'high',
+    'block':       'low',
+    'setter-dump': 'mid',   // dumps float over the net
+    'tip':         'mid'    // tips float gently
   };
 
   function setBallHeight(ball, shadow, level) {
@@ -945,7 +1087,9 @@
     'dig':     'diving',
     'serve':   'crouching',
     'attack-error': 'jumping',
-    'serve-error':  'crouching'
+    'serve-error':  'crouching',
+    'setter-dump':  'jumping',  // reaches up to push over
+    'tip':          'jumping'   // hitter still jumps, just doesn't swing hard
   };
 
   /** Predict where the actor will physically be at the moment of their contact.
@@ -959,58 +1103,95 @@
     const side = actorHome.side;
     const isHome = side === 'home';
     const netDir = isHome ? +1 : -1;
+    const role = classifyRole(actorPid);
+    // Where would this player END UP based on formation for this event type?
+    // We use the formation spot directly so ball & player converge exactly.
+    function formationSpot(formationName) {
+      const f = FORMATIONS[formationName];
+      if (!f || !f[role]) return null;
+      return mirrorForSide(f[role], side);
+    }
 
     switch (ev.type) {
-      case 'serve':
+      case 'serve': {
+        // Server is at their serve position (behind endline)
         return { x: isHome ? 0.06 : 0.94, y: actorHome.y };
+      }
       case 'pass': {
-        let targetY = actorHome.y;
+        // Passer runs from their serve_receive formation spot toward the ball's y
+        const base = formationSpot('serve_receive') || { x: actorHome.x + netDir * 0.05, y: actorHome.y };
+        let targetY = base.y;
         if (prevEv && prevEv.actor && prevEv.actor.spot) {
           const from = toScreen(prevEv.actor.spot);
-          targetY = actorHome.y + (from.y - actorHome.y) * 0.4;
+          // Passer adjusts within their zone toward incoming ball (small adjustment)
+          const cap = 0.10;
+          const rawDy = (from.y - base.y) * 0.3;
+          targetY = base.y + Math.max(-cap, Math.min(cap, rawDy));
         }
-        return { x: actorHome.x + netDir * 0.05, y: targetY };
+        return { x: base.x, y: Math.max(0.08, Math.min(0.92, targetY)) };
       }
-      case 'set':
-        return { x: isHome ? 0.44 : 0.56, y: 0.5 };
+      case 'set': {
+        // Setter always ends at target zone (formation spot for setter in attack_ready)
+        const base = formationSpot('attack_ready');
+        return base || { x: isHome ? 0.44 : 0.56, y: 0.5 };
+      }
       case 'attack':
       case 'kill':
       case 'attack-error':
-        // MEETUP POINT: right at the net, at the spiker's home y.
-        // This is FIXED — the ball goes here AND the spiker runs here. They meet.
-        return { x: isHome ? 0.46 : 0.54, y: actorHome.y };
-      case 'ace':
-        // Ace = serve that lands. Same actor as the serve, so keep them at serve position.
+      case 'tip': {
+        // Attacker (or tipper) at their pin position at the net.
+        // BACK-ROW attack: hitter takes off from behind the 3m line, not at the net.
+        const netX = isHome ? 0.46 : 0.54;
+        let attackY = actorHome.y;
+        if (role === 'oh1')  attackY = 0.20;
+        else if (role === 'oh2')  attackY = 0.80;
+        else if (role === 'opp')  attackY = 0.72;
+        else if (role === 'mb1' || role === 'mb2') attackY = 0.50;
+        else if (role === 'setter') attackY = 0.50;
+        // If this is a back-row attack, take off ~10% behind the net instead of AT the net
+        if (ev.tactic === 'back-row') {
+          return { x: isHome ? 0.34 : 0.66, y: attackY };
+        }
+        return { x: netX, y: attackY };
+      }
+      case 'setter-dump': {
+        // Setter tips from their target zone position (already at the net)
+        const base = formationSpot('attack_ready');
+        return base || { x: isHome ? 0.44 : 0.56, y: 0.5 };
+      }
+      case 'ace': {
         return { x: isHome ? 0.06 : 0.94, y: actorHome.y };
+      }
       case 'block': {
-        // Blocker moves to the net at the hitter's y — but capped so they don't teleport
-        // across the whole court (a blocker can shuffle ~15% along the net max).
-        let hitterY = actorHome.y;
-        if (ev.hitter && ev.hitter.spot) hitterY = toScreen(ev.hitter.spot).y;
-        else if (prevEv && prevEv.actor && prevEv.actor.spot) hitterY = toScreen(prevEv.actor.spot).y;
-        const cap = 0.18;
-        const rawDy = hitterY - actorHome.y;
-        const blockY = actorHome.y + Math.max(-cap, Math.min(cap, rawDy));
-        return { x: isHome ? 0.48 : 0.52, y: blockY };
+        // Blocker moves to their defense_block formation spot at the net
+        const base = formationSpot('defense_block');
+        if (!base) return { x: isHome ? 0.48 : 0.52, y: actorHome.y };
+        // Optionally shift Y slightly toward the hitter's y for a mobile block
+        let blockY = base.y;
+        if (ev.hitter && ev.hitter.spot) {
+          const hy = toScreen(ev.hitter.spot).y;
+          const cap = 0.10;
+          const rawDy = (hy - base.y) * 0.5;
+          blockY = base.y + Math.max(-cap, Math.min(cap, rawDy));
+        }
+        return { x: base.x, y: Math.max(0.08, Math.min(0.92, blockY)) };
       }
       case 'dig': {
-        // Digger moves toward where the ball is coming from, but CLAMPED to their own side
-        // of the net and capped at a realistic travel distance (~15% of court).
-        let targetX = actorHome.x;
-        let targetY = actorHome.y;
+        // Digger dives from their defense_block position toward the ball
+        const base = formationSpot('defense_block') || { x: actorHome.x, y: actorHome.y };
+        let targetX = base.x;
+        let targetY = base.y;
         if (prevEv && prevEv.actor && prevEv.actor.spot) {
           const from = toScreen(prevEv.actor.spot);
-          // Pull toward the ball's incoming trajectory, capped
-          const cap = 0.15;
-          const rawDx = (from.x - actorHome.x) * 0.4;
-          const rawDy = (from.y - actorHome.y) * 0.4;
-          targetX = actorHome.x + Math.max(-cap, Math.min(cap, rawDx));
-          targetY = actorHome.y + Math.max(-cap, Math.min(cap, rawDy));
+          const cap = 0.12;
+          const rawDx = (from.x - base.x) * 0.35;
+          const rawDy = (from.y - base.y) * 0.35;
+          targetX = base.x + Math.max(-cap, Math.min(cap, rawDx));
+          targetY = base.y + Math.max(-cap, Math.min(cap, rawDy));
         }
-        // Clamp to own side of net (with a small buffer so they don't touch it)
+        // Clamp: stay on own side of net
         if (isHome) targetX = Math.min(targetX, 0.46);
         else        targetX = Math.max(targetX, 0.54);
-        // Clamp to court bounds
         targetY = Math.max(0.08, Math.min(0.92, targetY));
         return { x: targetX, y: targetY };
       }
@@ -1033,59 +1214,204 @@
 
   /** Move the actor + supporting cast into position for a given event.
    *  Returns the actor's contact position (same as predictContactPos). */
+  // ═══════════════════════════════════════════════════════════════════════
+  // VOLLEYBALL MOVEMENT SYSTEM  (based on real volleyball mechanics + Big-B's design doc)
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // ROLES (auto-classified per player):
+  //   setter   - runs offense, always heads to net-front-middle "target zone"
+  //   oh1/oh2  - outside hitters, attack from left pin (both sides)
+  //   opp      - opposite hitter, attacks from right pin
+  //   mb1/mb2  - middle blockers, attack quick middle & lead the block
+  //   libero   - defensive specialist, back-row anchor, best passer
+  //
+  // FORMATIONS (whole-team movement patterns triggered by phase, not by event):
+  //   serve_prep      - our team about to serve. Server behind endline, rest in base.
+  //   serve_receive   - opponent served. Passers form arc, setter releases to target.
+  //   attack_ready    - we have the ball, building attack. Hitters back off for approach.
+  //   defense_base    - opponent has the ball, mid-play. Ready-to-read positioning.
+  //   defense_block   - opponent about to spike. 3-blocker wall + perimeter dig.
+  //   transition      - just made contact, need to switch offense↔defense.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /** Classify a player's on-court role from their position string + home coords. */
+  function classifyRole(pid) {
+    const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+    const home = HOME_POS[pid];
+    if (!el || !home) return 'other';
+    const roleStr = (el.dataset.role || '').toUpperCase();
+    if (roleStr.split('/').includes('S')) return 'setter';
+    if (roleStr.split('/').includes('L') || roleStr.split('/').includes('DS')) return 'libero';
+    if (roleStr.split('/').includes('OP')) return 'opp';
+    if (roleStr.split('/').includes('MB')) return home.y < 0.5 ? 'mb1' : 'mb2';
+    if (roleStr.split('/').includes('OH')) return home.y < 0.5 ? 'oh1' : 'oh2';
+    // Fallback by home position
+    if (home.y < 0.35) return 'oh1';
+    if (home.y > 0.65) return 'oh2';
+    return 'mb1';
+  }
+
+  /** All 6 formations. Coords are for HOME side (x < 0.5). Mirrored for away. */
+  const FORMATIONS = {
+    // Our team is about to serve — server behind endline, others in ready base
+    serve_prep: {
+      setter:  { x: 0.32, y: 0.40 },
+      oh1:     { x: 0.30, y: 0.20 },
+      oh2:     { x: 0.30, y: 0.80 },
+      opp:     { x: 0.32, y: 0.60 },
+      mb1:     { x: 0.42, y: 0.35 },
+      mb2:     { x: 0.42, y: 0.65 },
+      libero:  { x: 0.22, y: 0.50 }
+    },
+    // Opponent served — 3 passers form arc, setter releases to target zone at net
+    // Front-row hitters near net for quick attack, setter runs to (0.44, 0.50)
+    serve_receive: {
+      setter:  { x: 0.44, y: 0.50 },   // target zone: front-middle at net
+      oh1:     { x: 0.22, y: 0.28 },   // passer, curved arc position
+      oh2:     { x: 0.22, y: 0.72 },   // passer, curved arc position
+      opp:     { x: 0.42, y: 0.72 },   // opposite stages near net (right side attack)
+      mb1:     { x: 0.42, y: 0.35 },   // middle blocker near net, ready for quick
+      mb2:     { x: 0.42, y: 0.65 },   // second MB near net
+      libero:  { x: 0.20, y: 0.50 }    // libero is the middle-back passer (center of arc)
+    },
+    // We have the ball, setter about to set — hitters SPREAD OUT for 4-step approach
+    attack_ready: {
+      setter:  { x: 0.44, y: 0.50 },
+      oh1:     { x: 0.15, y: 0.20 },   // OH1 backed off far corner (approach runway)
+      oh2:     { x: 0.15, y: 0.80 },   // OH2 backed off far corner
+      opp:     { x: 0.42, y: 0.75 },   // opposite stages right-back for slide/backset
+      mb1:     { x: 0.30, y: 0.45 },   // MB1 stages middle-front for quick
+      mb2:     { x: 0.30, y: 0.60 },   // MB2 slightly separated
+      libero:  { x: 0.18, y: 0.50 }    // libero holds middle-back for cover
+    },
+    // Opponent has ball, we're reading — perimeter base defense
+    defense_base: {
+      setter:  { x: 0.30, y: 0.80 },   // setter drops back-right to prep transition
+      oh1:     { x: 0.44, y: 0.28 },   // front-row OH near net, ready to block
+      oh2:     { x: 0.18, y: 0.75 },   // back-row OH in perimeter defense (left-back)
+      opp:     { x: 0.44, y: 0.72 },   // opposite front-row, ready to block right side
+      mb1:     { x: 0.44, y: 0.50 },   // MB at net, primary blocker
+      mb2:     { x: 0.20, y: 0.20 },   // back-row MB perimeter (right-back-ish)
+      libero:  { x: 0.16, y: 0.50 }    // libero deep-middle-back
+    },
+    // Opponent about to spike — commit to block wall + perimeter dig positions
+    defense_block: {
+      setter:  { x: 0.28, y: 0.82 },   // deep-back-right for tip coverage + transition
+      oh1:     { x: 0.48, y: 0.28 },   // wall left blocker
+      oh2:     { x: 0.20, y: 0.75 },   // left-back digger (perimeter)
+      opp:     { x: 0.48, y: 0.72 },   // wall right blocker
+      mb1:     { x: 0.48, y: 0.50 },   // wall middle (primary)
+      mb2:     { x: 0.20, y: 0.20 },   // right-back digger (perimeter)
+      libero:  { x: 0.16, y: 0.50 }    // deep-middle-back digger
+    }
+  };
+
+  function mirrorForSide(pos, side) {
+    if (side === 'home') return pos;
+    return { x: 1 - pos.x, y: pos.y };
+  }
+
+  /** Move an ENTIRE TEAM into a named formation. Skips actor (they have their own target). */
+  function moveTeamToFormation(side, formationName, skipPid) {
+    const formation = FORMATIONS[formationName];
+    const players = playersOnSide(side);
+    if (!formation) {
+      // Base = everyone home
+      players.forEach(p => {
+        if (p.pid === skipPid) return;
+        movePlayerTo(p.pid, p.home.x, p.home.y);
+      });
+      return;
+    }
+    // Track which spots have been assigned to avoid overlap (2 MBs both want mb1 slot)
+    const usedSpots = new Set();
+    players.forEach(p => {
+      if (p.pid === skipPid) return;
+      let role = classifyRole(p.pid);
+      // If this role's spot is taken (e.g. 2 MBs, only 1 mb1 slot), try alt
+      if (usedSpots.has(role)) {
+        if (role === 'mb1') role = 'mb2';
+        else if (role === 'mb2') role = 'mb1';
+        else if (role === 'oh1') role = 'oh2';
+        else if (role === 'oh2') role = 'oh1';
+      }
+      const spot = formation[role];
+      if (!spot) return;
+      usedSpots.add(role);
+      const mirrored = mirrorForSide(spot, side);
+      movePlayerTo(p.pid, mirrored.x, mirrored.y);
+    });
+  }
+
+  /** Choreograph movement for a given event.
+   *  Whole-team formations by rally phase, actor to their contact position. */
   function choreographMovement(ev, prevEv) {
     const target = predictContactPos(ev, prevEv);
     if (!target) return null;
     const actorPid = ev.actor.player.id;
-    const actorHome = HOME_POS[actorPid];
-    const side = actorHome.side;
-    const isHome = side === 'home';
+    const side = HOME_POS[actorPid].side;
+    const otherSide = side === 'home' ? 'away' : 'home';
 
-    // Move the actor to their contact position
+    // Actor to their contact position
     movePlayerTo(actorPid, target.x, target.y);
 
-    // Supporting cast movements per event type
-    if (ev.type === 'pass') {
-      // Front-row OUTSIDE hitters back off HARD toward the endline for a proper spike approach
-      const backX = isHome ? 0.14 : 0.86;
-      playersOnSide(side).forEach(p => {
-        if (p.pid === actorPid) return;
-        const isFront = Math.abs(p.home.x - 0.5) < 0.28;
-        if (isFront && (p.role.includes('OH') || p.role.includes('OP'))) {
-          movePlayerTo(p.pid, backX, p.home.y);
-        }
-      });
+    // Phase-based team formations
+    switch (ev.type) {
+      case 'serve':
+        // We're serving: server steps up (target). Rest of our team in serve_prep base.
+        // Receiving team gets in SERVE_RECEIVE formation.
+        moveTeamToFormation(side, 'serve_prep', actorPid);
+        moveTeamToFormation(otherSide, 'serve_receive', null);
+        break;
+      case 'ace':
+      case 'serve-error':
+        // Serve terminated. Positions stay as-is (rally ends).
+        break;
+      case 'pass':
+        // We just received. Setter is running to target, hitters back off for approach.
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        // Opposing team switches to DEFENSE BASE (reading incoming attack)
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
+      case 'set':
+        // Setter has the ball. Team fully in attack_ready. Defenders commit to DEFENSE BASE.
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
+      case 'attack':
+      case 'kill':
+      case 'attack-error':
+        // Attacker running to net. Team still attack_ready (they cover in case of block).
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        // Defenders COMMIT to block wall + perimeter dig
+        moveTeamToFormation(otherSide, 'defense_block', null);
+        break;
+      case 'setter-dump':
+        // Sneaky attack from the setter — defenders are still in defense_base (surprise!)
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
+      case 'tip':
+        // Same visual as attack — hitter jumps, but sends it soft
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_block', null);
+        break;
+      case 'block':
+        // Block happened. Wall stays, back row covers tips. Attacker team stays in cover.
+        moveTeamToFormation(side, 'defense_block', actorPid);
+        moveTeamToFormation(otherSide, 'attack_ready', null);
+        break;
+      case 'dig':
+        // Dug! We're now on offense. Digger's team switches to attack_ready.
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
     }
     return target;
   }
 
-  /** Pre-position the defending block wall when the opponent is about to attack.
-   *  Squeezes all 3 front-row blockers TIGHT at the net, centered on the hitter's y. */
-  function proactivePositioning(ev) {
-    if (!(ev.type === 'attack' || ev.type === 'kill' || ev.type === 'attack-error')) return;
-    if (!ev.actor || !ev.actor.spot || !match) return;
-    const attackerScreen = toScreen(ev.actor.spot);
-    const attackerOnHome = ev.actor.spot.y > 0.5;
-    const defSide = attackerOnHome ? 'away' : 'home';
-    const defIsHome = defSide === 'home';
-    const netX = defIsHome ? 0.48 : 0.52;
-
-    const wall = playersOnSide(defSide)
-      .filter(p => Math.abs(p.home.x - 0.5) < 0.28)
-      .sort((a, b) => a.home.y - b.home.y);
-
-    if (!wall.length) return;
-
-    // Tight wall: centered on hitter's y, 0.14 spacing so circles overlap slightly (feels like a wall)
-    const spacing = 0.14;
-    const hitterY = attackerScreen.y;
-    const startY = hitterY - ((wall.length - 1) / 2) * spacing;
-    wall.forEach((p, i) => {
-      let wallY = startY + i * spacing;
-      wallY = Math.max(0.08, Math.min(0.92, wallY));
-      movePlayerTo(p.pid, netX, wallY);
-    });
-  }
+  /** Legacy stub — team-wide formations in choreographMovement now handle this. */
+  function proactivePositioning(ev) { /* no-op */ }
 
   async function animateEvent(ev, prevEv, nextEv, ball, shadow) {
     // Base tempo per touch — slower feels more like real volleyball
@@ -1097,7 +1423,7 @@
     const currActorId = ev.actor && ev.actor.player ? ev.actor.player.id : null;
     const prevActorId = prevEv && prevEv.actor && prevEv.actor.player ? prevEv.actor.player.id : null;
     const nextActorId = nextEv && nextEv.actor && nextEv.actor.player ? nextEv.actor.player.id : null;
-    const isTerminating = ['kill','ace','block','attack-error','serve-error'].includes(ev.type);
+    const isTerminating = ['kill','ace','block','attack-error','serve-error','setter-dump','tip'].includes(ev.type);
     const skipPhase1 = currActorId && prevActorId && currActorId === prevActorId;
 
     // Non-visual events (point, rotation, set-won, match-won, etc.) — just a small beat
@@ -1152,16 +1478,20 @@
     // Also pre-position the defending block wall when this event is an attack
     proactivePositioning(ev);
 
-    // --- PHASE 2: ball travels TO the actor's actual position (not their engine home) ---
-    // Ball's transition duration is distance-proportional; we await its actual time.
+    // --- PHASE 2: ball travels TO the actor's position ---
+    // KEY FIX: ball flight MUST wait long enough for the actor to actually get there.
+    // Otherwise you see "player 5 miles away but ball at spot" — the classic disconnect.
     if (!skipPhase1 && actorContactPos && ball) {
-      // Give the player a short head start so they're already running when the ball flies
-      await sleep(stepMs * 0.12);
-      const flightMs = setBallPos(ball, shadow, actorContactPos, stepMs * 0.35);
+      // Short head-start so the player begins running before the ball leaves
+      await sleep(Math.min(120, stepMs * 0.12));
+      const actorWalkMs = WALK_TIMES[currActorId] || 0;
+      // Ball must arrive AFTER the player is settled (30ms buffer for stance)
+      const minFlight = actorWalkMs + 30;
+      const flightMs = setBallPos(ball, shadow, actorContactPos, Math.max(stepMs * 0.35, minFlight));
       setBallHeight(ball, shadow, contactLevel);
       if (actorEl) actorEl.classList.add('active');
-      // Trigger STANCE (jump/dive/crouch) just before the ball arrives → timed contact
-      const stanceDelay = Math.max(80, flightMs * 0.55);
+      // Trigger STANCE right BEFORE contact so timing looks clean
+      const stanceDelay = Math.max(80, flightMs * 0.75);
       setTimeout(() => {
         if (actorEl && stance) actorEl.classList.add(stance);
         wallEls.forEach(el => el.classList.add('jumping'));
@@ -1185,32 +1515,17 @@
     }
 
     // --- PHASE 3: ball flies to the MEETUP POINT for the next event ---
-    // We compute exactly where the next player will make contact and aim the ball there,
-    // AND move the next player toward that same spot at the same time — they converge.
+    // Start the next player running to the meetup point NOW (parallel with ball flight),
+    // then set the ball's flight time to WAIT for them if they can't get there in time.
     let destScreen = null;
+    let nextPlayerWalkMs = 0;
     if (nextEv && nextEv.actor && nextEv.actor.player && nextActorId !== currActorId) {
-      destScreen = predictContactPos(nextEv, ev);   // pass CURRENT ev as prev
-      // Start the next player moving toward the meetup point NOW (in parallel with the ball flight)
+      destScreen = predictContactPos(nextEv, ev);
       if (destScreen) {
-        // Move the next actor early so they arrive at the meetup point around the same time as the ball
-        movePlayerTo(nextActorId, destScreen.x, destScreen.y);
-        // Also fire the supporting cast (e.g. back-off) for the next event immediately
-        if (nextEv.type === 'pass') {
-          // Trigger the OH back-off during the pass ball flight, not after
-          const nextActorHome = HOME_POS[nextActorId];
-          if (nextActorHome) {
-            const nSide = nextActorHome.side;
-            const nIsHome = nSide === 'home';
-            const backX = nIsHome ? 0.14 : 0.86;
-            playersOnSide(nSide).forEach(p => {
-              if (p.pid === nextActorId) return;
-              const isFront = Math.abs(p.home.x - 0.5) < 0.28;
-              if (isFront && (p.role.includes('OH') || p.role.includes('OP'))) {
-                movePlayerTo(p.pid, backX, p.home.y);
-              }
-            });
-          }
-        }
+        // Trigger the next event's team formation early so everyone starts moving
+        choreographMovement(nextEv, ev);
+        // Get the walk time the next actor will need (movePlayerTo returned this into WALK_TIMES)
+        nextPlayerWalkMs = WALK_TIMES[nextActorId] || 0;
       }
     } else if (ev.toSpot) {
       destScreen = toScreen(ev.toSpot);
@@ -1219,7 +1534,10 @@
     if (destScreen && ball) {
       const midHeight = HEIGHT_MIDFLIGHT_AFTER[ev.type] || 'mid';
       setBallHeight(ball, shadow, midHeight);
-      phase3FlightMs = setBallPos(ball, shadow, destScreen, stepMs * 0.35);
+      // Ball can't arrive faster than the player can get there.
+      // Add a tiny buffer (30ms) so player settles into stance before contact.
+      const minFlight = nextPlayerWalkMs + 30;
+      phase3FlightMs = setBallPos(ball, shadow, destScreen, Math.max(stepMs * 0.35, minFlight));
     }
 
     // Hold stance through the follow-through, but at least until the ball has cleared this player.
@@ -1260,10 +1578,14 @@
     const burst = document.createElement('div');
     const label = {
       'kill': 'KILL!', 'ace': 'ACE!', 'block': 'BLOCK!', 'dig': 'DIG!',
-      'attack-error': 'OUT!', 'serve-error': 'NET!'
+      'attack-error': 'OUT!', 'serve-error': 'NET!',
+      'setter-dump': 'DUMP!', 'tip': 'TIP!'
     }[ev.type] || '';
     const cls = ['kill','ace'].includes(ev.type) ? ev.type
-      : ev.type === 'block' ? 'block' : ev.type === 'dig' ? 'dig' : 'error';
+      : ev.type === 'block' ? 'block'
+      : ev.type === 'dig' ? 'dig'
+      : (ev.type === 'setter-dump' || ev.type === 'tip') ? 'trick'
+      : 'error';
     burst.className = 'action-burst ' + cls;
     burst.textContent = label;
     // Scale animation duration to speed so bursts don't outlast rallies at 4× (fixes ERROR bug)
@@ -1292,9 +1614,18 @@
       case 'ace':   return `⚡ ACE! ${name(ev.actor)} — untouchable serve`;
       case 'serve-error': return `❌ ${name(ev.actor)} serves into the net (NET!)`;
       case 'pass':  return `  ↳ ${name(ev.actor)} receives`;
-      case 'set':   return `  ↳ ${name(ev.actor)} sets`;
+      case 'set': {
+        const tag = ev.tactic === 'quick' ? ' (quick)'
+                  : ev.tactic === 'slide' ? ' (slide)'
+                  : ev.tactic === 'back-row' ? ' (back-row)'
+                  : ev.tactic === 'fake' ? ' 🎭 (fake to ' + name({player: ev.decoy?.player}) + ')'
+                  : '';
+        return `  ↳ ${name(ev.actor)} sets${tag}`;
+      }
       case 'attack': return `  ↳ ${name(ev.actor)} swings…`;
       case 'kill':  return `💥 KILL by ${name(ev.actor)}`;
+      case 'setter-dump': return `🎭 SETTER DUMP by ${name(ev.actor)}!`;
+      case 'tip':   return `🪶 TIP by ${name(ev.actor)}`;
       case 'block': return `🧱 BLOCKED by ${name(ev.actor)}`;
       case 'dig':   return `🛡 DUG by ${name(ev.actor)}`;
       case 'attack-error': return `❌ ${name(ev.actor)} hits it out of bounds (OUT!)`;

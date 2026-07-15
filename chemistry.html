@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team Chemistry — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:16px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+  .chem-team { background: rgba(15,23,42,0.7); border-radius: 12px; padding: 16px; margin-bottom: 16px; border-top: 4px solid #fbbf24; }
+  .chem-team h3 { margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px; }
+  .chem-matrix { display: grid; gap: 4px; }
+  .chem-row {
+    display: grid; grid-template-columns: 140px 1fr 60px; gap: 8px; align-items: center;
+    padding: 6px 8px; background: rgba(30,41,59,0.5); border-radius: 6px;
+  }
+  .chem-row .pair-names { font-size: 0.85rem; font-weight: 700; color: #e2e8f0; }
+  .chem-bar-wrap { background: rgba(0,0,0,0.4); border-radius: 999px; height: 12px; overflow: hidden; position: relative; }
+  .chem-bar { height: 100%; background: linear-gradient(90deg, #f43f5e 0%, #f59e0b 50%, #22c55e 100%); transition: width 0.5s ease; }
+  .chem-score { font-family: monospace; font-weight: 900; text-align: right; color: #fbbf24; }
+  .chem-meta { font-size: 0.7rem; color: #94a3b8; margin-left: 8px; }
+  .chem-legend { font-size: 0.85rem; color: #94a3b8; margin-bottom: 16px; text-align: center; }
+  .chem-legend strong { color: #fbbf24; }
+  .chem-empty { color: #94a3b8; text-align: center; padding: 24px; }
+  select { max-width: 400px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./standings.html">📊 Standings</a>
+    <a href="./player-stats.html">🌟 Player stats</a>
+    <a href="./chemistry.html" class="active">💚 Chemistry</a>
+    <a href="./synergies.html">⚡ Synergies</a>
+    <a href="./match-sim.html">🎮 Match Sim</a>
+  </nav>
+
+  <h1><span class="emoji">💚</span> TEAM CHEMISTRY</h1>
+  <p class="tagline">Bonds grow with every match played together. Wins boost more than losses.</p>
+
+  <div class="card">
+    <label>League</label>
+    <select id="league-select"></select>
+    <div class="chem-legend">
+      <strong>0-20</strong> strangers · <strong>20-40</strong> teammates · <strong>40-60</strong> in sync
+      <br><strong>60-80</strong> chemistry · <strong>80-100</strong> unbreakable bond
+      <br><br>+3 per shared match, +2 win bonus, +5 draft bond (one-time), max 100
+    </div>
+  </div>
+
+  <div id="chem-view"></div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { listLeagues, ensureGomiCupSeeded, currentLeagueId, getLeague } from "./js/leagues.js";
+  import { db, ref, get } from "./js/firebase-init.js";
+  import { loadLeagueChemistry, chemistryScore, formatChemistry, pairKey } from "./js/chemistry.js";
+  import { traitsFor, PLAYER_TRAITS } from "./js/data.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { escapeHtml } from "./js/util.js";
+
+  await ensureGomiCupSeeded();
+  const leagues = await listLeagues();
+  const lgSel = document.getElementById('league-select');
+  const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
+  lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  lgSel.addEventListener('change', renderChemistry);
+
+  const ALL_PLAYERS = await getAllPlayers();
+  const PLAYERS_BY_ID = Object.fromEntries(ALL_PLAYERS.map(p => [p.id, p]));
+
+  async function renderChemistry() {
+    const leagueId = lgSel.value;
+    const chemBlob = await loadLeagueChemistry(leagueId);
+    const league = await getLeague(leagueId);
+    if (!league) {
+      document.getElementById('chem-view').innerHTML = '<div class="chem-empty">League not found</div>';
+      return;
+    }
+
+    // Find most recent completed draft for roster mapping
+    const draftsSnap = await get(ref(db, 'drafts'));
+    const drafts = draftsSnap.val() || {};
+    let latest = null;
+    for (const d of Object.values(drafts)) {
+      if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
+      if (d.status !== 'complete') continue;
+      if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+    }
+
+    const view = document.getElementById('chem-view');
+    if (!latest || !latest.captains) {
+      view.innerHTML = '<div class="card chem-empty">No completed draft in this league yet. Chemistry will start tracking once teams are drafted.</div>';
+      return;
+    }
+
+    // Build rosters per team
+    const teams = latest.captains.map((cap, i) => {
+      const roster = (latest.picks || []).filter(p => p.captainIdx === i).map(p => p.playerId);
+      if (cap.linkedPlayerId) roster.unshift(cap.linkedPlayerId);
+      return { cap, roster };
+    });
+
+    let html = '';
+    for (const { cap, roster } of teams) {
+      // Compute all pair chemistries
+      const pairs = [];
+      for (let i = 0; i < roster.length; i++) {
+        for (let j = i + 1; j < roster.length; j++) {
+          const pA = PLAYERS_BY_ID[roster[i]];
+          const pB = PLAYERS_BY_ID[roster[j]];
+          if (!pA || !pB) continue;
+          const score = chemistryScore(pA.id, pB.id, chemBlob,
+                                       (traitsFor(pA.id).chemistry || {}),
+                                       (traitsFor(pB.id).chemistry || {}));
+          const key = pairKey(pA.id, pB.id);
+          const record = chemBlob[key] || {};
+          pairs.push({ pA, pB, score, games: record.gamesPlayed || 0, wins: record.matchesWon || 0 });
+        }
+      }
+      pairs.sort((a, b) => b.score - a.score);
+
+      html += `
+        <div class="chem-team" style="border-top-color:${cap.color}">
+          <h3 style="color:${cap.color}">🏐 ${escapeHtml(cap.team)} <span style="color:#94a3b8;font-weight:400;font-size:0.8rem">(${cap.name})</span></h3>
+          <div class="chem-matrix">
+            ${pairs.map(p => `
+              <div class="chem-row">
+                <div class="pair-names" title="${escapeHtml(p.pA.name)} + ${escapeHtml(p.pB.name)}">
+                  ${escapeHtml((p.pA.nickname || p.pA.name).slice(0, 12))}
+                  <span style="color:#94a3b8">+</span>
+                  ${escapeHtml((p.pB.nickname || p.pB.name).slice(0, 12))}
+                </div>
+                <div class="chem-bar-wrap">
+                  <div class="chem-bar" style="width:${p.score}%"></div>
+                </div>
+                <div class="chem-score">
+                  ${p.score}
+                  <div class="chem-meta">${p.games}g / ${p.wins}w</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+    view.innerHTML = html;
+  }
+
+  await renderChemistry();
+</script>
+</body>
+</html>

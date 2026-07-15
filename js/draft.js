@@ -741,6 +741,28 @@ async function draftPlayer(playerId, autoPick = false) {
     });
     if (result && result.committed) {
       playPick();
+      // If the draft just completed, seed chemistry between teammates (one-time bond bonus)
+      const finalState = result.snapshot ? result.snapshot.val() : null;
+      if (finalState && finalState.status === 'complete') {
+        try {
+          const { recordDraftForChemistry } = await import('./chemistry.js');
+          const leagueId = finalState.leagueId || 'gomi-cup';
+          // Build rosters: for each captain, gather their picks + their own linked player id
+          const captains = finalState.captains || [];
+          const picks = finalState.picks || [];
+          for (let ci = 0; ci < captains.length; ci++) {
+            const cap = captains[ci];
+            const roster = picks.filter(p => p.captainIdx === ci).map(p => p.playerId);
+            if (cap.linkedPlayerId) roster.push(cap.linkedPlayerId);
+            if (roster.length >= 2) {
+              await recordDraftForChemistry(leagueId, roster);
+            }
+          }
+          console.log('[chemistry] Seeded draft bonds for', captains.length, 'teams');
+        } catch (err) {
+          console.warn('[chemistry] Failed to seed draft bonds:', err);
+        }
+      }
     }
   } catch (e) {
     console.error(e);

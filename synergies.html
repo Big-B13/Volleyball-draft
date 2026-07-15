@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squad Synergies — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:16px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+  .synergy-card {
+    background: linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.9));
+    border: 2px solid rgba(251,191,36,0.4);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  }
+  .synergy-card h3 {
+    display: flex; align-items: center; gap: 12px; margin: 0 0 8px 0;
+    color: #fbbf24; font-size: 1.3rem;
+  }
+  .synergy-card h3 .icon { font-size: 2rem; }
+  .synergy-desc { color: #cbd5e1; font-size: 0.9rem; margin-bottom: 12px; }
+  .synergy-members { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .member-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; background: rgba(30,41,59,0.6); border-radius: 999px;
+    font-size: 0.85rem; color: #e2e8f0; border: 1px solid rgba(255,255,255,0.1);
+  }
+  .member-chip.avatar {
+    width: 24px; height: 24px; border-radius: 50%; background-size: cover; background-position: center 30%;
+    border: 2px solid #fbbf24;
+  }
+  .synergy-boost {
+    display: flex; flex-wrap: wrap; gap: 8px; font-family: monospace; font-size: 0.85rem;
+  }
+  .boost-pill {
+    padding: 3px 10px; background: rgba(34,197,94,0.15); border-radius: 6px;
+    color: #4ade80; border: 1px solid rgba(74,222,128,0.3); font-weight: 700;
+  }
+  .synergy-req { font-size: 0.75rem; color: #94a3b8; margin-top: 8px; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./standings.html">📊 Standings</a>
+    <a href="./chemistry.html">💚 Chemistry</a>
+    <a href="./synergies.html" class="active">⚡ Synergies</a>
+    <a href="./match-sim.html">🎮 Match Sim</a>
+  </nav>
+
+  <h1><span class="emoji">⚡</span> SQUAD SYNERGIES</h1>
+  <p class="tagline">Special team-ups. Draft the right combo to unlock stat bonuses in matches.</p>
+
+  <div id="synergy-list"></div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { SYNERGIES } from "./js/synergies.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { photoPathFor, DEFAULT_PLAYERS } from "./js/data.js";
+  import { PHOTO_CONFIG } from "./js/photo-config.js";
+  import { escapeHtml } from "./js/util.js";
+
+  const allPlayers = await getAllPlayers();
+  const byId = Object.fromEntries(allPlayers.map(p => [p.id, p]));
+
+  function pillsFor(boostObj) {
+    return Object.entries(boostObj || {})
+      .filter(([k, v]) => k !== 'chemistryFloor' && v > 0)
+      .map(([k, v]) => `<span class="boost-pill">+${v.toFixed(1)} ${k.toUpperCase()}</span>`)
+      .join('');
+  }
+  function combinedBoosts(base, full) {
+    const out = { ...(base || {}) };
+    for (const [k, v] of Object.entries(full || {})) {
+      if (k === 'chemistryFloor') { out[k] = Math.max(out[k] || 0, v); continue; }
+      out[k] = (out[k] || 0) + v;
+    }
+    return out;
+  }
+
+  const list = document.getElementById('synergy-list');
+  list.innerHTML = SYNERGIES.map(syn => {
+    const members = syn.players.map(pid => byId[pid]).filter(Boolean);
+    const hasFullTier = syn.fullBoost && syn.players.length > syn.minRequired;
+    const memberChips = members.map(p => {
+      const cfg = PHOTO_CONFIG[p.id] || { y: 25, zoom: 1.0 };
+      return `<span class="member-chip">
+        <span class="member-chip avatar" style="background-image:url('${photoPathFor(p.id)}'); background-size:${cfg.zoom * 100}% auto; background-position:center ${cfg.y}%"></span>
+        ${escapeHtml(p.nickname || p.name)}
+      </span>`;
+    }).join('');
+    const tierHtml = hasFullTier
+      ? `
+        <div style="margin-top:10px; padding:10px; background:rgba(30,41,59,0.4); border-radius:8px; border-left:3px solid #fbbf24;">
+          <div style="font-size:0.75rem; color:#fbbf24; font-weight:900; letter-spacing:1px; margin-bottom:6px">
+            ⭐ BASE TIER (${syn.minRequired}/${syn.players.length} on court)
+          </div>
+          <div class="synergy-boost">${pillsFor(syn.boost)}</div>
+        </div>
+        <div style="margin-top:8px; padding:10px; background:rgba(240,171,252,0.1); border-radius:8px; border-left:3px solid #f0abfc;">
+          <div style="font-size:0.75rem; color:#f0abfc; font-weight:900; letter-spacing:1px; margin-bottom:6px">
+            🌟 FULL SQUAD (all ${syn.players.length} on court) — TOTAL BOOSTS
+          </div>
+          <div class="synergy-boost">${pillsFor(combinedBoosts(syn.boost, syn.fullBoost))}</div>
+        </div>
+      `
+      : `<div class="synergy-boost" style="margin-top:10px">${pillsFor(syn.boost)}</div>`;
+    const finalFloor = Math.max(
+      syn.boost?.chemistryFloor || 0,
+      syn.fullBoost?.chemistryFloor || 0
+    );
+    return `
+      <div class="synergy-card">
+        <h3><span class="icon">${syn.icon}</span> ${escapeHtml(syn.name)}</h3>
+        <div class="synergy-desc">${escapeHtml(syn.description)}</div>
+        <div class="synergy-members">${memberChips}</div>
+        ${tierHtml}
+        <div class="synergy-req">
+          NEEDS ${syn.minRequired} OF ${syn.players.length} · CHEMISTRY LOCKED TO ${Math.round(finalFloor * 100)}
+        </div>
+      </div>
+    `;
+  }).join('');
+</script>
+</body>
+</html>

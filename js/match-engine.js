@@ -1,7 +1,29 @@
-// Volleyball match engine — stat-driven probabilistic simulator.
-// Given two teams of 6 players each (with stats + positions), produces a
+// Volleyball match engine — stat + personality driven probabilistic simulator.
+// Given two teams of 6 players each (with stats + positions + traits), produces a
 // stream of "events" (serve, pass, set, attack, block, dig, point, rotation, etc.)
 // that the visual layer can render.
+
+import { traitsFor } from './data.js';
+
+// Match-scoped chemistry overlay: { [pid]: { [pid]: 0..1 } } passed into createMatch()
+// Merged on top of preset traits so persistent Firebase chemistry drives in-match decisions.
+let MATCH_CHEMISTRY = {};
+
+// Get personality traits for a slot (with graceful fallbacks + live chemistry).
+function t(slot) {
+  if (!slot || !slot.player) {
+    return { aggression: 0.6, showboat: 0.4, discipline: 0.65, hustle: 0.7, confidence: 0.65, chemistry: {} };
+  }
+  const base = traitsFor(slot.player.id);
+  const live = MATCH_CHEMISTRY[slot.player.id];
+  if (!live) return base;
+  // Merge chemistry maps — MATCH_CHEMISTRY (from Firebase) takes MAX with preset
+  const merged = { ...(base.chemistry || {}) };
+  for (const [otherPid, score] of Object.entries(live)) {
+    merged[otherPid] = Math.max(merged[otherPid] || 0, score);
+  }
+  return { ...base, chemistry: merged };
+}
 
 // Court is 9m wide × 18m long (split in half). Use normalized coords (0..1).
 // x = across the net (0 = left sideline, 1 = right sideline)
@@ -70,7 +92,9 @@ function assignSpots(players, sideSpots) {
 }
 
 // ============ MATCH STATE ============
-export function createMatch({ homeTeam, awayTeam, homeName, awayName, homeColor, awayColor }) {
+export function createMatch({ homeTeam, awayTeam, homeName, awayName, homeColor, awayColor, chemistryMap }) {
+  // Store chemistry map for use by t() throughout this match
+  MATCH_CHEMISTRY = chemistryMap || {};
   return {
     home: {
       name: homeName || 'Home',
@@ -157,7 +181,113 @@ function pickReceiver(team) {
 
 /** Pick the setter — team's designated setter (spot 2) or best `setting` stat */
 function pickSetter(team) {
+  // Prefer the actual designated setter (position includes 'S'). Falls back to spot 1.
+  // In real volleyball the setter always sets on the 2nd touch regardless of rotation
+  // (running plays are called around them). This keeps chemistry meaningful.
+  for (const slot of team.lineup) {
+    if (slot && (slot.player.position || '').split('/').includes('S')) return slot;
+  }
   return playerAtSpot(team, 1) || team.lineup[0];
+}
+
+/** Is a slot in the front row (rotation spots 2, 3, 4 = indices 1, 2, 3)? */
+function isFrontRow(slot) {
+  if (!slot || !slot.spot) return false;
+  // Home team: front row is y=0.60 (closer to net at y=0.5). Away: y=0.40.
+  return Math.abs(slot.spot.y - 0.5) < 0.35;
+}
+
+/** Choose an attack tactic based on set quality + available hitters.
+ *  Returns { hitter, tactic, decoy? }.
+ *  Tactics:
+ *   - 'quick'   : middle blocker attacks a low fast set (needs a great pass)
+ *   - 'slide'   : MB runs behind setter for a running back-attack
+ *   - 'back-row': OPP or OH attacks from back row (harder to defend, needs decent set)
+ *   - 'fake'    : setter shows one hitter, sets another (weakens the block)
+ *   - 'normal'  : standard outside/opposite attack
+ */
+function chooseAttackTactic(team, setter, incomingQuality) {
+  const hasPos = (slot, code) => slot && (slot.player.position || '').split('/').includes(code);
+  const frontRow = [1, 2, 3].map(i => playerAtSpot(team, i)).filter(Boolean);
+  const backRow  = [0, 4, 5].map(i => playerAtSpot(team, i)).filter(Boolean);
+  const middles  = frontRow.filter(s => hasPos(s, 'MB'));
+  const outsides = frontRow.filter(s => hasPos(s, 'OH') || hasPos(s, 'OP'));
+  const backHitters = backRow.filter(s => hasPos(s, 'OH') || hasPos(s, 'OP')
+                        || (s.player.attack || 5) >= 6);
+
+  // Personality: showboat setters call flashy plays more often
+  const setterTr = t(setter);
+  const flashMult = 0.5 + setterTr.showboat * 1.5;   // 0.5x - 2x tactic frequency
+
+  // ── QUICK ATTACK ── setter loves running middles when they trust them
+  if (incomingQuality > 0.85 && middles.length && Math.random() < 0.15 * flashMult) {
+    // Prefer the middle with best chemistry to the setter (or highest attack)
+    const mb = pickWithChemistry(middles, setter);
+    return { hitter: mb, tactic: 'quick' };
+  }
+  // ── SLIDE ── needs a hustling middle who can run
+  if (incomingQuality > 0.7 && middles.length && Math.random() < 0.08 * flashMult) {
+    const mb = middles[middles.length - 1];
+    return { hitter: mb, tactic: 'slide' };
+  }
+  // ── BACK-ROW ATTACK ── setter goes to their best back-row option (with bias)
+  if (incomingQuality > 0.75 && backHitters.length && Math.random() < 0.10 * flashMult) {
+    const br = pickWithChemistry(backHitters, setter);
+    return { hitter: br, tactic: 'back-row' };
+  }
+  // ── FAKE SET ── high-showboat trick play
+  if (frontRow.length >= 2 && Math.random() < 0.08 * flashMult) {
+    const eligible = outsides.length ? outsides : frontRow;
+    const real = pickWithChemistry(eligible, setter);
+    const decoyPool = frontRow.filter(s => s.player.id !== real.player.id
+                                          && (hasPos(s, 'MB') || hasPos(s, 'OP')));
+    if (decoyPool.length) {
+      const decoy = decoyPool[Math.floor(Math.random() * decoyPool.length)];
+      return { hitter: real, tactic: 'fake', decoy };
+    }
+  }
+  // ── NORMAL ATTACK ── setter picks a hitter, biased by chemistry (friends)
+  const normalHitter = pickWithChemistry(outsides.length ? outsides : frontRow, setter)
+                       || pickHitter(team);
+  return { hitter: normalHitter, tactic: 'normal' };
+}
+
+/** Pick a hitter from `candidates`, weighted by attack stat AND chemistry with the setter.
+ *  Setters preferentially deliver to their friends. */
+function pickWithChemistry(candidates, setter) {
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+  const setterChem = t(setter).chemistry || {};
+  const weights = candidates.map(c => {
+    const atk = c.player.attack || 5;
+    const bond = setterChem[c.player.id] || 0;   // 0..1
+    // Bond adds up to 3x weight for a best friend
+    // Bond dramatically boosts weight for close teammates:
+    //   bond 0.0 → 1x   |  bond 0.3 → 3.4x  |  bond 0.6 → 8.2x  |  bond 1.0 → 17x
+    return Math.pow(atk, 2) * (1 + bond * bond * 16);
+  });
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < candidates.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return candidates[i];
+  }
+  return candidates[0];
+}
+
+/** Tip target: soft placement behind the block into an "open" spot near the 3m line.
+ *  These are the classic tip zones: middle-back-center, or behind either pin blocker. */
+function pickTipTarget(defendingTeam) {
+  const isFar = defendingTeam && defendingTeam.lineup && defendingTeam.lineup[0]
+              && defendingTeam.lineup[0].spot && defendingTeam.lineup[0].spot.y < 0.5;
+  // These zones are just behind the block (~0.6-0.65 in engine y for near-side defenders)
+  const candidates = [
+    { x: 0.5, y: 0.62 },  // middle just past 3m line
+    { x: 0.2, y: 0.62 },  // left just past 3m line
+    { x: 0.8, y: 0.62 },  // right just past 3m line
+  ];
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  return isFar ? { x: pick.x, y: 1 - pick.y } : pick;
 }
 
 /** Get the blockers matched against a hitter's zone.
@@ -166,17 +296,17 @@ function pickSetter(team) {
  *  visual layer can arrange the wall. */
 function pickBlockers(defendingTeam, hitter) {
   const front = [1, 2, 3].map(i => playerAtSpot(defendingTeam, i)).filter(Boolean);
-  // Primary blocker = the one closest to the hitter's cross-court zone
   const hitterX = hitter && hitter.spot ? hitter.spot.x : 0.5;
-  // Determine the "matching" front-row spot based on hitter x
-  //   hitter on left (x<0.4)  → primary = defender right pin (rotation idx 1)
-  //   hitter in middle        → primary = middle blocker (rotation idx 2)
-  //   hitter on right (x>0.6) → primary = defender left pin (rotation idx 3)
   const primaryIdx = hitterX < 0.4 ? 1 : (hitterX > 0.6 ? 3 : 2);
   const primary = playerAtSpot(defendingTeam, primaryIdx);
-  // Reorder so primary is first, then helpers
   const ordered = [primary, ...front.filter(f => f && (!primary || f.player.id !== primary.player.id))];
-  return ordered.filter(Boolean);
+  // Personality filter: HELPER blockers only jump if they have the discipline for it.
+  // Primary always tries (their assignment). Helpers roll a check on their discipline stat.
+  const filtered = ordered.filter(Boolean).filter((b, idx) => {
+    if (idx === 0) return true;   // primary always jumps
+    return Math.random() < t(b).discipline * 0.9;   // low-discipline players skip the block
+  });
+  return filtered;
 }
 
 /** Get all back-row defenders + spot 4/2 non-blocker (if any) */
@@ -208,10 +338,15 @@ export function simulateRally(match) {
     team: servingSide
   });
 
-  // Ace check: server's serve vs receiver's defense (lower base = fewer aces)
-  const aceChance = statCheck(server?.player.serve, receiver?.player.defense, 0.05, 0.35);
+  // Ace check: server's serve vs receiver's defense (lower base = fewer aces).
+  // Personality: aggressive + confident servers go for it harder → more aces AND more errors.
+  const serverTr = t(server);
+  const aggBonus = (serverTr.aggression - 0.5) * 0.06;   // ±3%
+  const bigMoment = match && (match.pointsHome >= 20 || match.pointsAway >= 20);
+  const clutchBonus = bigMoment ? (serverTr.confidence - 0.5) * 0.05 : 0;   // ±2.5% clutch
+  const aceChance = statCheck(server?.player.serve, receiver?.player.defense,
+                              0.05 + aggBonus + clutchBonus, 0.35);
   if (aceChance) {
-    // ACE! Ball lands at receiver's feet (or near them)
     events.push({
       type: 'ace', actor: server, team: servingSide, target: receiver,
       toSpot: receiver ? receiver.spot : { x: 0.5, y: 0.15 }
@@ -219,8 +354,10 @@ export function simulateRally(match) {
     return finishPoint(match, events, servingSide);
   }
 
-  // Error check: server misses (rare — service errors) — ball hits net (y=0.5)
-  if (Math.random() < 0.05) {
+  // Serve error: aggressive servers miss more; low-confidence servers CHOKE in big moments
+  let errorChance = 0.04 + Math.max(0, (serverTr.aggression - 0.6)) * 0.08;
+  if (bigMoment) errorChance += Math.max(0, (0.5 - serverTr.confidence)) * 0.10;  // chokers
+  if (Math.random() < errorChance) {
     events.push({
       type: 'serve-error', actor: server, team: servingSide,
       toSpot: { x: 0.5, y: 0.5 }
@@ -230,7 +367,17 @@ export function simulateRally(match) {
 
   // 2) Pass (reception)
   events.push({ type: 'pass', actor: receiver, team: servingSide === 'home' ? 'away' : 'home' });
-  const passQuality = Math.random() * 0.4 + 0.6; // 0.6-1.0
+  // Pass quality: base random + trait bonuses.
+  //  - Passer's DEFENSE stat + HUSTLE improve base
+  //  - CHEMISTRY with the setter improves accuracy (they know each other's tendencies)
+  const receivingTeamRef = servingSide === 'home' ? match.away : match.home;
+  const receivingSetter = pickSetter(receivingTeamRef);
+  const rTr = t(receiver);
+  const chemBonus = receiver && receivingSetter && receiver.player && receivingSetter.player
+    ? ((rTr.chemistry || {})[receivingSetter.player.id] || 0) * 0.12
+    : 0;
+  const hustleBonus = rTr.hustle * 0.10;
+  const passQuality = Math.min(1.0, Math.random() * 0.35 + 0.55 + chemBonus + hustleBonus);
 
   // 3) Set
   return continueRally(match, events, servingSide === 'home' ? 'away' : 'home', passQuality);
@@ -246,38 +393,121 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   const defendingTeam = attackingSide === 'home' ? match.away : match.home;
 
   const setter = pickSetter(attackingTeam);
-  const hitter = pickHitter(attackingTeam);
-  if (!setter || !hitter) {
+  if (!setter) {
     return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
   }
 
-  // Set
+  // ═══ TACTIC 1: SETTER DUMP ═══
+  // Front-row setters may dump the ball over on touch 2 — catches defense flat-footed.
+  // Personality-driven: SHOWBOAT setters love this. CONFIDENT setters try it in big moments.
+  const setterIsFrontRow = isFrontRow(setter);
+  const setterTraits = t(setter);
+  const dumpChance = setterIsFrontRow && incomingQuality > 0.7
+    ? 0.03 + setterTraits.showboat * 0.20 + setterTraits.confidence * 0.05
+    : 0;   // 3-28% based on personality
+  if (Math.random() < dumpChance) {
+    // SETTER DUMP! Ball tipped over the net to an open spot.
+    const dumpTarget = pickAttackTarget(defendingTeam);
+    events.push({
+      type: 'setter-dump', actor: setter, team: attackingSide,
+      fromSpot: setter.spot, toSpot: dumpTarget
+    });
+    // Defense doesn't expect it — high success rate but not automatic
+    const dumpDigger = pickDiggers(defendingTeam, []).reduce((best, d) => {
+      const score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.3;
+      if (!best || score > best.score) return { d, score };
+      return best;
+    }, null);
+    const dumpDigChance = dumpDigger ? statCheck(dumpDigger.score - 2, setter.player.attack || 5, 0.15) : false;
+    if (dumpDigChance) {
+      // Dug the dump — rally continues on defense side
+      events.push({ type: 'dig', actor: dumpDigger.d, team: attackingSide === 'home' ? 'away' : 'home' });
+      return continueRally(match, events, attackingSide === 'home' ? 'away' : 'home', 0.5, maxTouches);
+    }
+    return finishPoint(match, events, attackingSide);
+  }
+
+  // ═══ TACTIC 2: HITTER SELECTION (with fakes) ═══
+  // Pick a primary hitter, but also decide the attack STYLE based on set quality + who's available
+  const hitterChoice = chooseAttackTactic(attackingTeam, setter, incomingQuality);
+  const hitter = hitterChoice.hitter;
+  const tactic = hitterChoice.tactic;   // 'normal' | 'quick' | 'slide' | 'back-row' | 'fake'
+  if (!hitter) {
+    return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
+  }
+
+  // Fake set: setter shows one hitter then sets the other. Reduces block effectiveness.
+  const isFake = tactic === 'fake';
+  const setterTargetHitter = isFake ? hitterChoice.decoy : hitter;
   events.push({
     type: 'set',
-    fromSpot: setter.spot, toSpot: hitter.spot,
-    actor: setter, team: attackingSide
+    fromSpot: setter.spot, toSpot: setterTargetHitter.spot,
+    actor: setter, team: attackingSide,
+    tactic,                                  // for the visual layer
+    realHitter: hitter, decoy: hitterChoice.decoy
   });
 
-  // Set quality: setter's setting stat + incoming quality
-  const setQuality = ((setter.player.setting || 5) / 10) * 0.5 + incomingQuality * 0.5;
+  // Set quality (better for quicks & slides due to faster tempo)
+  let setQuality = ((setter.player.setting || 5) / 10) * 0.5 + incomingQuality * 0.5;
+  if (tactic === 'quick') setQuality *= 1.15;    // low fast set = harder to block
+  if (tactic === 'slide') setQuality *= 1.10;    // MB running behind setter
+  if (isFake) setQuality *= 0.95;                 // small penalty for the fake
 
-  // Attack
-  const blockers = pickBlockers(defendingTeam, hitter);
+  // Blockers pick their target — but on fakes they may go to the DECOY
+  const effectiveHitterForBlockers = isFake && Math.random() < 0.6 ? hitterChoice.decoy : hitter;
+  const blockers = pickBlockers(defendingTeam, effectiveHitterForBlockers);
+  // Reduce blocker count for quicks and back-row (fewer blockers get there in time)
+  const effectiveBlockers = tactic === 'quick'    ? blockers.slice(0, 1)
+                          : tactic === 'back-row' ? blockers.slice(0, 2)
+                          : tactic === 'slide'    ? blockers.slice(0, 1)
+                          : blockers;
+
   events.push({
     type: 'attack',
     actor: hitter, team: attackingSide,
     fromSpot: hitter.spot,
     toSpot: pickAttackTarget(defendingTeam),
-    setQuality
+    setQuality, tactic
   });
 
   // Attack outcome tree
   // 1. Block: primary blocker's defense + wall bonus vs hitter's attack quality.
   //    Wall bonus scales with the number of blockers (2-man block > 1-man) AND their reach.
-  const primaryBlockerDef = blockers[0] ? (blockers[0].player.defense || 5) : 3;
-  const wallSize = blockers.length; // 1-3 blockers in the wall
+  // ═══ TACTIC 3: TIP / ROLL SHOT ═══
+  // Aggression trait matters: low-aggression = tipper, high = hammer.
+  // Also facing a big wall or bad set → smart hitters tip more.
+  const wallSize = effectiveBlockers.length;
+  const hitterTr = t(hitter);
+  const baseTip = (wallSize >= 2 ? 0.15 : 0.05);
+  const badSetBonus = (setQuality < 0.55 ? 0.10 : 0);
+  // Aggression 0.5 = base rate; 0.0 = +25% tip; 1.0 = -20% tip
+  const aggressionAdj = (0.5 - hitterTr.aggression) * 0.45;
+  const tipChance = Math.max(0.02, baseTip + badSetBonus + aggressionAdj);
+  if (Math.random() < tipChance && tactic !== 'quick') {
+    // TIP! Ball placed behind the block into an open spot
+    const tipTarget = pickTipTarget(defendingTeam);
+    events.push({
+      type: 'tip', actor: hitter, team: attackingSide,
+      fromSpot: hitter.spot, toSpot: tipTarget
+    });
+    // Tips are usually covered — but sometimes score
+    const tipDigger = pickDiggers(defendingTeam, effectiveBlockers).reduce((best, d) => {
+      const score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.4;
+      const distToTarget = Math.sqrt(Math.pow(d.spot.x - tipTarget.x, 2) + Math.pow(d.spot.y - tipTarget.y, 2));
+      const proximityBonus = Math.max(0, 3 - distToTarget * 5);   // closer = easier
+      if (!best || score + proximityBonus > best.score) return { d, score: score + proximityBonus };
+      return best;
+    }, null);
+    if (tipDigger && Math.random() < 0.55) {
+      events.push({ type: 'dig', actor: tipDigger.d, team: attackingSide === 'home' ? 'away' : 'home' });
+      return continueRally(match, events, attackingSide === 'home' ? 'away' : 'home', 0.45, maxTouches);
+    }
+    return finishPoint(match, events, attackingSide);
+  }
+
+  const primaryBlockerDef = effectiveBlockers[0] ? (effectiveBlockers[0].player.defense || 5) : 3;
   const wallBonus = (wallSize - 1) * 0.3; // small bonus per extra blocker (+0.3 / +0.6)
-  const reachBonus = blockers.reduce((s, b) => {
+  const reachBonus = effectiveBlockers.reduce((s, b) => {
     const reach = b.player.blockTouchCm || (b.player.heightCm ? b.player.heightCm + 45 : 300);
     return s + Math.max(0, (reach - 300) / 25); // every 25cm above 3m = +1
   }, 0) / Math.max(1, wallSize);
@@ -292,12 +522,12 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   );
   if (blockChance) {
     // BLOCK! Primary blocker gets credit but the whole wall reaches up.
-    const blocker = blockers[0] || blockers[Math.floor(Math.random() * blockers.length)];
+    const blocker = effectiveBlockers[0] || effectiveBlockers[Math.floor(Math.random() * effectiveBlockers.length)];
     // Ball ricochets back onto the hitter's side of the court
     const hitterSideY = hitter.spot.y > 0.5 ? 0.85 : 0.15;
     events.push({
       type: 'block', actor: blocker, team: attackingSide === 'home' ? 'away' : 'home', hitter,
-      blockers, // full array so the visual layer can draw the blockwall
+      blockers: effectiveBlockers, // full array so the visual layer can draw the blockwall
       toSpot: { x: hitter.spot.x, y: hitterSideY }
     });
     // Blocked ball often lands on hitter's side; sometimes recovered on their side. Assume ~70% point for blocker.
@@ -318,16 +548,21 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   }
 
   // 3. Dig attempt
-  const diggers = pickDiggers(defendingTeam, blockers);
+  // Personality: HUSTLE boosts effective defense (chasing every ball).
+  // CONFIDENCE boosts big-moment defense (when score is tight or set point).
+  const diggers = pickDiggers(defendingTeam, effectiveBlockers);
+  const isBigMoment = match && (match.pointsHome >= 20 || match.pointsAway >= 20);
   const bestDigger = diggers.reduce((best, d) => {
-    const score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.5;
+    const tr = t(d);
+    let score = (d.player.defense || 5) + (d.player.athletic || 5) * 0.5;
+    score += tr.hustle * 1.2;                              // hustle adds up to +1.2
+    if (isBigMoment) score += tr.confidence * 0.8;         // clutch factor
     if (!best || score > best.score) return { d, score };
     return best;
   }, null);
   if (bestDigger) {
     const digChance = statCheck(bestDigger.score, attackerEffective * 1.1, 0.35);
     if (digChance) {
-      // DUG! Rally continues on defender's side.
       events.push({ type: 'dig', actor: bestDigger.d, team: attackingSide === 'home' ? 'away' : 'home' });
       const digQuality = Math.random() * 0.4 + 0.5;
       return continueRally(match, events, attackingSide === 'home' ? 'away' : 'home', digQuality, maxTouches);

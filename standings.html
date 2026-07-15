@@ -64,6 +64,7 @@
     <a href="./league.html">🏆 League</a>
     <a href="./clubs.html">🛡️ Clubs</a>
     <a href="./standings.html" class="active">📊 Standings</a>
+    <a href="./chemistry.html">💚 Chemistry</a>
   </nav>
 
   <h1><span class="emoji">📊</span> STANDINGS</h1>
@@ -413,6 +414,36 @@
     const notes = document.getElementById('notes').value;
     try {
       await logMatch(selectedLeague.id, { teamAId, teamBId, scoreA, scoreB, notes });
+      // Update chemistry between teammates on both sides
+      try {
+        const { recordMatchForChemistry } = await import('./js/chemistry.js');
+        const { db, ref, get } = await import('./js/firebase-init.js');
+        // Find the most recent completed draft in this league to get rosters
+        const draftsSnap = await get(ref(db, 'drafts'));
+        const drafts = draftsSnap.val() || {};
+        let latest = null;
+        for (const d of Object.values(drafts)) {
+          if ((d.leagueId || 'gomi-cup') !== selectedLeague.id) continue;
+          if (d.status !== 'complete') continue;
+          if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+        }
+        if (latest && latest.captains && latest.picks) {
+          const winA = parseInt(scoreA) > parseInt(scoreB);
+          for (const [capId, isWinner] of [[teamAId, winA], [teamBId, !winA]]) {
+            const capIdx = latest.captains.findIndex(c => c.id === capId);
+            if (capIdx < 0) continue;
+            const cap = latest.captains[capIdx];
+            const roster = latest.picks.filter(p => p.captainIdx === capIdx).map(p => p.playerId);
+            if (cap.linkedPlayerId) roster.push(cap.linkedPlayerId);
+            if (roster.length >= 2) {
+              await recordMatchForChemistry(selectedLeague.id, roster, isWinner);
+            }
+          }
+          console.log('[chemistry] Updated after match');
+        }
+      } catch (chemErr) {
+        console.warn('[chemistry] Failed to update:', chemErr);
+      }
       document.getElementById('notes').value = '';
       alert('✅ Match logged!');
     } catch (e) {
