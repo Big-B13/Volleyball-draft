@@ -333,7 +333,7 @@
 
 <script type="module" src="./js/back-button.js"></script>
 <script type="module">
-  import { createMatch, simulateRally, specialtyCounters, setManualHitter, playerAtSpot } from "./js/match-engine-v3.js";
+  import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, specialtyCounters, setManualHitter, playerAtSpot } from "./js/match-engine-v3.js";
   import { augmentEvents, resetV3State } from "./js/mechanics-v3.js";
   import { traitsFor } from "./js/data.js";
   import { GomiCupRenderer3D } from "./js/renderer-3d.js";
@@ -574,12 +574,7 @@
   function scheduleNextRally() {
     if (paused || !match || match.matchOver) return;
     rallyTimer = setTimeout(async () => {
-      // V3: in manual mode, if the controlled team will be attacking, ask user to call the shot.
-      // "Attacking" means: they aren't the current server (opponent serves, they receive → attack).
-      // OR they ARE the server and we let them call in advance too (setter dumps or hits after long rally).
-      if (playMode === 'manual') {
-        await promptShotCall();
-      }
+      // V3: manual choice fires BETWEEN pass and set (inside playRally)
       await playRally();
       renderHeader();
       if (!match.matchOver && !paused) scheduleNextRally();
@@ -589,39 +584,20 @@
     }, 400 / speed);
   }
 
-  /** Show the shot-call panel and wait for user to pick a hitter (or auto).
-   *  Populates buttons with the 5 non-setter, non-libero players on the controlled team's lineup.
-   *  Resolves when user clicks. */
-  function promptShotCall() {
+  /** V3: mid-rally shot-call — fires between pass and set. */
+  function promptShotCallLive(attackingSide) {
     return new Promise((resolve) => {
       const panel = document.getElementById('shot-call-panel');
       const btnRow = document.getElementById('shot-call-buttons');
-      const team = match[controlSide];
+      const team = match[attackingSide];
       if (!team || !team.lineup) { resolve(); return; }
-
-      // Build 5 hitter candidates: all 6 on court MINUS the designated setter.
-      // Liberos are back-row defenders — including them lets user pick backrow spike (rare but real).
-      const setterId = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'))?.player?.id;
-      const candidates = [];
-      for (let i = 0; i < 6; i++) {
-        const slot = team.lineup[i];
-        if (!slot || !slot.player) continue;
-        if (slot.player.id === setterId) continue;   // setter doesn't spike (usually)
-        const isFront = i >= 1 && i <= 3;   // rotation spots 2/3/4 = front row (index 1/2/3)
-        // With rotation, front = (i + rotOffset) % 6 falls in 1..3
-        const rotIdx = (6 + i - team.rotationOffset) % 6;
-        const isFrontRotated = rotIdx >= 1 && rotIdx <= 3;
-        candidates.push({ slot, player: slot.player, isFront: isFrontRotated });
-      }
-
-      // Get setter for chemistry display
-      const setterSlot = team.lineup.find(s => s && s.player && s.player.id === setterId);
+      const candidates = availableHitters(match, attackingSide);
+      const setterSlot = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'));
       const setterTraits = setterSlot ? traitsFor(setterSlot.player.id) : null;
-
       btnRow.innerHTML = candidates.map(c => {
         const chem = setterTraits?.chemistry?.[c.player.id] || 0;
         const chemLabel = chem >= 0.9 ? '❤️ BFF' : chem >= 0.7 ? '💚 Close' : chem >= 0.5 ? '💛 Friend' : '';
-        const rowTag = c.isFront ? 'FRONT ROW' : 'BACK ROW (backrow spike)';
+        const rowTag = c.isFront ? 'FRONT ROW' : 'BACK ROW (back-row spike)';
         return `
           <button class="shot-btn ${c.isFront ? 'frontrow' : 'backrow'}" data-pid="${c.player.id}">
             <span class="name">${c.player.name}</span>
@@ -631,18 +607,15 @@
             ${chemLabel ? `<span class="chem">${chemLabel}</span>` : ''}
           </button>`;
       }).join('');
-
       const cleanup = (pid) => {
         panel.classList.add('hidden');
         awaitingShotCall = null;
-        if (pid) setManualHitter(controlSide, pid);
+        if (pid) setManualHitter(attackingSide, pid);
         else setManualHitter(null);
         resolve();
       };
-
       panel.classList.remove('hidden');
       awaitingShotCall = cleanup;
-      // Wire buttons
       btnRow.querySelectorAll('.shot-btn').forEach(btn => {
         btn.onclick = () => cleanup(btn.dataset.pid);
       });
@@ -652,35 +625,47 @@
 
   async function playRally() {
     if (!match) return;
-    const events = augmentEvents(simulateRally(match), match);
-    updateMoraleBars();
 
+    // ─── V3: Split rally so the manual choice fires between pass and set ───
+    const phase1 = simulateRallyPhase1(match);
+    augmentEvents(phase1.events, match);
+    updateMoraleBars();
+    await playEventList(phase1.events);
+
+    if (!phase1.rallyEnded) {
+      const attackingSide = phase1.attackingSide;
+      if (playMode === 'manual' && attackingSide === controlSide) {
+        await promptShotCallLive(attackingSide);
+      }
+      const phase2 = simulateRallyPhase2(match, attackingSide, phase1.incomingQuality);
+      augmentEvents(phase2, match);
+      updateMoraleBars();
+      await playEventList(phase2);
+    }
+
+    renderer.syncPositions(match);
+    renderRosterPanel();
+  }
+
+  /** Play a list of events through the 3D renderer with sub/set-score hooks. */
+  async function playEventList(events) {
     for (let i = 0; i < events.length; i++) {
       const ev = events[i];
       const prev = events[i - 1] || null;
       const next = events[i + 1] || null;
-
       if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
         setScores.push({ setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team });
       }
-
       appendLog(formatEvent(ev), classForEvent(ev));
-
-      // V3: substitution events — flash the roster row + swap the 3D rig
       if (ev.type === 'substitution') {
-        renderer.attachMatch(match);   // rebuild rigs so the sub appears on court
+        renderer.attachMatch(match);
         renderRosterPanel(ev);
-        continue;   // no ball animation for a sub
+        continue;
       }
-
       await renderer.playEvent(ev, prev, next, speed);
-
       if (ev.moraleAfter) updateMoraleBars();
-      // V3: refresh stamina bars after each event (they drop as actions happen)
       if (ev.staminaAfter != null) renderRosterPanel();
     }
-    renderer.syncPositions(match);
-    renderRosterPanel();
   }
 
   /** V3: render the on-court + bench roster with stamina bars. */

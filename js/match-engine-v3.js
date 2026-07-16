@@ -766,6 +766,34 @@ function pickDiggers(defendingTeam, blockers, ballTarget, range = 0.35) {
 // Returns an array of events describing what happens in the rally.
 // Each event has: { type, from, to, ball, delay, sound, text? }
 export function simulateRally(match) {
+  const p1 = simulateRallyPhase1(match);
+  if (p1.rallyEnded) return p1.events;
+  const p2 = simulateRallyPhase2(match, p1.attackingSide, p1.incomingQuality);
+  return [...p1.events, ...p2];
+}
+
+export function simulateRallyPhase2(match, attackingSide, incomingQuality) {
+  return continueRally(match, [], attackingSide, incomingQuality);
+}
+
+export function availableHitters(match, attackingSide) {
+  const team = match[attackingSide];
+  if (!team || !team.lineup) return [];
+  const setterSlot = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'));
+  const setterId = setterSlot?.player?.id;
+  const out = [];
+  for (let i = 0; i < 6; i++) {
+    const slot = team.lineup[i];
+    if (!slot || !slot.player) continue;
+    if (slot.player.id === setterId) continue;
+    const rotIdx = (6 + i - team.rotationOffset) % 6;
+    const isFront = rotIdx >= 1 && rotIdx <= 3;
+    out.push({ slot, player: slot.player, isFront });
+  }
+  return out;
+}
+
+export function simulateRallyPhase1(match) {
   const events = [];
   const servingTeam = match.serving === 'home' ? match.home : match.away;
   const receivingTeam = match.serving === 'home' ? match.away : match.home;
@@ -819,7 +847,8 @@ export function simulateRally(match) {
     });
     recordSuccess(match, server?.player?.id);   // ace = server hot
     recordFail(match, receiver?.player?.id);    // aced on = receiver cold
-    return finishPoint(match, events, servingSide);
+    finishPoint(match, events, servingSide);
+    return { events, rallyEnded: true };
   }
 
   // Serve error: aggressive servers miss more; low-confidence servers CHOKE in big moments
@@ -831,7 +860,8 @@ export function simulateRally(match) {
       toSpot: { x: 0.5, y: 0.5 }
     });
     recordFail(match, server?.player?.id);   // missed serve = cold
-    return finishPoint(match, events, servingSide === 'home' ? 'away' : 'home');
+    finishPoint(match, events, servingSide === 'home' ? 'away' : 'home');
+    return { events, rallyEnded: true };
   }
 
   // ══ PASS RECEPTION ══
@@ -859,23 +889,20 @@ export function simulateRally(match) {
     events.push({ type: 'pass-error', actor: receiver, team: receivingSide,
                   toSpot: { x: receiver.spot.x, y: receiver.spot.y } });
     recordFail(match, receiver?.player?.id);
-    // 60% chance the ball dies on the floor immediately (dropped pass)
     if (Math.random() < 0.6) {
-      return finishPoint(match, events, servingSide);
+      finishPoint(match, events, servingSide);
+      return { events, rallyEnded: true };
     }
-    // 40% chance a scrappy setter still gets to it — rally continues with terrible incoming quality
     events.push({ type: 'pass', actor: receiver, team: receivingSide });
-    return continueRally(match, events, receivingSide, 0.25);
+    return { events, rallyEnded: false, attackingSide: receivingSide, incomingQuality: 0.25 };
   }
-  // Good pass
   events.push({ type: 'pass', actor: receiver, team: receivingSide });
   recordSuccess(match, receiver?.player?.id);
-  // Pass quality: better passer + hustle + chem → tighter pass → better set
   const passQuality = Math.min(1.0,
     Math.random() * 0.25 + 0.45 +
-    (passerSkill - 5) * 0.06 +      // above-avg passer bumps up
+    (passerSkill - 5) * 0.06 +
     chemBonus + hustleBonus);
-  return continueRally(match, events, receivingSide, passQuality);
+  return { events, rallyEnded: false, attackingSide: receivingSide, incomingQuality: passQuality };
 }
 
 /** Continue the rally on the side that's now attacking */

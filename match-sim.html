@@ -841,7 +841,7 @@
   import { db, ref, get } from "./js/firebase-init.js";
   import { listLeagues, ensureGomiCupSeeded, currentLeagueId, getLeague } from "./js/leagues.js";
   import { escapeHtml, shuffle } from "./js/util.js";
-  import { createMatch, simulateRally, playerAtSpot, setManualHitter } from "./js/match-engine.js";
+  import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, playerAtSpot, setManualHitter } from "./js/match-engine.js";
   import { augmentEvents, resetV2State, SIGNATURE_MOVES } from "./js/mechanics-v2.js";
   import { getAllPlayers } from "./js/players.js";
   import { photoPathFor, getInitials, traitsFor, PLAYER_TRAITS } from "./js/data.js";
@@ -1678,8 +1678,7 @@
     if (paused || !match || match.matchOver) return;
     const delay = 400 / speed; // between-rally pause (playRally already adds its own)
     rallyTimer = setTimeout(async () => {
-      // V3-lite: in manual mode, pause and let user pick which hitter to spike
-      if (playMode === 'manual') await promptShotCall();
+      // V3: manual choice happens BETWEEN pass and set (see playRally)
       await playRally();
       renderHeader();
       if (!match.matchOver && !paused) scheduleNextRally();
@@ -1690,41 +1689,34 @@
     }, delay);
   }
 
-  /** V3-lite: shot-call prompt for 2D sim. */
-  function promptShotCall() {
+  /** V3: mid-rally shot-call prompt. Fires AFTER the pass, BEFORE the set.
+   *  User picks who the setter delivers to. Setter runs the play with a proper
+   *  approach for the chosen hitter (front-row spike / back-row attack). */
+  function promptShotCallLive(attackingSide) {
     return new Promise((resolve) => {
       const panel = document.getElementById('shot-call-panel');
       const btnRow = document.getElementById('shot-call-buttons');
-      const team = match[controlSide];
+      const team = match[attackingSide];
       if (!team || !team.lineup) { resolve(); return; }
-      const setterId = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'))?.player?.id;
-      const candidates = [];
-      for (let i = 0; i < 6; i++) {
-        const slot = team.lineup[i];
-        if (!slot || !slot.player) continue;
-        if (slot.player.id === setterId) continue;
-        const rotIdx = (6 + i - team.rotationOffset) % 6;
-        const isFront = rotIdx >= 1 && rotIdx <= 3;
-        candidates.push({ slot, player: slot.player, isFront });
-      }
-      const setterSlot = team.lineup.find(s => s && s.player && s.player.id === setterId);
+      const candidates = availableHitters(match, attackingSide);
+      const setterSlot = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'));
       const setterTraits = setterSlot ? traitsFor(setterSlot.player.id) : null;
       btnRow.innerHTML = candidates.map(c => {
         const chem = setterTraits?.chemistry?.[c.player.id] || 0;
         const chemLabel = chem >= 0.9 ? '❤️ BFF' : chem >= 0.7 ? '💚 Close' : chem >= 0.5 ? '💛 Friend' : '';
-        const rowTag = c.isFront ? 'FRONT ROW' : 'BACK ROW';
+        const rowTag = c.isFront ? 'FRONT ROW' : 'BACK ROW (back-row spike)';
         return `
           <button class="shot-btn ${c.isFront ? 'frontrow' : 'backrow'}" data-pid="${c.player.id}">
             <span class="name">${c.player.name}</span>
             <span class="pos">${c.player.position || '?'}</span>
-            <span class="stat">ATK ${c.player.attack || 5}</span>
+            <span class="stat">ATK ${c.player.attack || 5} · ATH ${c.player.athletic || 5}</span>
             <span class="row-tag">${rowTag}</span>
             ${chemLabel ? `<span class="chem">${chemLabel}</span>` : ''}
           </button>`;
       }).join('');
       const cleanup = (pid) => {
         panel.classList.add('hidden');
-        if (pid) setManualHitter(controlSide, pid);
+        if (pid) setManualHitter(attackingSide, pid);
         else setManualHitter(null);
         resolve();
       };
@@ -1738,9 +1730,6 @@
 
   async function playRally() {
     if (!match) return;
-    const events = augmentEvents(simulateRally(match), match);
-    // Update morale bars now (before animation) so player sees fill first
-    updateMoraleBars();
     // Stop idle sway during the rally so nothing fights the smooth walk/jump motion
     stopIdleMotion();
     // Reset the tiny --sx/--sy nudges from any previous idle tick
@@ -1754,23 +1743,54 @@
     });
     const ball = document.querySelector('.ball');
     const shadow = document.querySelector('.ball-shadow');
-    for (let i = 0; i < events.length; i++) {
-      const ev = events[i];
-      const prev = events[i - 1] || null;
-      const next = events[i + 1] || null;
-      // Record set final scores as they happen so the header can display 25-23, 22-25, etc.
+
+    // ─── V3: Split rally into PHASE 1 (serve+pass) and PHASE 2 (set+attack+beyond) ───
+    // In manual mode, we PAUSE between the two phases so the user can call the shot.
+    const phase1 = simulateRallyPhase1(match);
+    let allEvents = phase1.events.slice();
+
+    // Play Phase 1 events (serve, ace, serve-error, pass, pass-error)
+    // Augment them for tier/crit/morale (in isolation — we'll re-augment the full list at end)
+    augmentEvents(phase1.events, match);
+    updateMoraleBars();
+    for (let i = 0; i < phase1.events.length; i++) {
+      const ev = phase1.events[i];
+      const prev = phase1.events[i - 1] || null;
+      const next = phase1.events[i + 1] || null;
       if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
-        setScores.push({
-          setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team
-        });
+        setScores.push({ setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team });
       }
-      // On a point event: update fire/cold visual states based on team momentum + player streaks
-      if (ev.type === 'point') {
-        updateMomentumVisuals(ev);
-      }
+      if (ev.type === 'point') updateMomentumVisuals(ev);
       appendLog(formatEvent(ev), classForEvent(ev));
       await animateEvent(ev, prev, next, ball, shadow);
     }
+
+    // Phase 1 didn't end the rally (i.e. good/scrappy pass landed) → maybe pause for user
+    if (!phase1.rallyEnded) {
+      const attackingSide = phase1.attackingSide;
+      if (playMode === 'manual' && attackingSide === controlSide) {
+        // PAUSE — show shot-call panel populated with the actual on-court hitters
+        await promptShotCallLive(attackingSide);
+      }
+      // Now run Phase 2 (set + attack + rally continuation)
+      const phase2 = simulateRallyPhase2(match, attackingSide, phase1.incomingQuality);
+      augmentEvents(phase2, match);
+      updateMoraleBars();
+      allEvents = allEvents.concat(phase2);
+      for (let i = 0; i < phase2.length; i++) {
+        const ev = phase2[i];
+        const prev = i > 0 ? phase2[i - 1] : phase1.events[phase1.events.length - 1];
+        const next = phase2[i + 1] || null;
+        if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
+          setScores.push({ setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team });
+        }
+        if (ev.type === 'point') updateMomentumVisuals(ev);
+        appendLog(formatEvent(ev), classForEvent(ev));
+        await animateEvent(ev, prev, next, ball, shadow);
+      }
+    }
+
+    const events = allEvents;   // for the tail cleanup section below (rotation badges, etc.)
     // Small pause between rallies (feels like an actual match reset)
     await sleep(600 / speed);
     // Safety: clear all transient states after rally in case something got stuck
