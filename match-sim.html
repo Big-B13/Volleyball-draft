@@ -1,0 +1,2774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Match Simulator — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  nav.topnav { display:flex; gap:12px; justify-content:center; margin-bottom:16px; flex-wrap:wrap; }
+  nav.topnav a { color:#cbd5e1; text-decoration:none; padding:8px 16px; border-radius:6px; background:rgba(30,41,59,0.6); font-size:0.9rem; }
+  nav.topnav a:hover, nav.topnav a.active { background:#fbbf24; color:#0f172a; }
+
+  .sim-header {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center;
+    padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; margin-bottom: 12px;
+  }
+  .team-tag { display: flex; align-items: center; gap: 10px; }
+  .team-tag.away { flex-direction: row-reverse; text-align: right; }
+  .team-tag .swatch { width: 20px; height: 20px; border-radius: 4px; }
+  .team-tag .name { font-weight: 900; color: #fff; font-size: 1.1rem; }
+  .score-box { text-align: center; }
+  .score-big { font-size: 3rem; font-weight: 900; line-height: 1; color: #fbbf24; letter-spacing: 4px; }
+  .set-info { font-size: 0.75rem; color: #94a3b8; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+  .sets-row { display: flex; gap: 6px; justify-content: center; margin-top: 4px; }
+  .set-pill { padding: 3px 10px; background: rgba(255,255,255,0.08); border-radius: 10px; font-size: 0.8rem; color: #cbd5e1; font-weight: 700; font-family: monospace; letter-spacing: 0.5px; }
+  .sets-row { flex-wrap: wrap; }
+  .set-pill.won { background: #22c55e; color: #052e16; }
+
+  .court-wrap {
+    position: relative;
+    /* Hard-locked size — never dynamically resizes based on log length. */
+    width: 100%;
+    max-width: 900px;
+    height: 450px;    /* fixed height (2:1 aspect at 900px wide) */
+    margin: 0 auto 16px;
+    /* Indoor gym floor: wooden planks + subtle court paint */
+    background:
+      /* Court paint zones (two shades of blue-teal so the play area pops) */
+      linear-gradient(90deg,
+        rgba(30, 120, 145, 0.55) 0%,
+        rgba(30, 120, 145, 0.55) 33%,
+        rgba(255, 165, 60, 0.55) 33%,
+        rgba(255, 165, 60, 0.55) 67%,
+        rgba(30, 120, 145, 0.55) 67%,
+        rgba(30, 120, 145, 0.55) 100%),
+      /* Wood plank stripes (vertical faint lines) */
+      repeating-linear-gradient(90deg,
+        rgba(255,255,255,0.03) 0 3px,
+        transparent 3px 40px),
+      /* Wood base color */
+      linear-gradient(180deg, #d19458 0%, #b8783f 45%, #a06731 100%);
+    border: 4px solid #f5f5f5;
+    border-radius: 10px;
+    overflow: visible;   /* Server stands OUTSIDE court behind endline — must be visible */
+    box-shadow:
+      0 12px 40px rgba(0,0,0,0.6),
+      inset 0 0 80px rgba(0,0,0,0.45),
+      inset 0 0 20px rgba(0,0,0,0.3);
+  }
+  /* Stadium spotlight glow overlay */
+  .court-wrap::before {
+    content: ''; position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 25% 30%, rgba(255,255,255,0.14) 0%, transparent 45%),
+      radial-gradient(ellipse at 75% 70%, rgba(255,255,255,0.14) 0%, transparent 45%),
+      linear-gradient(115deg, rgba(255,255,255,0.05) 0%, transparent 30%, transparent 70%, rgba(255,255,255,0.06) 100%);
+    pointer-events: none; z-index: 1;
+  }
+  /* Court outer boundary lines (drawn INSIDE via a pseudo-element for polish) */
+  .court-wrap::after {
+    content: ''; position: absolute;
+    top: 8px; left: 8px; right: 8px; bottom: 8px;
+    border: 3px solid rgba(255,255,255,0.9);
+    border-radius: 3px;
+    pointer-events: none; z-index: 1;
+    box-shadow: 0 0 12px rgba(255,255,255,0.15);
+  }
+  /* Horizontal court: net is a vertical stripe down the middle; attack lines are vertical too. */
+  .court-wrap .net {
+    position: absolute; left: 50%; top: -6px; bottom: -6px; width: 7px;
+    background:
+      repeating-linear-gradient(0deg, #fff 0 6px, rgba(255,255,255,0.35) 6px 10px);
+    transform: translateX(-50%); z-index: 2;
+    box-shadow: 0 0 8px rgba(255,255,255,0.5), 0 0 20px rgba(255,255,255,0.15);
+    border-left: 1px solid rgba(0,0,0,0.2);
+    border-right: 1px solid rgba(0,0,0,0.2);
+  }
+  /* Antenna posts on top of the net */
+  .court-wrap .net::before,
+  .court-wrap .net::after {
+    content: ''; position: absolute; left: 50%; width: 4px; height: 30px;
+    background: repeating-linear-gradient(0deg, #ef4444 0 6px, #fff 6px 12px);
+    transform: translateX(-50%);
+    border-radius: 2px;
+  }
+  .court-wrap .net::before { top: -22px; }
+  .court-wrap .net::after  { bottom: -22px; }
+  .court-wrap .attack-line-far  { position: absolute; left: 33%; top: 12px; bottom: 12px; width: 3px; background: rgba(255,255,255,0.85); z-index: 1; box-shadow: 0 0 6px rgba(255,255,255,0.2); }
+  .court-wrap .attack-line-near { position: absolute; left: 67%; top: 12px; bottom: 12px; width: 3px; background: rgba(255,255,255,0.85); z-index: 1; box-shadow: 0 0 6px rgba(255,255,255,0.2); }
+  /* Side labels */
+  .court-wrap .side-label {
+    position: absolute; top: 14px; font-size: 0.85rem; letter-spacing: 3px; font-weight: 900;
+    text-transform: uppercase; pointer-events: none; z-index: 3;
+    text-shadow: 0 0 12px rgba(0,0,0,1), 0 0 6px rgba(0,0,0,1), 0 2px 4px rgba(0,0,0,1);
+  }
+  .court-wrap .side-label.home { left: 18px; }
+  .court-wrap .side-label.away { right: 18px; }
+
+  .player-circle {
+    position: absolute;
+    width: 9%; aspect-ratio: 1;
+    border-radius: 50%;
+    /* Compose transform from CSS variables — idle sway + walk + jump + scale/squash all stack */
+    --sx: 0px;   /* idle sway x */
+    --sy: 0px;   /* idle sway y */
+    --wx: 0px;   /* walk offset x (approach the ball) */
+    --wy: 0px;   /* walk offset y */
+    --jy: 0px;   /* jump y (negative = up) */
+    --sc: 1;     /* vertical scale (squash on dig, stretch on jump) */
+    --scx: 1;    /* horizontal scale (dive stretch) */
+    --jump-height: -20px;  /* set per-player from athletic stat */
+    transform:
+      translate(
+        calc(-50% + var(--sx) + var(--wx)),
+        calc(-50% + var(--sy) + var(--wy) + var(--jy))
+      )
+      scale(var(--scx), var(--sc));
+    display: flex; align-items: flex-end; justify-content: center;
+    font-weight: 900; color: #fff;
+    border: 3px solid #fff;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6);
+    font-size: 0.7rem;
+    transition:
+      left 0.6s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.6s cubic-bezier(0.4, 0.0, 0.2, 1),
+      transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1),
+      filter 0.3s, box-shadow 0.3s;
+    z-index: 3;
+    overflow: hidden;
+    background-color: #334155;
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-position: center 30%;
+  }
+  /* Walking overrides — slightly faster travel to feel like a running player */
+  .player-circle.walking {
+    transition:
+      left 0.55s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.55s cubic-bezier(0.4, 0.0, 0.2, 1),
+      transform 0.4s cubic-bezier(0.4, 0.0, 0.2, 1),
+      filter 0.3s, box-shadow 0.3s;
+  }
+  .player-circle.active {
+    --sc: 1.4;
+    filter: brightness(1.18) drop-shadow(0 0 14px #fff);
+    z-index: 5;
+    box-shadow: 0 0 0 3px #fbbf24, 0 4px 18px rgba(0,0,0,0.85);
+    animation: activePulse 0.5s ease-out;
+  }
+  .player-circle.jumping {
+    --jy: var(--jump-height);
+    --sc: 1.15;
+    --scx: 0.94;   /* slight stretch upward (squash-and-stretch) */
+    z-index: 6;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 18px 16px -6px rgba(0,0,0,0.6);
+  }
+  .player-circle.jumping.active {
+    --jy: calc(var(--jump-height) - 10px);
+    --sc: 1.45;
+    --scx: 1.0;
+  }
+  /* Diving / digging — sprawls low & sideways */
+  .player-circle.diving {
+    --wy: 8px;
+    --sc: 0.6;
+    --scx: 1.5;
+    z-index: 4;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.75), 0 6px 10px rgba(0,0,0,0.4);
+    filter: brightness(1.08);
+  }
+  /* Small crouch — defensive stance for pass / dig prep */
+  .player-circle.crouching {
+    --wy: 3px;
+    --sc: 0.85;
+    --scx: 1.12;
+  }
+  @keyframes activePulse {
+    0%   { box-shadow: 0 0 0 0    rgba(251,191,36,0.9), 0 4px 18px rgba(0,0,0,0.85); }
+    60%  { box-shadow: 0 0 0 14px rgba(251,191,36,0.0), 0 4px 18px rgba(0,0,0,0.85); }
+    100% { box-shadow: 0 0 0 3px  rgba(251,191,36,1),   0 4px 18px rgba(0,0,0,0.85); }
+  }
+  .player-circle .num {
+    position: absolute; top: -6px; right: -6px;
+    background: #fff; color: #0f172a;
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 900;
+    border: 2px solid currentColor;
+    pointer-events: none;
+    z-index: 4;
+  }
+  .player-circle .label {
+    position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    background: rgba(15,23,42,0.96); color: #fff;
+    padding: 6px 10px; border-radius: 6px; white-space: nowrap;
+    margin-top: 8px; pointer-events: none;
+    opacity: 0; transition: opacity 0.2s;
+    z-index: 20;
+    border: 1px solid rgba(255,255,255,0.15);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.6);
+    text-align: center;
+  }
+  .player-circle .label .label-name { font-size: 0.8rem; font-weight: 900; color: #fbbf24; }
+  .player-circle .label .label-sub  { font-size: 0.65rem; color: #cbd5e1; margin-top: 2px; }
+  .player-circle .label .label-stats { font-size: 0.6rem; color: #94a3b8; margin-top: 4px; letter-spacing: 0.5px; }
+  .player-circle:hover .label { opacity: 1; }
+  /* Elite ★ badge for high-overall players (top-left corner) */
+  .player-circle .elite-badge {
+    position: absolute; top: -6px; left: -6px;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: #0f172a;
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 900;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    z-index: 4; pointer-events: none;
+  }
+  /* Synergy badges — cluster on bottom of circle when player is in an active squad */
+  .player-circle .synergy-badges {
+    position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 2px; z-index: 4; pointer-events: none;
+    animation: synergyPulse 2s ease-in-out infinite;
+  }
+  .player-circle .synergy-badge {
+    background: rgba(15,23,42,0.95);
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem;
+    border: 1.5px solid #fbbf24;
+    box-shadow: 0 0 6px rgba(251,191,36,0.6);
+  }
+  /* HOT STREAK / MOMENTUM — fiery aura around players when team is on a hot streak */
+  .player-circle.hot-lvl1 {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6),
+                0 0 12px rgba(255,140,0,0.7),
+                0 0 20px rgba(255,80,0,0.4);
+    animation: fireFlicker1 1.2s ease-in-out infinite;
+  }
+  .player-circle.hot-lvl2 {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6),
+                0 0 16px rgba(255,120,0,0.9),
+                0 0 28px rgba(255,60,0,0.6);
+    animation: fireFlicker2 1s ease-in-out infinite;
+  }
+  .player-circle.hot-lvl3 {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.6),
+                0 0 22px rgba(255,80,0,1),
+                0 0 40px rgba(255,40,0,0.8),
+                0 0 60px rgba(255,0,0,0.4);
+    animation: fireFlicker3 0.6s ease-in-out infinite;
+  }
+  @keyframes fireFlicker1 {
+    0%,100% { filter: drop-shadow(0 0 4px rgba(255,140,0,0.6)); }
+    50%     { filter: drop-shadow(0 0 8px rgba(255,80,0,0.9)); }
+  }
+  @keyframes fireFlicker2 {
+    0%,100% { filter: drop-shadow(0 0 6px rgba(255,120,0,0.8)); }
+    50%     { filter: drop-shadow(0 0 12px rgba(255,60,0,1)); }
+  }
+  @keyframes fireFlicker3 {
+    0%,100% { filter: drop-shadow(0 0 10px rgba(255,80,0,1)) hue-rotate(-5deg); }
+    50%     { filter: drop-shadow(0 0 20px rgba(255,40,0,1)) hue-rotate(5deg); }
+  }
+  /* COLD STREAK — subtle desaturated look on individual struggling players */
+  .player-circle.cold {
+    filter: grayscale(0.4) brightness(0.75);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.7), 0 0 6px rgba(80,120,180,0.4);
+  }
+  /* FULL tier synergies get pink outline + brighter glow */
+  .player-circle .synergy-badge.full {
+    border-color: #f0abfc;
+    box-shadow: 0 0 8px rgba(240,171,252,0.9), 0 0 14px rgba(240,171,252,0.5);
+    background: linear-gradient(135deg, rgba(240,171,252,0.15), rgba(15,23,42,0.95));
+  }
+  @keyframes synergyPulse {
+    0%, 100% { filter: drop-shadow(0 0 3px rgba(251,191,36,0.5)); }
+    50%      { filter: drop-shadow(0 0 8px rgba(251,191,36,0.9)); }
+  }
+  /* Fallback initials when no photo */
+  .player-circle .initials {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-weight: 900; color: #fff; font-size: 1rem; letter-spacing: 1px;
+  }
+  .ball {
+    position: absolute;
+    width: 32px; height: 32px;
+    background-image: url('./assets/volleyball.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.55));
+    z-index: 10;
+    transition:
+      left 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      width 0.5s ease,
+      height 0.5s ease,
+      filter 0.5s ease;
+    pointer-events: none;
+  }
+  /* Height states — bigger + softer/farther shadow = higher, smaller + tight shadow = lower */
+  .ball.h-high {
+    width: 46px; height: 46px;
+    filter: drop-shadow(0 14px 8px rgba(0,0,0,0.45)) drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+  }
+  .ball.h-mid {
+    width: 36px; height: 36px;
+    filter: drop-shadow(0 8px 6px rgba(0,0,0,0.5));
+  }
+  .ball.h-low {
+    width: 24px; height: 24px;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.7));
+  }
+  .ball.h-floor {
+    width: 20px; height: 20px;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+  }
+  /* Ball shadow on the court (separate element that scales opposite of height) */
+  .ball-shadow {
+    position: absolute;
+    width: 26px; height: 8px;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9;
+    pointer-events: none;
+    transition:
+      left 0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      top  0.5s cubic-bezier(0.4, 0.0, 0.2, 1),
+      width 0.5s ease,
+      height 0.5s ease,
+      opacity 0.5s ease;
+  }
+  .ball-shadow.h-high  { width: 46px; height: 12px; opacity: 0.35; }
+  .ball-shadow.h-mid   { width: 32px; height: 10px; opacity: 0.55; }
+  .ball-shadow.h-low   { width: 22px; height: 7px;  opacity: 0.75; }
+  .ball-shadow.h-floor { width: 18px; height: 5px;  opacity: 0.9; }
+  .ball.spin { animation: ballspin 0.6s linear infinite; }
+  @keyframes ballspin {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to   { transform: translate(-50%, -50%) rotate(360deg); }
+  }
+  .action-burst {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: 8; pointer-events: none;
+    font-weight: 900; letter-spacing: 3px;
+    font-size: 1.6rem;
+    text-shadow: 0 0 18px rgba(0,0,0,1), 0 0 6px rgba(0,0,0,1), 0 2px 4px rgba(0,0,0,1);
+    animation: burst 1s ease-out forwards;
+    -webkit-text-stroke: 1.5px rgba(0,0,0,0.85);
+  }
+  @keyframes burst {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-6deg); }
+    20%  { opacity: 1; transform: translate(-50%, -70%) scale(1.55) rotate(3deg); }
+    50%  { opacity: 1; transform: translate(-50%, -110%) scale(1.35) rotate(-2deg); }
+    100% { opacity: 0; transform: translate(-50%, -180%) scale(1) rotate(0deg); }
+  }
+  .action-burst.kill  { color: #22ff88; }
+  .action-burst.ace   { color: #ffd93d; }
+  .action-burst.trick { color: #f0abfc; }  /* setter dumps & tips: pink/magenta for trick shots */
+  .action-burst.block { color: #c084fc; }
+  .action-burst.dig   { color: #60d3ff; }
+  .action-burst.error { color: #ff5f5f; }
+  /* Small floor impact ripple where the ball lands on a kill/ace/error */
+  .impact-ring {
+    position: absolute; transform: translate(-50%, -50%);
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.85);
+    pointer-events: none; z-index: 7;
+    animation: impactRing 0.7s ease-out forwards;
+  }
+  @keyframes impactRing {
+    0%   { opacity: 0.9; transform: translate(-50%, -50%) scale(0.2); border-width: 4px; }
+    100% { opacity: 0;   transform: translate(-50%, -50%) scale(2.2); border-width: 1px; }
+  }
+  /* Rotation badge — appears on the side that just rotated */
+  .rotation-badge {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    color: #fbbf24; font-weight: 900; font-size: 1.4rem;
+    letter-spacing: 3px; text-transform: uppercase;
+    text-shadow: 0 0 12px rgba(0,0,0,1), 0 0 6px rgba(0,0,0,1), 0 2px 4px rgba(0,0,0,1);
+    pointer-events: none; z-index: 15;
+    animation: rotBadge 1.4s ease-out forwards;
+  }
+  @keyframes rotBadge {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.6) rotate(-90deg); }
+    30%  { opacity: 1; transform: translate(-50%, -50%) scale(1.2) rotate(0deg); }
+    70%  { opacity: 1; transform: translate(-50%, -50%) scale(1.0) rotate(0deg); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9) rotate(90deg); }
+  }
+
+  .controls {
+    display: flex; gap: 8px; justify-content: center; margin: 12px 0; flex-wrap: wrap;
+  }
+  .controls button, .controls select {
+    padding: 8px 16px; font-size: 0.9rem;
+  }
+
+  /* ═══ ABSOLUTELY FIXED-SIZE LAYOUT — nothing here resizes based on content ═══ */
+  .match-grid {
+    display: grid !important;
+    grid-template-columns: 900px 340px !important;
+    grid-template-rows: 460px !important;
+    gap: 16px !important;
+    margin: 0 auto 16px auto !important;
+    justify-content: center !important;
+    width: fit-content !important;
+    max-width: 100% !important;
+  }
+  .match-grid .court-wrap {
+    margin: 0 !important;
+    width: 900px !important;
+    height: 460px !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    box-sizing: border-box !important;
+  }
+  .pbp-panel {
+    width: 340px !important;
+    height: 460px !important;
+    box-sizing: border-box !important;
+    padding: 12px !important;
+    background: rgba(15,23,42,0.7); border-radius: 12px;
+    display: flex !important; flex-direction: column !important;
+    border: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden !important;   /* NEVER grow */
+  }
+  .pbp-header {
+    flex: 0 0 auto !important;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; gap: 8px;
+  }
+  .pbp-header h3 {
+    color: #fbbf24; font-size: 0.9rem; letter-spacing: 2px;
+    text-transform: uppercase; margin: 0;
+  }
+  .pbp-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.75rem; color: #cbd5e1; cursor: pointer;
+    padding: 4px 8px; border-radius: 6px; background: rgba(30,41,59,0.6);
+  }
+  .pbp-toggle input { accent-color: #fbbf24; margin: 0; cursor: pointer; }
+  .log-panel {
+    flex: 1 1 0 !important;   /* fills remaining space and NO MORE */
+    min-height: 0 !important;
+    overflow-y: auto !important;   /* scroll internally when text overflows */
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
+    font-family: 'Segoe UI', -apple-system, system-ui, sans-serif;
+    font-size: 0.82rem; line-height: 1.5;
+    color: #cbd5e1;
+    scrollbar-width: thin;
+  }
+  .log-entry { padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+  .log-entry.point { color: #fbbf24; font-weight: 700; font-size: 0.9rem; margin: 4px 0; }
+  .log-entry.setwon { color: #22c55e; font-weight: 900; padding: 8px 0; border-top: 1px solid rgba(34,197,94,0.3); border-bottom: 1px solid rgba(34,197,94,0.3); }
+  .log-entry.matchwon { color: #f97316; font-weight: 900; font-size: 1rem; padding: 10px 0; }
+  /* Zones overlay */
+  .zone-debug {
+    position: absolute; box-sizing: border-box;
+    border: 2px dashed rgba(251,191,36,0.55);
+    pointer-events: none; z-index: 1;
+    opacity: 0; transition: opacity 0.2s;
+    background: rgba(251,191,36,0.03);
+  }
+  .zones-visible .zone-debug { opacity: 1; }
+  .zone-debug .zone-label {
+    position: absolute; top: 3px; left: 5px;
+    color: rgba(251,191,36,0.9); font-size: 0.65rem;
+    font-family: monospace; font-weight: 900; letter-spacing: 1px;
+    text-shadow: 0 0 4px rgba(0,0,0,0.9);
+  }
+  @media (max-width: 1300px) {
+    .match-grid {
+      grid-template-columns: 720px 300px !important;
+      grid-template-rows: 380px !important;
+    }
+    .match-grid .court-wrap { width: 720px !important; height: 380px !important; }
+    .pbp-panel { width: 300px !important; height: 380px !important; }
+  }
+  @media (max-width: 1050px) {
+    .match-grid {
+      grid-template-columns: minmax(0, 900px) !important;
+      grid-template-rows: 380px 260px !important;
+    }
+    .match-grid .court-wrap { width: 100% !important; max-width: 900px !important; height: 380px !important; }
+    .pbp-panel { width: 100% !important; max-width: 900px !important; height: 260px !important; }
+  }
+
+  #match-picker { padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; }
+  #match-picker select { max-width: 100%; }
+  #match-picker .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  @media (max-width: 720px) {
+    #match-picker .row { grid-template-columns: 1fr; }
+    .sim-header { grid-template-columns: 1fr; }
+    .score-big { font-size: 2.2rem; }
+    .team-tag.away { flex-direction: row; text-align: left; }
+    .player-circle { width: 11%; font-size: 0.6rem; }
+    .player-circle .num { width: 14px; height: 14px; font-size: 0.55rem; }
+  }
+/* ═══════════════════════════════════════════════════════════════
+   V2 MECHANICS STYLES (Fly High–inspired)
+   Morale bars, tier glows, crit damage popups, signature cutscene
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─ Morale bars in the header */
+.morale-wrap {
+  display: flex; gap: 24px; margin-top: 8px;
+  justify-content: center; align-items: center;
+}
+.morale-side { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 120px; }
+.morale-label {
+  font-size: 0.6rem; letter-spacing: 2px; font-weight: 900;
+  color: #fbbf24; opacity: 0.85;
+}
+.morale-bar {
+  width: 120px; height: 8px; border-radius: 4px;
+  background: rgba(0,0,0,0.5); overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.15);
+  position: relative;
+}
+.morale-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #f59e0b, #ef4444, #ec4899);
+  transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
+  box-shadow: 0 0 8px rgba(251,191,36,0.5);
+}
+.morale-fill.full {
+  animation: moraleFullPulse 0.8s ease-in-out infinite;
+  background: linear-gradient(90deg, #fbbf24, #ef4444, #f0abfc);
+}
+@keyframes moraleFullPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.5); }
+  50%      { box-shadow: 0 0 20px 5px rgba(251,191,36,0.9), 0 0 30px 10px rgba(240,171,252,0.5); }
+}
+
+/* ─ Touch-tier flashes on player circles */
+.player-circle.tier-perfect {
+  animation: tierPerfect 0.6s ease-out;
+}
+@keyframes tierPerfect {
+  0%   { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 0 0 rgba(74,222,128,0); }
+  40%  { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 24px 12px rgba(74,222,128,0.85); }
+  100% { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 0 0 rgba(74,222,128,0); }
+}
+.player-circle.tier-bad {
+  animation: tierBad 0.5s ease-out;
+}
+@keyframes tierBad {
+  0%   { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 0 0 rgba(239,68,68,0); transform: translate(-50%,-50%); }
+  20%  { transform: translate(calc(-50% - 4px), -50%); }
+  40%  { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 20px 8px rgba(239,68,68,0.85); transform: translate(calc(-50% + 4px), -50%); }
+  60%  { transform: translate(calc(-50% - 3px), -50%); }
+  80%  { transform: translate(calc(-50% + 2px), -50%); }
+  100% { box-shadow: 0 3px 10px rgba(0,0,0,0.6); transform: translate(-50%,-50%); }
+}
+
+/* ─ Crit damage popup à la Fly High (big number that floats up + fades) */
+.crit-damage {
+  position: absolute; z-index: 30;
+  transform: translate(-50%, -50%);
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  font-size: 2.4rem; font-weight: 900;
+  color: #fbbf24;
+  text-shadow:
+    0 0 8px rgba(251,191,36,0.9),
+    0 0 20px rgba(251,191,36,0.5),
+    2px 2px 0 #7c2d12,
+    -2px -2px 0 #7c2d12,
+    2px -2px 0 #7c2d12,
+    -2px 2px 0 #7c2d12;
+  animation: critFloat 1.4s cubic-bezier(0.2, 1.4, 0.6, 1) forwards;
+  pointer-events: none;
+  letter-spacing: 2px;
+}
+@keyframes critFloat {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-8deg); }
+  15%  { opacity: 1; transform: translate(-50%, -80%) scale(1.4) rotate(4deg); }
+  40%  { transform: translate(-50%, -110%) scale(1.15) rotate(-2deg); }
+  100% { opacity: 0; transform: translate(-50%, -180%) scale(0.9) rotate(0deg); }
+}
+
+/* ─ Signature move cutscene (the climax moment) */
+#court.signature-active {
+  position: relative;
+}
+#court.signature-active::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 20%, rgba(0,0,0,0.75) 70%);
+  z-index: 25; pointer-events: none;
+  animation: sigDim 1.8s ease-out;
+}
+@keyframes sigDim {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.player-circle.signature-star {
+  z-index: 40 !important;
+  animation: sigStar 1.8s ease-out !important;
+}
+@keyframes sigStar {
+  0%   { transform: translate(-50%,-50%) scale(1); filter: brightness(1); }
+  20%  { transform: translate(-50%,-50%) scale(1.9); filter: brightness(1.6) drop-shadow(0 0 20px gold); }
+  70%  { transform: translate(-50%,-50%) scale(1.9); filter: brightness(1.6) drop-shadow(0 0 30px gold); }
+  100% { transform: translate(-50%,-50%) scale(1); filter: brightness(1); }
+}
+.signature-banner {
+  position: absolute; left: 50%; top: 45%;
+  transform: translate(-50%, -50%) scale(0);
+  z-index: 50; pointer-events: none;
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  font-size: 3.8rem; font-weight: 900;
+  color: #fbbf24;
+  text-shadow:
+    0 0 16px #f59e0b,
+    0 0 32px #ec4899,
+    3px 3px 0 #7c2d12,
+    -3px -3px 0 #7c2d12,
+    3px -3px 0 #7c2d12,
+    -3px 3px 0 #7c2d12;
+  letter-spacing: 5px;
+  animation: sigBanner 1.8s cubic-bezier(0.2,1.4,0.6,1) forwards;
+  white-space: nowrap;
+}
+@keyframes sigBanner {
+  0%   { transform: translate(-50%,-50%) scale(0) rotate(-15deg); opacity: 0; }
+  25%  { transform: translate(-50%,-50%) scale(1.4) rotate(3deg); opacity: 1; }
+  70%  { transform: translate(-50%,-50%) scale(1.1) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(0.5) rotate(0deg); opacity: 0; }
+}
+/* Diagonal light streaks across court */
+.signature-streak {
+  position: absolute; inset: 0; z-index: 26; pointer-events: none;
+  background:
+    repeating-linear-gradient(45deg,
+      transparent 0 40px,
+      rgba(251,191,36,0.15) 40px 60px,
+      transparent 60px 100px);
+  animation: sigStreak 1.6s linear;
+}
+@keyframes sigStreak {
+  0%   { opacity: 0; transform: translateX(-30%); }
+  30%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(30%); }
+}
+/* Ball flame trail during signature */
+.ball.signature-flame {
+  filter: drop-shadow(0 0 8px #f59e0b) drop-shadow(0 0 16px #ef4444) drop-shadow(0 0 24px #ec4899) !important;
+}
+
+/* V3-lite: shot-call panel for 2D sim */
+.shot-call-panel-2d {
+  max-width: 1256px; margin: 0 auto 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(236,72,153,0.15));
+  border: 2px solid rgba(251,191,36,0.5);
+  border-radius: 12px;
+  animation: shotCallPulse2d 1.5s ease-in-out infinite;
+}
+@keyframes shotCallPulse2d {
+  0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.3); }
+  50%      { box-shadow: 0 0 24px rgba(251,191,36,0.6); }
+}
+.shot-call-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.shot-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 12px; border: 2px solid rgba(255,255,255,0.2);
+  border-radius: 8px; background: rgba(15,23,42,0.7); color: #e2e8f0;
+  cursor: pointer; font-family: inherit; font-size: 0.8rem;
+  min-width: 100px; transition: all 0.15s;
+}
+.shot-btn:hover { transform: translateY(-2px); border-color: #fbbf24; box-shadow: 0 4px 12px rgba(251,191,36,0.4); }
+.shot-btn .name { font-weight: 800; font-size: 0.9rem; }
+.shot-btn .pos { color: #94a3b8; font-size: 0.7rem; }
+.shot-btn .row-tag { font-size: 0.6rem; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,0.4); margin-top: 2px; letter-spacing: 1px; }
+.shot-btn.frontrow .row-tag { background: rgba(239,68,68,0.4); color: #fca5a5; }
+.shot-btn.backrow  .row-tag { background: rgba(59,130,246,0.4); color: #93c5fd; }
+.shot-btn .stat { color: #fbbf24; font-family: monospace; font-size: 0.7rem; }
+.shot-btn .chem { color: #22c55e; font-size: 0.65rem; }
+.auto-shot-btn {
+  padding: 6px 14px; background: rgba(30,41,59,0.8); color: #cbd5e1;
+  border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;
+  cursor: pointer; font-family: inherit;
+}
+.auto-shot-btn:hover { border-color: #fbbf24; color: #fbbf24; }
+.hidden { display: none !important; }
+
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="topnav">
+    <a href="./index.html">🏠 Home</a>
+    <a href="./standings.html">📊 Standings</a>
+    <a href="./player-stats.html">🌟 Player stats</a>
+    <a href="./chemistry.html">💚 Chemistry</a>
+    <a href="./synergies.html">⚡ Synergies</a>
+    <a href="./match-sim.html" class="active">🎮 Match Sim</a>
+    <a href="./match-sim-3d.html">🕹️ 3D Sim (beta)</a>
+  </nav>
+
+  <h1><span class="emoji">🎮</span> MATCH SIMULATOR</h1>
+  <p class="tagline">Watch your drafted teams play it out. Best of 5 sets.</p>
+
+  <div id="setup-card" class="card">
+    <div id="match-picker">
+      <label>League</label>
+      <select id="league-select"></select>
+      <div class="row">
+        <div>
+          <label>Home team (bottom)</label>
+          <select id="home-team"></select>
+        </div>
+        <div>
+          <label>Away team (top)</label>
+          <select id="away-team"></select>
+        </div>
+      </div>
+      <div style="margin-top: 14px;">
+        <label style="display:block; margin-bottom:6px;">Play mode</label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:6px 10px; background:rgba(30,41,59,0.6); border-radius:6px; font-size:0.85rem;">
+            <input type="radio" name="play-mode" value="auto" checked> 🤖 Auto
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:6px 10px; background:rgba(30,41,59,0.6); border-radius:6px; font-size:0.85rem;">
+            <input type="radio" name="play-mode" value="manual"> 🎯 Manual (call the shots)
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px; font-size:0.8rem;">
+            Control:
+            <select id="control-side-2d" style="padding:2px 6px;">
+              <option value="home">Home</option>
+              <option value="away">Away</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="row-btns" style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+        <button onclick="startMatch()">▶️ Start match</button>
+        <button onclick="simulate100Matches()" class="secondary" title="Run 100 headless matches to see predicted win %, common scores, MVPs">
+          📊 Predict outcome (100 matches)
+        </button>
+      </div>
+      <p id="roster-note" style="color:#94a3b8; font-size:0.8rem; margin-top:10px;">
+        Loading rosters…
+      </p>
+      <!-- Prediction results panel (hidden until 100-match sim is run) -->
+      <div id="predict-panel" style="display:none; margin-top:16px; padding:16px; background:rgba(15,23,42,0.85); border-radius:8px; border-left:4px solid #fbbf24;"></div>
+    </div>
+  </div>
+
+  <div id="match-view" class="hidden">
+    <div class="sim-header">
+      <div class="team-tag" id="tag-home">
+        <div class="swatch"></div>
+        <div class="name"></div>
+      </div>
+      <div class="score-box">
+        <div class="score-big"><span id="score-home">0</span> : <span id="score-away">0</span></div>
+        <div class="set-info" id="set-info">Set 1 of 5</div>
+        <div class="sets-row" id="sets-row"></div>
+        <!-- Morale bars (v2 mechanic): fills 0→100 with team energy; at 100 triggers a signature move -->
+        <div class="morale-wrap">
+          <div class="morale-side">
+            <span class="morale-label">TEAM MORALE</span>
+            <div class="morale-bar"><div class="morale-fill" id="morale-fill-home"></div></div>
+          </div>
+          <div class="morale-side">
+            <span class="morale-label">TEAM MORALE</span>
+            <div class="morale-bar"><div class="morale-fill" id="morale-fill-away"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="team-tag away" id="tag-away">
+        <div class="swatch"></div>
+        <div class="name"></div>
+      </div>
+    </div>
+
+    <!-- Side-by-side layout: court on the left, play-by-play on the right -->
+    <!-- V3: Manual shot-call panel — appears before rally in manual mode -->
+    <div class="shot-call-panel-2d hidden" id="shot-call-panel">
+      <div style="font-weight:800; color:#fbbf24; margin-bottom:8px;">🎯 Call the shot — who spikes?</div>
+      <div class="shot-call-buttons" id="shot-call-buttons"></div>
+      <div style="margin-top:8px;">
+        <button class="auto-shot-btn" id="auto-shot-btn">🤖 Let engine pick</button>
+      </div>
+    </div>
+
+    <div class="match-grid">
+      <div class="court-wrap" id="court">
+        <div class="attack-line-far"></div>
+        <div class="attack-line-near"></div>
+        <div class="net"></div>
+        <div class="side-label home" id="side-label-home">HOME</div>
+        <div class="side-label away" id="side-label-away">AWAY</div>
+      </div>
+
+      <div class="pbp-panel">
+        <div class="pbp-header">
+          <h3>📋 Play-by-play</h3>
+          <label class="pbp-toggle">
+            <input type="checkbox" id="toggle-zones">
+            <span>Show zones</span>
+          </label>
+        </div>
+        <div class="log-panel" id="log-panel"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button onclick="togglePause()" id="btn-pause">⏸️ Pause</button>
+      <select id="speed-select" onchange="setSpeed()">
+        <option value="0.5">0.5× (slow-mo)</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2× (fast)</option>
+        <option value="4">4× (very fast)</option>
+      </select>
+      <button onclick="finishInstantly()" class="secondary">⏩ Simulate to end</button>
+      <button onclick="resetSim()" class="secondary">↺ New match</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { db, ref, get } from "./js/firebase-init.js";
+  import { listLeagues, ensureGomiCupSeeded, currentLeagueId, getLeague } from "./js/leagues.js";
+  import { escapeHtml, shuffle } from "./js/util.js";
+  import { createMatch, simulateRally, playerAtSpot, setManualHitter } from "./js/match-engine.js";
+  import { augmentEvents, resetV2State, SIGNATURE_MOVES } from "./js/mechanics-v2.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { photoPathFor, getInitials, traitsFor, PLAYER_TRAITS } from "./js/data.js";
+  import { loadLeagueChemistry, buildChemistryMap, formatChemistry, chemistryScore } from "./js/chemistry.js";
+  import { applySynergiesToRoster, synergyChemistryFloor } from "./js/synergies.js";
+  import { PHOTO_CONFIG } from "./js/photo-config.js";
+  import { playPick, playYourTurn, playReveal } from "./js/sounds.js";
+
+  // Transform engine coords (vertical, home on bottom) → screen coords (horizontal, home on left)
+  // screen.x = 1 - engine.y   (engine's y=0.85 near home endline → screen x=0.15 = far left)
+  // screen.y = engine.x       (engine's x sideline maps to screen vertical)
+  function toScreen(spot) {
+    if (!spot) return { x: 0.5, y: 0.5 };
+    return { x: 1 - spot.y, y: spot.x };
+  }
+
+  await ensureGomiCupSeeded();
+
+  const leagues = await listLeagues();
+  const lgSel = document.getElementById('league-select');
+  const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
+  lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  lgSel.addEventListener('change', populateTeams);
+
+  // Cache all players once (needed for random-fill rosters when there's no draft)
+  const ALL_PLAYERS = await getAllPlayers();
+  const PLAYERS_BY_ID = Object.fromEntries(ALL_PLAYERS.map(p => [p.id, p]));
+
+  let leagueDraft = null;      // most recent completed draft for the league, or null
+  let leagueCaptains = [];     // captains from the league (always available if the league exists)
+  let rosterSource = 'random'; // 'draft' or 'random'
+
+  await populateTeams();
+
+  async function populateTeams() {
+    const leagueId = lgSel.value;
+    const homeSel = document.getElementById('home-team');
+    const awaySel = document.getElementById('away-team');
+    const noteEl = document.getElementById('roster-note');
+
+    // Always load the league's captains first
+    const league = await getLeague(leagueId);
+    leagueCaptains = (league && league.captains) || [];
+
+    // Try to find the most recent completed draft for this league
+    const draftsSnap = await get(ref(db, 'drafts'));
+    const drafts = draftsSnap.val() || {};
+    let latest = null;
+    for (const d of Object.values(drafts)) {
+      if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
+      if (d.status !== 'complete') continue;
+      if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+    }
+    leagueDraft = latest;
+    rosterSource = latest ? 'draft' : 'random';
+
+    if (!leagueCaptains.length) {
+      homeSel.innerHTML = '<option value="">No teams in this league yet</option>';
+      awaySel.innerHTML = '<option value="">No teams in this league yet</option>';
+      if (noteEl) noteEl.textContent = 'This league has no captains. Add teams in League Editor first.';
+      return;
+    }
+
+    const opts = leagueCaptains.map((c, i) =>
+      `<option value="${i}">${escapeHtml(c.team || c.name)} (${escapeHtml(c.name)})</option>`).join('');
+    homeSel.innerHTML = opts;
+    awaySel.innerHTML = opts;
+    if (leagueCaptains.length > 1) awaySel.selectedIndex = 1;
+
+    if (noteEl) {
+      noteEl.textContent = latest
+        ? 'Rosters loaded from the most recent completed draft. Best of 5 · sets 1-4 to 25, set 5 to 15.'
+        : 'No completed draft yet for this league — teams will be filled with random players from the pool for simulation. Best of 5 · sets 1-4 to 25, set 5 to 15.';
+    }
+  }
+
+  // Build a fake captain-as-player entry (stats from linked player if any, else average)
+  function captainAsPlayer(cap) {
+    if (cap.linkedPlayerId && PLAYERS_BY_ID[cap.linkedPlayerId]) {
+      return { ...PLAYERS_BY_ID[cap.linkedPlayerId], jerseyNum: 'C' };
+    }
+    return {
+      id: cap.id || ('cap-' + (cap.name || 'x').toLowerCase()),
+      name: cap.name || 'Captain',
+      nickname: cap.name || 'Captain',
+      attack: 6.5, serve: 6.5, defense: 6.5, setting: 6.5, athletic: 6.5,
+      position: (cap.role || 'OH').split(/[^A-Za-z]/)[0].toUpperCase() || 'OH',
+      jerseyNum: 'C'
+    };
+  }
+
+  // Get roster (drafted players + captain) for a captain
+  function getRoster(captainIdx, usedIds) {
+    const cap = leagueCaptains[captainIdx];
+    const roster = [captainAsPlayer(cap)];
+    usedIds.add(roster[0].id);
+
+    if (rosterSource === 'draft' && leagueDraft) {
+      const picks = (leagueDraft.picks || []).filter(p => p.captainIdx === captainIdx);
+      const playersById = Object.fromEntries((leagueDraft.players || []).map(p => [p.id, p]));
+      picks.forEach((pk, i) => {
+        const p = playersById[pk.playerId] || PLAYERS_BY_ID[pk.playerId];
+        if (p) { roster.push({ ...p, jerseyNum: i + 1 }); usedIds.add(p.id); }
+      });
+    }
+
+    // Fill up to 6 with random players not yet used, skipping other captains' linked players
+    if (roster.length < 6) {
+      const linkedByOtherCaps = new Set(
+        leagueCaptains.filter((_, i) => i !== captainIdx).map(c => c.linkedPlayerId).filter(Boolean)
+      );
+      const pool = shuffle(ALL_PLAYERS.filter(p => !usedIds.has(p.id) && !linkedByOtherCaps.has(p.id)));
+      let n = roster.length;
+      while (roster.length < 6 && pool.length) {
+        const p = pool.shift();
+        roster.push({ ...p, jerseyNum: n });
+        usedIds.add(p.id);
+        n++;
+      }
+    }
+    return roster.slice(0, 6);
+  }
+
+  // ============ SIM RUNTIME ============
+  let match = null;
+  let paused = false;
+  // V3-lite: manual mode
+  let playMode = 'auto';
+  let controlSide = 'home';
+  let currentChemistryBlob = {};  // raw Firebase chemistry blob for the loaded league
+  let currentSynergies = { home: [], away: [] };  // active squad bonuses this match
+  let setScores = [];   // [{setNum, home, away, winner}] appended when each set finishes
+
+  /** Repaint hot-streak (fire) and cold-streak visuals on every player circle.
+   *  Team momentum drives fire tier (0/1/2/3), player cold streak adds .cold desaturation. */
+  function updateMomentumVisuals(pointEvent) {
+    if (!match) return;
+    const momH = match.momentum ? match.momentum.home : { streak: 0, boost: 0 };
+    const momA = match.momentum ? match.momentum.away : { streak: 0, boost: 0 };
+    const streaks = match.playerStreaks || {};
+    // Determine tier for each side (0 = none, 1 = warm, 2 = hot, 3 = on fire)
+    const fireTier = (streak) => streak >= 5 ? 3 : streak >= 4 ? 2 : streak >= 3 ? 1 : 0;
+    const homeTier = fireTier(momH.streak);
+    const awayTier = fireTier(momA.streak);
+    document.querySelectorAll('.player-circle').forEach(el => {
+      // Clear old tiers
+      el.classList.remove('hot-lvl1','hot-lvl2','hot-lvl3','cold');
+      const pid = el.dataset.pid;
+      const side = el.dataset.side;
+      const tier = side === 'home' ? homeTier : awayTier;
+      if (tier > 0) el.classList.add('hot-lvl' + tier);
+      // Cold streak — individual penalty
+      const penalty = (streaks[pid] || {}).penalty || 0;
+      if (penalty >= 0.5) el.classList.add('cold');
+    });
+  }
+
+  function logSynergies(synergies, homeName, awayName) {
+    const panel = document.getElementById('log-panel');
+    if (!panel) return;
+    for (const [side, arr] of [['home', synergies.home], ['away', synergies.away]]) {
+      if (!arr.length) continue;
+      const teamName = side === 'home' ? homeName : awayName;
+      for (const { synergy, activeMembers, tier } of arr) {
+        const div = document.createElement('div');
+        div.className = 'log-entry setwon';
+        div.style.color = tier === 'full' ? '#f0abfc' : '#fbbf24';
+        const tierTag = tier === 'full'
+          ? `<span style="color:#f0abfc;background:rgba(240,171,252,0.2);padding:1px 6px;border-radius:4px;font-size:0.7rem;margin-left:6px">🌟 FULL SQUAD (${activeMembers.length}/${synergy.players.length})</span>`
+          : `<span style="color:#94a3b8;font-size:0.75rem">(${activeMembers.length}/${synergy.players.length})</span>`;
+        div.innerHTML = `${synergy.icon} <b>${synergy.name}</b> active for ${escapeHtml(teamName)} ${tierTag} — ${synergy.description}`;
+        panel.appendChild(div);
+      }
+    }
+  }
+  let speed = 1;
+  let rallyTimer = null;
+  let idleTimer = null;   // interval for subtle player sway animation
+  // Home positions per player id (screen coords 0..1). Set when court renders.
+  // Used to restore positions between rallies and after each touch.
+  const HOME_POS = {};
+  // Current live positions per player id (updated whenever they move). Used so the ball
+  // can be aimed at their ACTUAL location, not their rotation home — fixes the ball/player
+  // disconnect bug where the ball missed the player after they walked.
+  const CURRENT_POS = {};
+  // Time (ms) the last movePlayerTo() call will take for each player. Used so Phase 2
+  // can wait for the player to arrive before releasing the ball — prevents "ball there,
+  // player 5 miles away" bug.
+  const WALK_TIMES = {};
+
+  /** Every ~1.5s, nudge each player-circle by a tiny random offset via CSS variables.
+   *  Very subtle — just enough that nobody looks frozen. Doesn't fight the walking/jumping. */
+  function startIdleMotion() {
+    stopIdleMotion();
+    const tick = () => {
+      document.querySelectorAll('.player-circle').forEach(el => {
+        if (el.classList.contains('jumping') || el.classList.contains('diving')) return;
+        const sx = (Math.random() - 0.5) * 4;
+        const sy = (Math.random() - 0.5) * 3;
+        el.style.setProperty('--sx', sx.toFixed(1) + 'px');
+        el.style.setProperty('--sy', sy.toFixed(1) + 'px');
+      });
+    };
+    tick();
+    idleTimer = setInterval(tick, 1500);
+  }
+  function stopIdleMotion() {
+    if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+  }
+
+  /** Move a player's circle to a new screen position (0..1).
+   *  Normally clamps to the player's assigned zone. Pass force=true to bypass
+   *  (used only for serves — server stands BEHIND the endline, outside the court). */
+  function movePlayerTo(pid, screenX, screenY, force = false) {
+    const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+    if (!el) return 0;
+    if (!force) {
+      // Zone clamp — the hard boundary for all normal play movement.
+      const clamped = clampToZone(pid, screenX, screenY);
+      screenX = clamped.x;
+      screenY = clamped.y;
+    }
+    // Compute distance from current position
+    const from = CURRENT_POS[pid] || { x: screenX, y: screenY };
+    const dx = screenX - from.x, dy = screenY - from.y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    // Player speed: ~0.9 court units per second at 1× speed → ~1100ms per unit
+    // Scale by sim speed so at 4× speed players still keep up with the ball
+    const speedFactor = 1100 / speed;
+    const walkMs = Math.max(120, d * speedFactor);   // 120ms floor for tiny shifts
+    el.classList.add('walking');
+    el.style.transitionDuration = (walkMs / 1000) + 's';
+    // Also set the left/top transitions individually (overrides the CSS default)
+    el.style.setProperty('transition',
+      `left ${walkMs/1000}s cubic-bezier(0.4, 0.0, 0.2, 1), ` +
+      `top ${walkMs/1000}s cubic-bezier(0.4, 0.0, 0.2, 1), ` +
+      `transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1), ` +
+      `filter 0.3s, box-shadow 0.3s`);
+    el.style.left = (screenX * 100) + '%';
+    el.style.top  = (screenY * 100) + '%';
+    CURRENT_POS[pid] = { x: screenX, y: screenY };
+    // Track the walk time for this player so Phase 2 knows how long to wait
+    WALK_TIMES[pid] = walkMs;
+    return walkMs;
+  }
+  /** Snap a player back to their home spot (rotation position). */
+  function restorePlayer(pid) {
+    const home = HOME_POS[pid];
+    if (!home) return;
+    movePlayerTo(pid, home.x, home.y);
+  }
+  /** Restore everyone home (called between rallies). */
+  function restoreAll() {
+    Object.keys(HOME_POS).forEach(pid => restorePlayer(pid));
+  }
+
+  window.startMatch = async () => {
+    const homeIdx = parseInt(document.getElementById('home-team').value);
+    const awayIdx = parseInt(document.getElementById('away-team').value);
+    if (isNaN(homeIdx) || isNaN(awayIdx)) return alert('Pick a team for both home and away.');
+    if (homeIdx === awayIdx) return alert('Pick different teams for home and away.');
+    const usedIds = new Set();
+    const rawHomeRoster = getRoster(homeIdx, usedIds);
+    const rawAwayRoster = getRoster(awayIdx, usedIds);
+    if (rawHomeRoster.length < 6) return alert(`Home team only has ${rawHomeRoster.length} players (need 6). Not enough players in the pool.`);
+    if (rawAwayRoster.length < 6) return alert(`Away team only has ${rawAwayRoster.length} players (need 6). Not enough players in the pool.`);
+
+    // ═══ Apply SYNERGIES (squad bonuses) to each roster BEFORE creating the match ═══
+    const homeSynResult = applySynergiesToRoster(rawHomeRoster);
+    const awaySynResult = applySynergiesToRoster(rawAwayRoster);
+    const homeRoster = homeSynResult.boostedRoster;
+    const awayRoster = awaySynResult.boostedRoster;
+    currentSynergies = {
+      home: homeSynResult.activeSynergies,
+      away: awaySynResult.activeSynergies
+    };
+    logSynergies(currentSynergies, leagueCaptains[homeIdx].team, leagueCaptains[awayIdx].team);
+
+    // Load persistent chemistry for this league and merge with preset personal bonds
+    let chemistryMap = {};
+    try {
+      const chemBlob = await loadLeagueChemistry(lgSel.value);
+      chemistryMap = buildChemistryMap(chemBlob, PLAYER_TRAITS);
+      currentChemistryBlob = chemBlob;
+      // Overlay synergy chemistry floors — squadmates snap to at least their squad's floor
+      for (const syn of [...currentSynergies.home, ...currentSynergies.away]) {
+        const floor = syn.synergy.boost?.chemistryFloor || 0;
+        if (!floor) continue;
+        for (const pA of syn.activeMembers) {
+          for (const pB of syn.activeMembers) {
+            if (pA === pB) continue;
+            if (!chemistryMap[pA]) chemistryMap[pA] = {};
+            chemistryMap[pA][pB] = Math.max(chemistryMap[pA][pB] || 0, floor);
+          }
+        }
+      }
+      console.log('[chemistry] Loaded map for', Object.keys(chemistryMap).length, 'players');
+    } catch (e) {
+      console.warn('[chemistry] Failed to load, using presets only:', e);
+    }
+
+    match = createMatch({
+      homeTeam: homeRoster, awayTeam: awayRoster,
+      homeName: leagueCaptains[homeIdx].team,
+      awayName: leagueCaptains[awayIdx].team,
+      homeColor: leagueCaptains[homeIdx].color,
+      awayColor: leagueCaptains[awayIdx].color,
+      chemistryMap
+    });
+    setScores = [];   // fresh set-score history for this match
+    // Reset zone assignments for new match (fresh rosters get re-classified)
+    for (const k of Object.keys(PLAYER_ROLE_ZONE)) delete PLAYER_ROLE_ZONE[k];
+    // Reset v2 mechanics state (morale, net crossings, ability cooldowns)
+    resetV2State(match);
+
+    // V3-lite: capture play mode
+    playMode = document.querySelector('input[name="play-mode"]:checked')?.value || 'auto';
+    controlSide = document.getElementById('control-side-2d')?.value || 'home';
+
+    document.getElementById('setup-card').classList.add('hidden');
+    document.getElementById('match-view').classList.remove('hidden');
+    // Zones-visible toggle wiring (only once per match)
+    const zonesToggle = document.getElementById('toggle-zones');
+    const applyZonesToggle = () => {
+      document.getElementById('court').classList.toggle('zones-visible', zonesToggle.checked);
+    };
+    zonesToggle.onchange = applyZonesToggle;
+    applyZonesToggle();
+    renderHeader();
+    renderCourt();
+    logSeed();
+    paused = false;
+    startIdleMotion();
+    scheduleNextRally();
+    try { playYourTurn(); } catch (e) {}
+  };
+
+  window.resetSim = () => {
+    if (rallyTimer) clearTimeout(rallyTimer);
+    stopIdleMotion();
+    match = null; paused = false;
+    document.getElementById('setup-card').classList.remove('hidden');
+    document.getElementById('match-view').classList.add('hidden');
+    document.getElementById('log-panel').innerHTML = '';
+  };
+
+  window.togglePause = () => {
+    paused = !paused;
+    document.getElementById('btn-pause').textContent = paused ? '▶️ Resume' : '⏸️ Pause';
+    if (!paused) scheduleNextRally();
+  };
+
+  window.setSpeed = () => {
+    speed = parseFloat(document.getElementById('speed-select').value) || 1;
+  };
+
+  window.finishInstantly = () => {
+    if (!match) return;
+    while (!match.matchOver) {
+      const events = simulateRally(match);
+      events.forEach(e => appendLog(formatEvent(e)));
+    }
+    renderHeader();
+    scrollLog();
+    try { playReveal(); } catch (e) {}
+  };
+
+  /** Run 100 headless matches with the currently selected teams — great for balance testing
+   *  and predicting how a matchup will play out. Shows win %, avg score, top MVPs, etc. */
+  window.simulate100Matches = async () => {
+    const homeIdx = parseInt(document.getElementById('home-team').value);
+    const awayIdx = parseInt(document.getElementById('away-team').value);
+    if (isNaN(homeIdx) || isNaN(awayIdx)) return alert('Pick teams first.');
+    if (homeIdx === awayIdx) return alert('Pick different teams for home and away.');
+    const panel = document.getElementById('predict-panel');
+    panel.style.display = '';
+    panel.innerHTML = `<div style="color:#fbbf24; font-weight:900;">🎲 Running 100 matches…</div>`;
+    // Build rosters once (identical for each of the 100 runs)
+    const usedIds = new Set();
+    const rawHome = getRoster(homeIdx, usedIds);
+    const rawAway = getRoster(awayIdx, usedIds);
+    if (rawHome.length < 6 || rawAway.length < 6) {
+      panel.innerHTML = `<div style="color:#ef4444;">Not enough players to fill both rosters.</div>`;
+      return;
+    }
+    const homeSyn = applySynergiesToRoster(rawHome);
+    const awaySyn = applySynergiesToRoster(rawAway);
+    const homeRoster = homeSyn.boostedRoster;
+    const awayRoster = awaySyn.boostedRoster;
+    let chemistryMap = {};
+    try {
+      const chemBlob = await loadLeagueChemistry(lgSel.value);
+      chemistryMap = buildChemistryMap(chemBlob, PLAYER_TRAITS);
+    } catch (e) {}
+    // Tally results
+    const N = 100;
+    let homeWins = 0, awayWins = 0;
+    const finalSets = { '3-0': 0, '3-1': 0, '3-2': 0, '0-3': 0, '1-3': 0, '2-3': 0 };
+    const playerStats = {};   // pid → { kills, blocks, aces, digs, mvps }
+    const tacticCount = { normal: 0, quick: 0, slide: 0, 'back-row': 0, fake: 0, dumps: 0, tips: 0 };
+    const homeName = leagueCaptains[homeIdx].team;
+    const awayName = leagueCaptains[awayIdx].team;
+
+    // Yield to browser between batches so the UI updates
+    const runBatch = (start, size) => new Promise(resolve => {
+      setTimeout(() => {
+        for (let i = start; i < start + size && i < N; i++) {
+          const m = createMatch({
+            homeTeam: homeRoster, awayTeam: awayRoster,
+            homeName, awayName,
+            homeColor: leagueCaptains[homeIdx].color,
+            awayColor: leagueCaptains[awayIdx].color,
+            chemistryMap
+          });
+          const matchStats = {};
+          while (!m.matchOver) {
+            const events = simulateRally(m);
+            for (const ev of events) {
+              const actorPid = ev.actor?.player?.id;
+              if (actorPid) {
+                if (!matchStats[actorPid]) matchStats[actorPid] = { kills:0, blocks:0, aces:0, digs:0 };
+                if (ev.type === 'kill') matchStats[actorPid].kills++;
+                if (ev.type === 'block') matchStats[actorPid].blocks++;
+                if (ev.type === 'ace') matchStats[actorPid].aces++;
+                if (ev.type === 'dig') matchStats[actorPid].digs++;
+              }
+              if (ev.tactic && tacticCount[ev.tactic] !== undefined) tacticCount[ev.tactic]++;
+              if (ev.type === 'setter-dump') tacticCount.dumps++;
+              if (ev.type === 'tip') tacticCount.tips++;
+            }
+          }
+          // Record match result
+          if (m.setsHome > m.setsAway) homeWins++;
+          else awayWins++;
+          const key = `${m.setsHome}-${m.setsAway}`;
+          if (finalSets[key] !== undefined) finalSets[key]++;
+          // MVP for this match = highest kills + blocks*1.5 + aces*1.5
+          let mvpPid = null, mvpScore = -1;
+          for (const [pid, s] of Object.entries(matchStats)) {
+            const score = s.kills + s.blocks * 1.5 + s.aces * 1.5 + s.digs * 0.5;
+            if (score > mvpScore) { mvpScore = score; mvpPid = pid; }
+            // Accumulate season stats
+            if (!playerStats[pid]) playerStats[pid] = { kills:0, blocks:0, aces:0, digs:0, mvps:0, name: '' };
+            playerStats[pid].kills  += s.kills;
+            playerStats[pid].blocks += s.blocks;
+            playerStats[pid].aces   += s.aces;
+            playerStats[pid].digs   += s.digs;
+          }
+          if (mvpPid) {
+            if (!playerStats[mvpPid]) playerStats[mvpPid] = { kills:0, blocks:0, aces:0, digs:0, mvps:0, name: '' };
+            playerStats[mvpPid].mvps++;
+          }
+        }
+        panel.innerHTML = `<div style="color:#fbbf24; font-weight:900;">🎲 Running matches… ${Math.min(start+size, N)} / ${N}</div>`;
+        resolve();
+      }, 10);
+    });
+
+    // Run in 10 batches of 10 so the UI doesn't freeze
+    for (let b = 0; b < N; b += 10) {
+      await runBatch(b, 10);
+    }
+
+    // Attach player names + sort MVPs
+    for (const pid of Object.keys(playerStats)) {
+      const p = PLAYERS_BY_ID[pid];
+      playerStats[pid].name = p ? (p.name || pid) : pid;
+    }
+    const topMvps = Object.values(playerStats)
+      .filter(s => s.mvps > 0)
+      .sort((a,b) => b.mvps - a.mvps)
+      .slice(0, 5);
+
+    // Render results
+    const homePct = (homeWins / N * 100).toFixed(0);
+    const awayPct = (awayWins / N * 100).toFixed(0);
+    const homeColor = leagueCaptains[homeIdx].color;
+    const awayColor = leagueCaptains[awayIdx].color;
+    const scoreRows = Object.entries(finalSets)
+      .filter(([k,v]) => v > 0)
+      .sort((a,b) => b[1] - a[1])
+      .map(([k,v]) => `<tr><td style="padding:4px 8px;color:#cbd5e1;font-family:monospace;">${k}</td><td style="padding:4px 8px;color:#fbbf24;font-weight:900;">${v}×</td></tr>`)
+      .join('');
+    const mvpRows = topMvps.map((s,i) =>
+      `<tr>
+        <td style="padding:4px 8px;color:#fbbf24;">#${i+1}</td>
+        <td style="padding:4px 8px;color:#e2e8f0;font-weight:700;">${escapeHtml(s.name)}</td>
+        <td style="padding:4px 8px;color:#f0abfc;">${s.mvps} MVP${s.mvps>1?'s':''}</td>
+        <td style="padding:4px 8px;color:#94a3b8;font-size:0.85em;">${s.kills}K · ${s.blocks}B · ${s.aces}A · ${s.digs}D</td>
+      </tr>`).join('');
+
+    panel.innerHTML = `
+      <h3 style="margin-top:0; color:#fbbf24;">📊 100-Match Prediction</h3>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+        <div style="text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:8px; border-top:4px solid ${homeColor};">
+          <div style="color:${homeColor}; font-weight:900; font-size:1.1rem;">${escapeHtml(homeName)}</div>
+          <div style="font-size:2.5rem; font-weight:900; color:#fbbf24; margin:8px 0;">${homePct}%</div>
+          <div style="color:#94a3b8; font-size:0.85rem;">${homeWins} wins</div>
+        </div>
+        <div style="text-align:center; padding:14px; background:rgba(0,0,0,0.3); border-radius:8px; border-top:4px solid ${awayColor};">
+          <div style="color:${awayColor}; font-weight:900; font-size:1.1rem;">${escapeHtml(awayName)}</div>
+          <div style="font-size:2.5rem; font-weight:900; color:#fbbf24; margin:8px 0;">${awayPct}%</div>
+          <div style="color:#94a3b8; font-size:0.85rem;">${awayWins} wins</div>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div>
+          <h4 style="color:#fbbf24; font-size:0.9rem; letter-spacing:1px; text-transform:uppercase; margin:0 0 8px 0;">Most common results</h4>
+          <table style="width:100%; border-collapse:collapse;">${scoreRows}</table>
+        </div>
+        <div>
+          <h4 style="color:#fbbf24; font-size:0.9rem; letter-spacing:1px; text-transform:uppercase; margin:0 0 8px 0;">Top 5 MVPs</h4>
+          <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">${mvpRows || '<tr><td style="color:#94a3b8;">No MVPs recorded</td></tr>'}</table>
+        </div>
+      </div>
+      <div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.1);">
+        <h4 style="color:#fbbf24; font-size:0.9rem; letter-spacing:1px; text-transform:uppercase; margin:0 0 6px 0;">Tactics across ${N} matches</h4>
+        <div style="color:#cbd5e1; font-size:0.85rem; font-family:monospace;">
+          🎭 Dumps: ${tacticCount.dumps} · 🪶 Tips: ${tacticCount.tips} ·
+          ⚡ Quicks: ${tacticCount.quick} · 🏃 Slides: ${tacticCount.slide} ·
+          🎯 Back-row: ${tacticCount['back-row']} · 🎭 Fakes: ${tacticCount.fake}
+        </div>
+      </div>
+    `;
+  };
+
+  function renderHeader() {
+    if (!match) return;
+    const th = document.getElementById('tag-home');
+    const ta = document.getElementById('tag-away');
+    th.querySelector('.swatch').style.background = match.home.color;
+    th.querySelector('.name').textContent = match.home.name;
+    th.querySelector('.name').style.color = match.home.color;
+    ta.querySelector('.swatch').style.background = match.away.color;
+    ta.querySelector('.name').textContent = match.away.name;
+    ta.querySelector('.name').style.color = match.away.color;
+    document.getElementById('score-home').textContent = match.pointsHome;
+    document.getElementById('score-away').textContent = match.pointsAway;
+    document.getElementById('set-info').textContent = match.matchOver
+      ? '🏆 MATCH OVER'
+      : `Set ${match.setNumber} · First to ${match.setNumber === 5 ? match.finalSetTarget : match.setTarget}`;
+    // Sets row: one pill per completed set, showing the final score.
+    // Winning team's color highlights the pill (home color on left team, away on right).
+    const setsRow = document.getElementById('sets-row');
+    const pills = setScores.map(s => {
+      const winColor = s.winner === 'home' ? match.home.color : match.away.color;
+      return `<span class="set-pill won" style="background:${winColor}; color:#fff;" title="Set ${s.setNum}">${s.home}–${s.away}</span>`;
+    });
+    // Overall set tally at the front
+    const tally = `<span class="set-pill" style="background:rgba(0,0,0,0.4);">Sets ${match.setsHome}–${match.setsAway}</span>`;
+    setsRow.innerHTML = tally + ' ' + pills.join(' ');
+    updateMoraleBars();
+  }
+
+  function renderCourt() {
+    const court = document.getElementById('court');
+    // Clear existing player circles + ball
+    court.querySelectorAll('.player-circle, .ball, .ball-shadow, .action-burst, .impact-ring').forEach(el => el.remove());
+    // Reset position maps for the new lineup
+    for (const k of Object.keys(HOME_POS)) delete HOME_POS[k];
+    for (const k of Object.keys(CURRENT_POS)) delete CURRENT_POS[k];
+    for (const k of Object.keys(WALK_TIMES)) delete WALK_TIMES[k];
+    // Update side labels with team names
+    document.getElementById('side-label-home').textContent = match.home.name;
+    document.getElementById('side-label-home').style.color = match.home.color;
+    document.getElementById('side-label-away').textContent = match.away.name;
+    document.getElementById('side-label-away').style.color = match.away.color;
+
+    // Add players
+    for (const side of ['home', 'away']) {
+      const team = match[side];
+      team.lineup.forEach((slot, i) => {
+        if (!slot) return;
+        // rotate offset — compute actual on-court coords (in engine's vertical space)
+        const spotIndex = (6 + i - team.rotationOffset) % 6;
+        const engineSpot = (side === 'home' ? [
+          { x: 0.75, y: 0.85 },{ x: 0.75, y: 0.60 },{ x: 0.50, y: 0.60 },
+          { x: 0.25, y: 0.60 },{ x: 0.25, y: 0.85 },{ x: 0.50, y: 0.85 }
+        ] : [
+          { x: 0.25, y: 0.15 },{ x: 0.25, y: 0.40 },{ x: 0.50, y: 0.40 },
+          { x: 0.75, y: 0.40 },{ x: 0.75, y: 0.15 },{ x: 0.50, y: 0.15 }
+        ])[spotIndex];
+        // update the slot's current spot so engine sees it
+        slot.spot = engineSpot;
+        const screen = toScreen(engineSpot);
+        const circle = document.createElement('div');
+        circle.className = 'player-circle';
+        circle.dataset.pid = slot.player.id;
+        circle.dataset.side = side;   // 'home' or 'away' — used for movement logic
+        circle.dataset.role = slot.player.position || '';   // 'S' / 'OH' / 'MB' / 'L' etc.
+        circle.dataset.playerName = slot.player.name || slot.player.id;   // for zone debug labels
+        circle.style.left = (screen.x * 100) + '%';
+        circle.style.top = (screen.y * 100) + '%';
+        circle.style.borderColor = team.color;
+        circle.style.color = team.color;
+        // Remember this player's home position (for restoring between touches / rallies)
+        HOME_POS[slot.player.id]    = { x: screen.x, y: screen.y, side, spotIndex, engineSpot };
+        CURRENT_POS[slot.player.id] = { x: screen.x, y: screen.y };
+
+        // ---- Stats affect visual appearance ----
+        // Height (150-215cm) → circle size (6.5% to 11% of court width)
+        // Overall stat (avg of 5) → glow strength on the border
+        const p = slot.player;
+        const heightCm = p.heightCm || 180;
+        const heightNorm = Math.max(0, Math.min(1, (heightCm - 150) / 65)); // 150→0, 215→1
+        const sizePct = 6.5 + heightNorm * 4.5; // 6.5% (short) to 11% (tall)
+        circle.style.width = sizePct.toFixed(2) + '%';
+        // Overall rating for glow
+        const overall = ((+p.attack || 5) + (+p.serve || 5) + (+p.defense || 5) + (+p.setting || 5) + (+p.athletic || 5)) / 5;
+        const glow = Math.max(0, (overall - 5) / 3.5); // 5→0, 8.5→1
+        if (glow > 0) {
+          const glowPx = Math.round(6 + glow * 12);
+          circle.style.boxShadow = `0 3px 10px rgba(0,0,0,0.6), 0 0 ${glowPx}px ${team.color}`;
+        }
+        // Elite (overall >= 7.5) gets a small ★ badge
+        const isElite = overall >= 7.5;
+
+        // Try to load a photo; fall back to initials on error
+        const pid = p.id;
+        const photoUrl = photoPathFor(pid);
+        const cfg = PHOTO_CONFIG[pid] || { y: 25, zoom: 1.0 };
+        // Preload photo to see if it exists
+        const img = new Image();
+        img.onload = () => {
+          circle.style.backgroundImage = `url('${photoUrl}')`;
+          circle.style.backgroundSize = `${cfg.zoom * 100}% auto`;
+          circle.style.backgroundPosition = `center ${cfg.y}%`;
+          const initEl = circle.querySelector('.initials');
+          if (initEl) initEl.remove();
+        };
+        img.onerror = () => { /* keep initials */ };
+        img.src = photoUrl;
+
+        // Rich hover label showing the actual stats driving the sim
+        const statLine = `ATK ${(+p.attack||5).toFixed(1)} · SRV ${(+p.serve||5).toFixed(1)} · DEF ${(+p.defense||5).toFixed(1)} · SET ${(+p.setting||5).toFixed(1)} · ATH ${(+p.athletic||5).toFixed(1)}`;
+        const heightLine = p.heightCm ? `${p.heightCm}cm · ${p.position || 'OH'}` : (p.position || 'OH');
+        // Personality traits (0..1 sliders that shape behavior)
+        const tr = traitsFor(p.id);
+        const traitBar = (v) => '▓'.repeat(Math.round(v * 5)) + '░'.repeat(5 - Math.round(v * 5));
+        const traitLine = `AGG ${traitBar(tr.aggression)}  SHOW ${traitBar(tr.showboat)}  HUS ${traitBar(tr.hustle)}`;
+        // Top-3 chemistry teammates (from persistent Firebase blob)
+        const teammatesOnField = team.lineup
+          .map(s => s?.player).filter(x => x && x.id !== p.id);
+        const chemsList = teammatesOnField
+          .map(tm => ({ pid: tm.id, name: tm.nickname || tm.name,
+                        score: chemistryScore(p.id, tm.id, currentChemistryBlob,
+                                              (traitsFor(p.id).chemistry || {}),
+                                              (traitsFor(tm.id).chemistry || {})) }))
+          .filter(c => c.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+        const chemLine = chemsList.length
+          ? '💚 ' + chemsList.map(c => `${escapeHtml(c.name)} ${c.score}`).join(' · ')
+          : '';
+
+        // Jump height scales with athletic stat (5=default 20px, 8=28px, 3=14px)
+        const athletic = +p.athletic || 5;
+        const jumpPx = Math.round(14 + (athletic - 3) * 3); // 3→14px, 5→20px, 8→29px
+        circle.style.setProperty('--jump-height', `-${jumpPx}px`);
+
+        // Synergy badges attached by applySynergiesToRoster
+        const synBadges = p._synergyBadges || [];
+        const synIconsHtml = synBadges.map(b =>
+          `<span class="synergy-badge ${b.tier === 'full' ? 'full' : ''}" title="${escapeHtml(b.name)}${b.tier === 'full' ? ' (FULL SQUAD)' : ''}">${b.icon}</span>`
+        ).join('');
+        const synLine = synBadges.length
+          ? '⚡ ' + synBadges.map(b => `${b.icon} ${escapeHtml(b.name)}${b.tier === 'full' ? ' 🌟' : ''}`).join(' · ')
+          : '';
+
+        circle.innerHTML = `
+          <span class="initials">${escapeHtml(getInitials(p.name))}</span>
+          <span class="num" style="color:${team.color}">${p.jerseyNum || '?'}</span>
+          ${isElite ? `<span class="elite-badge" title="Overall ${overall.toFixed(1)}">★</span>` : ''}
+          ${synIconsHtml ? `<span class="synergy-badges">${synIconsHtml}</span>` : ''}
+          <div class="label">
+            <div class="label-name">${escapeHtml(p.nickname || p.name)}</div>
+            <div class="label-sub">${escapeHtml(heightLine)}</div>
+            <div class="label-stats">${statLine}</div>
+            <div class="label-stats" style="color:#c084fc;">${traitLine}</div>
+            ${chemLine ? `<div class="label-stats" style="color:#4ade80;">${chemLine}</div>` : ''}
+            ${synLine ? `<div class="label-stats" style="color:#fbbf24; font-weight:900;">${synLine}</div>` : ''}
+          </div>
+        `;
+        court.appendChild(circle);
+      });
+    }
+    // Assign each player to their invisible zone (based on role + current rotation shift).
+    // Zones prevent overlap and keep positional roles cleaner.
+    assignZones('home');
+    assignZones('away');
+    // Snap each circle to its assigned zone's center (so rotations "stick" visually).
+    for (const [pid, zRect] of Object.entries(PLAYER_ZONE)) {
+      const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+      if (!el) continue;
+      const cx = (zRect.xMin + zRect.xMax) / 2;
+      const cy = (zRect.yMin + zRect.yMax) / 2;
+      el.style.transitionDuration = '0s';   // instant snap (no animation on rebuild)
+      el.style.left = (cx * 100) + '%';
+      el.style.top  = (cy * 100) + '%';
+      CURRENT_POS[pid] = { x: cx, y: cy };
+      // Restore transition on next frame so future moves animate normally
+      requestAnimationFrame(() => { el.style.transitionDuration = ''; });
+    }
+    // Visualize zones — toggled by the checkbox. Uses role-specific colors so
+    // overlapping zones are visible (Libero HUGE, Middle WIDE, Opposite SMALL, etc.)
+    court.querySelectorAll('.zone-debug').forEach(el => el.remove());
+    const ROLE_COLORS = {
+      setter:   'rgba(168, 85, 247, 0.75)',   // purple
+      opp:      'rgba(59, 130, 246, 0.75)',   // blue
+      middle:   'rgba(34, 197, 94, 0.75)',    // green (WIDE)
+      outside:  'rgba(251, 191, 36, 0.75)',   // gold
+      leftBack: 'rgba(74, 222, 128, 0.75)',   // light green
+      libero:   'rgba(240, 171, 252, 0.85)'   // pink (HUGE)
+    };
+    for (const [pid, z] of Object.entries(PLAYER_ZONE)) {
+      const zoneName = PLAYER_ZONE_NAME[pid] || '';
+      const player = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+      const playerName = player ? (player.dataset.playerName || pid) : pid;
+      const el = document.createElement('div');
+      el.className = 'zone-debug';
+      el.style.left = (z.xMin * 100) + '%';
+      el.style.top  = (z.yMin * 100) + '%';
+      el.style.width  = ((z.xMax - z.xMin) * 100) + '%';
+      el.style.height = ((z.yMax - z.yMin) * 100) + '%';
+      const color = ROLE_COLORS[zoneName] || 'rgba(251,191,36,0.7)';
+      el.style.borderColor = color;
+      el.style.background = color.replace(/[\d.]+\)/, '0.08)');   // faint fill
+      const label = ZONE_LABEL[zoneName] || zoneName.toUpperCase();
+      const prio = z.priority || '';
+      el.innerHTML = `<span class="zone-label" style="color:${color}">${label} · P${prio} · ${escapeHtml(playerName)}</span>`;
+      court.appendChild(el);
+    }
+    // Ball starts visible AT the server's serve position (behind the endline, outside court).
+    const ball = document.createElement('div');
+    ball.className = 'ball spin h-low';
+    const shadow = document.createElement('div');
+    shadow.className = 'ball-shadow h-low';
+    // Find who's actually serving — MUST match the engine's logic exactly.
+    // Engine uses playerAtSpot(team, 0) = lineup[(0 + rotationOffset) % 6].
+    const servingTeam = match[match.serving];
+    let serverSlot = null;
+    if (servingTeam && servingTeam.lineup) {
+      // Match engine's server pick exactly: spot 1 (P1), but skip MB/L/DS (they never serve).
+      const isLegalServer = (slot) => {
+        if (!slot || !slot.player) return false;
+        const pos = (slot.player.position || '').split('/');
+        return !pos.includes('MB') && !pos.includes('L') && !pos.includes('DS');
+      };
+      for (let offset = 0; offset < 6; offset++) {
+        const idx = (offset + servingTeam.rotationOffset) % 6;
+        const cand = servingTeam.lineup[idx];
+        if (isLegalServer(cand)) { serverSlot = cand; break; }
+      }
+      if (!serverSlot) {
+        const idx = (0 + servingTeam.rotationOffset) % 6;
+        serverSlot = servingTeam.lineup[idx];
+      }
+    }
+    // Move the server OUTSIDE the court immediately — INSTANT snap, no walk animation.
+    // (Between rallies is a natural break, so teleport is fine and prevents the "ball at
+    //  outside spot but player still walking" bug.)
+    let serveOriginX = 0.5, serveOriginY = 0.5;
+    if (serverSlot && serverSlot.player) {
+      const isHome = match.serving === 'home';
+      // Use the server's ROLE-ZONE center for y (they always live in their zone visually).
+      // Fall back to HOME_POS if zone isn't ready yet.
+      const zRect = PLAYER_ZONE[serverSlot.player.id];
+      const serverHome = HOME_POS[serverSlot.player.id];
+      serveOriginX = isHome ? -0.05 : 1.05;
+      serveOriginY = zRect
+        ? (zRect.yMin + zRect.yMax) / 2
+        : (serverHome ? serverHome.y : 0.5);
+      // Snap server INSTANTLY to that spot (bypass zone clamp + transition)
+      const serverEl = document.querySelector(`.player-circle[data-pid="${serverSlot.player.id}"]`);
+      if (serverEl) {
+        // Kill the walk animation for this snap
+        serverEl.style.transitionDuration = '0s';
+        serverEl.style.left = (serveOriginX * 100) + '%';
+        serverEl.style.top  = (serveOriginY * 100) + '%';
+        CURRENT_POS[serverSlot.player.id] = { x: serveOriginX, y: serveOriginY };
+        WALK_TIMES[serverSlot.player.id] = 0;
+        // Restore transition on next frame so future moves animate normally
+        requestAnimationFrame(() => {
+          serverEl.style.transitionDuration = '';
+        });
+      }
+    }
+    // Ball starts in the server's hand (same position, behind the endline)
+    ball.style.left = (serveOriginX * 100) + '%';
+    ball.style.top = (serveOriginY * 100) + '%';
+    ball.style.opacity = '1';
+    shadow.style.left = (serveOriginX * 100) + '%';
+    shadow.style.top = (serveOriginY * 100) + '%';
+    court.appendChild(shadow);
+    court.appendChild(ball);
+    // Reset ball position tracker so distance-based transitions start fresh
+    BALL_LAST_POS = { x: serveOriginX, y: serveOriginY };
+  }
+
+  function scheduleNextRally() {
+    if (paused || !match || match.matchOver) return;
+    const delay = 400 / speed; // between-rally pause (playRally already adds its own)
+    rallyTimer = setTimeout(async () => {
+      // V3-lite: in manual mode, pause and let user pick which hitter to spike
+      if (playMode === 'manual') await promptShotCall();
+      await playRally();
+      renderHeader();
+      if (!match.matchOver && !paused) scheduleNextRally();
+      else if (match.matchOver) {
+        appendLog(`\n🏆 ${match.winner === 'home' ? match.home.name : match.away.name} WINS THE MATCH ${match.setsHome}-${match.setsAway}!`, 'matchwon');
+        try { playReveal(); } catch (e) {}
+      }
+    }, delay);
+  }
+
+  /** V3-lite: shot-call prompt for 2D sim. */
+  function promptShotCall() {
+    return new Promise((resolve) => {
+      const panel = document.getElementById('shot-call-panel');
+      const btnRow = document.getElementById('shot-call-buttons');
+      const team = match[controlSide];
+      if (!team || !team.lineup) { resolve(); return; }
+      const setterId = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'))?.player?.id;
+      const candidates = [];
+      for (let i = 0; i < 6; i++) {
+        const slot = team.lineup[i];
+        if (!slot || !slot.player) continue;
+        if (slot.player.id === setterId) continue;
+        const rotIdx = (6 + i - team.rotationOffset) % 6;
+        const isFront = rotIdx >= 1 && rotIdx <= 3;
+        candidates.push({ slot, player: slot.player, isFront });
+      }
+      const setterSlot = team.lineup.find(s => s && s.player && s.player.id === setterId);
+      const setterTraits = setterSlot ? traitsFor(setterSlot.player.id) : null;
+      btnRow.innerHTML = candidates.map(c => {
+        const chem = setterTraits?.chemistry?.[c.player.id] || 0;
+        const chemLabel = chem >= 0.9 ? '❤️ BFF' : chem >= 0.7 ? '💚 Close' : chem >= 0.5 ? '💛 Friend' : '';
+        const rowTag = c.isFront ? 'FRONT ROW' : 'BACK ROW';
+        return `
+          <button class="shot-btn ${c.isFront ? 'frontrow' : 'backrow'}" data-pid="${c.player.id}">
+            <span class="name">${c.player.name}</span>
+            <span class="pos">${c.player.position || '?'}</span>
+            <span class="stat">ATK ${c.player.attack || 5}</span>
+            <span class="row-tag">${rowTag}</span>
+            ${chemLabel ? `<span class="chem">${chemLabel}</span>` : ''}
+          </button>`;
+      }).join('');
+      const cleanup = (pid) => {
+        panel.classList.add('hidden');
+        if (pid) setManualHitter(controlSide, pid);
+        else setManualHitter(null);
+        resolve();
+      };
+      panel.classList.remove('hidden');
+      btnRow.querySelectorAll('.shot-btn').forEach(btn => {
+        btn.onclick = () => cleanup(btn.dataset.pid);
+      });
+      document.getElementById('auto-shot-btn').onclick = () => cleanup(null);
+    });
+  }
+
+  async function playRally() {
+    if (!match) return;
+    const events = augmentEvents(simulateRally(match), match);
+    // Update morale bars now (before animation) so player sees fill first
+    updateMoraleBars();
+    // Stop idle sway during the rally so nothing fights the smooth walk/jump motion
+    stopIdleMotion();
+    // Reset the tiny --sx/--sy nudges from any previous idle tick
+    document.querySelectorAll('.player-circle').forEach(el => {
+      el.style.setProperty('--sx', '0px');
+      el.style.setProperty('--sy', '0px');
+    });
+    // Safety: clear any lingering transient states before the rally
+    ['active','jumping','diving','crouching','walking'].forEach(cls => {
+      document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
+    });
+    const ball = document.querySelector('.ball');
+    const shadow = document.querySelector('.ball-shadow');
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      const prev = events[i - 1] || null;
+      const next = events[i + 1] || null;
+      // Record set final scores as they happen so the header can display 25-23, 22-25, etc.
+      if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
+        setScores.push({
+          setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team
+        });
+      }
+      // On a point event: update fire/cold visual states based on team momentum + player streaks
+      if (ev.type === 'point') {
+        updateMomentumVisuals(ev);
+      }
+      appendLog(formatEvent(ev), classForEvent(ev));
+      await animateEvent(ev, prev, next, ball, shadow);
+    }
+    // Small pause between rallies (feels like an actual match reset)
+    await sleep(600 / speed);
+    // Safety: clear all transient states after rally in case something got stuck
+    ['active','jumping','diving','crouching','walking'].forEach(cls => {
+      document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
+    });
+    // Did a rotation happen this rally? Just flash the badge — NO player animation.
+    // (The engine already tracks rotation via rotationOffset for gameplay logic.
+    //  Players stay locked to their role zone visually — no confusing shuffle that
+    //  puts Big-B in the opposite zone or anything like that.)
+    const rotationEvents = events.filter(e => e.type === 'rotation');
+    for (const rotEv of rotationEvents) {
+      showRotationBadge(rotEv.team);
+    }
+    // At end of rally, refresh court (re-syncs engine spots + zone snap)
+    renderCourt();
+    // Restart idle motion for between-rally moments (subtle)
+    startIdleMotion();
+  }
+
+  function showRotationBadge(side) {
+    const court = document.getElementById('court');
+    // Remove any old badges first
+    court.querySelectorAll('.rotation-badge').forEach(el => el.remove());
+    const badge = document.createElement('div');
+    badge.className = 'rotation-badge';
+    badge.textContent = '↻ ROTATION';
+    badge.style.left = side === 'home' ? '15%' : '85%';
+    court.appendChild(badge);
+    setTimeout(() => badge.remove(), 1400 / speed);
+  }
+
+  // Height profile per event type: what height is the ball AT the moment of this touch,
+  // and what height does it fly through on the way to the next touch?
+  // low = at hip/floor level, mid = normal contact, high = apex of arc
+  const HEIGHT_AT_CONTACT = {
+    'serve':        'mid',   // toss + contact around head height
+    'pass':         'low',   // forearm pass down low
+    'set':          'high',  // hands overhead
+    'attack':       'high',  // jumping spike at peak
+    'kill':         'floor', // ball is on the floor now
+    'ace':          'floor',
+    'block':        'high',  // hands above net
+    'attack-net':   'high',
+    'attack-out':   'floor',
+    'attack-error': 'floor',
+    'pass-error':   'floor',   // missed pass — ball drops
+    'serve-error':  'floor',
+    'dig':          'low',   // often diving/kneeling
+    'setter-dump':  'high',  // setter reaches up and pushes it over
+    'tip':          'high'   // hitter jumps but softly places
+  };
+  const HEIGHT_MIDFLIGHT_AFTER = {
+    'serve':       'high',
+    'pass':        'high',
+    'set':         'high',
+    'attack':      'high',
+    'dig':         'high',
+    'block':       'low',
+    'setter-dump': 'mid',   // dumps float over the net
+    'tip':         'mid'    // tips float gently
+  };
+
+  function setBallHeight(ball, shadow, level) {
+    if (!ball) return;
+    ['h-high','h-mid','h-low','h-floor'].forEach(c => {
+      ball.classList.remove(c);
+      if (shadow) shadow.classList.remove(c);
+    });
+    const cls = 'h-' + level;
+    ball.classList.add(cls);
+    if (shadow) shadow.classList.add(cls);
+  }
+  // Track ball's last position so we can measure distance and time proportionally
+  let BALL_LAST_POS = { x: 0.5, y: 0.5 };
+  /** Set ball position with a transition time proportional to distance.
+   *  transMs is used as a MINIMUM floor. Actual time = max(transMs, distance * speedFactor).
+   *  This makes short flights snappy and long flights (like a serve) take proper time. */
+  function setBallPos(ball, shadow, s, transMs) {
+    // Compute distance from last position (0..1 court units → sqrt2 max)
+    const dx = s.x - BALL_LAST_POS.x;
+    const dy = s.y - BALL_LAST_POS.y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    // Ball speed: full court diagonal (~1.4) at 1× speed should take ~1.2s → 1.2/1.4 = 0.86s per unit
+    // At higher sim speed we scale it down proportionally.
+    const speedFactor = 850 / speed;   // ms per court unit
+    const durMs = Math.max(transMs, d * speedFactor);
+    BALL_LAST_POS = { x: s.x, y: s.y };
+    if (ball) {
+      ball.style.transitionDuration = (durMs / 1000) + 's';
+      ball.style.left = (s.x * 100) + '%';
+      ball.style.top = (s.y * 100) + '%';
+    }
+    if (shadow) {
+      shadow.style.transitionDuration = (durMs / 1000) + 's';
+      shadow.style.left = (s.x * 100) + '%';
+      shadow.style.top = (s.y * 100) + '%';
+    }
+    return durMs;
+  }
+
+  /** Serve ceremony: server bounces the ball, tosses it up, catches contact, then serves.
+   *  Takes ~4s at 1× speed, scales with sim speed. Ball starts in server's hand → tosses
+   *  high above them → peaks → drops back → contact. */
+  async function performServeCeremony(ev, ball, shadow, actorEl) {
+    if (!ev.actor || !ev.actor.player || !ball) return;
+    const pid = ev.actor.player.id;
+    // Use the server's ACTUAL current position (set by renderCourt as an instant snap).
+    // This guarantees the ball is exactly where the server is standing.
+    const servePos = CURRENT_POS[pid] || predictContactPos(ev, null);
+    if (!servePos) return;
+
+    // Place ball on the server (start of ceremony)
+    setBallPos(ball, shadow, { x: servePos.x, y: servePos.y }, 200 / speed);
+    setBallHeight(ball, shadow, 'low');
+    await sleep(220 / speed);
+
+    // Bounce dribble x2 (down, up, down, up) — quick bounces
+    for (let i = 0; i < 2; i++) {
+      setBallHeight(ball, shadow, 'floor');
+      await sleep(180 / speed);
+      setBallHeight(ball, shadow, 'low');
+      await sleep(180 / speed);
+    }
+
+    // Big toss — ball goes HIGH and stays there briefly
+    setBallHeight(ball, shadow, 'high');
+    // Bump ball's y up slightly to feel like it's rising above head (nudge -3% y = upward on screen)
+    const tossY = Math.max(0.03, servePos.y - 0.06);
+    setBallPos(ball, shadow, { x: servePos.x, y: tossY }, 700 / speed);
+    await sleep(900 / speed);
+
+    // Peak — hover for a beat (server winds up)
+    await sleep(350 / speed);
+
+    // Ball drops back to contact height at server's spot
+    setBallPos(ball, shadow, { x: servePos.x, y: servePos.y }, 500 / speed);
+    setBallHeight(ball, shadow, 'mid');
+    // Server does a small crouch → jump animation right at contact
+    if (actorEl) {
+      actorEl.classList.add('crouching');
+      await sleep(200 / speed);
+      actorEl.classList.remove('crouching');
+      actorEl.classList.add('jumping');
+      await sleep(300 / speed);
+      actorEl.classList.remove('jumping');
+    } else {
+      await sleep(500 / speed);
+    }
+    // Total ceremony time: bounce(720) + toss(900) + hover(350) + drop(500) + swing(500) ≈ 3-4s at 1×
+  }
+
+  // Stance for the actor of this event type ("go DOWN for a save, UP for a spike…")
+  //   jumping   = leap upward (attack/kill/ace/block/set)
+  //   crouching = slight bend (pass/receive)
+  //   diving    = sprawled dive (dig — the acrobatic save)
+  const STANCE_FOR_EVENT = {
+    'attack':  'jumping',
+    'kill':    'jumping',
+    'ace':     'jumping',   // slight jump serve
+    'set':     'jumping',   // reaching up
+    'block':   'jumping',
+    'pass':    'crouching',
+    'dig':     'diving',
+    'serve':   'crouching',
+    'attack-net':   'jumping',
+    'attack-out':   'jumping',
+    'attack-error': 'jumping',
+    'pass-error':   'diving',    // whiffed on the pass
+    'serve-error':  'crouching',
+    'setter-dump':  'jumping',  // reaches up to push over
+    'tip':          'jumping'   // hitter still jumps, just doesn't swing hard
+  };
+
+  /** Predict where the actor will physically be at the moment of their contact.
+   *  PURE — doesn't mutate anything. Used by Phase 3 to aim the ball at the correct meetup
+   *  point before the next event fires, so the ball and the next player converge there. */
+  /** Predict where this event's actor makes contact.
+   *  ALWAYS returns a position inside the actor's assigned zone — no exceptions.
+   *  Ball flies to this exact spot so player and ball meet. */
+  function predictContactPos(ev, prevEv) {
+    if (!ev || !ev.actor || !ev.actor.player) return null;
+    const actorPid = ev.actor.player.id;
+    const actorHome = HOME_POS[actorPid];
+    if (!actorHome) return null;
+    const side = actorHome.side;
+    const isHome = side === 'home';
+    const isFront = isFrontZone(actorPid);
+    const center = zoneCenter(actorPid);
+    let target = center;
+
+    switch (ev.type) {
+      case 'serve':
+      case 'ace':
+        // Server stands BEHIND the endline (outside the court entirely, opposite side of net).
+        // For HOME: net is at x=0.5, so far endline is at x=0 → serve from x=-0.05 (outside).
+        // Uses force=true to bypass zone clamp. Court overflow is set to visible.
+        target = { x: side === 'home' ? -0.05 : 1.05, y: center.y };
+        break;
+      case 'pass':
+      case 'pass-error': {
+        // Passer moves within their zone toward the ball's incoming y
+        let ty = center.y;
+        if (prevEv && prevEv.actor && prevEv.actor.spot) {
+          const from = toScreen(prevEv.actor.spot);
+          ty = center.y + (from.y - center.y) * 0.4;
+        }
+        target = { x: center.x, y: ty };
+        break;
+      }
+      case 'set':
+      case 'setter-dump':
+        // Setter contacts at the front of their zone (net edge)
+        target = netEdgeOfZone(actorPid, side);
+        break;
+      case 'attack':
+      case 'kill':
+      case 'attack-error':
+      case 'attack-net':
+      case 'attack-out':
+      case 'tip': {
+        // Attacker approaches to the net edge of their zone.
+        // Back-row attack: takeoff at center of zone (behind 3m line).
+        if (ev.tactic === 'back-row' || !isFront) {
+          target = center;   // back-row attacker takes off from zone middle
+        } else {
+          target = netEdgeOfZone(actorPid, side);
+        }
+        break;
+      }
+      case 'block':
+        // Blocker at the net edge of their zone
+        target = netEdgeOfZone(actorPid, side);
+        break;
+      case 'dig': {
+        // Digger moves within their zone toward the ball's incoming trajectory
+        let tx = center.x, ty = center.y;
+        if (prevEv && prevEv.actor && prevEv.actor.spot) {
+          const from = toScreen(prevEv.actor.spot);
+          tx = center.x + (from.x - center.x) * 0.3;
+          ty = center.y + (from.y - center.y) * 0.3;
+        }
+        target = { x: tx, y: ty };
+        break;
+      }
+      default:
+        return null;
+    }
+    // Final zone clamp — guarantees the position is reachable
+    return clampToZone(actorPid, target.x, target.y);
+  }
+
+  /** Get all players on a given side (returns array of {pid, home, role}). */
+  function playersOnSide(side) {
+    const out = [];
+    for (const [pid, info] of Object.entries(HOME_POS)) {
+      if (info.side === side) {
+        const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+        out.push({ pid, home: info, role: el ? el.dataset.role : '' });
+      }
+    }
+    return out;
+  }
+
+  /** Move the actor + supporting cast into position for a given event.
+   *  Returns the actor's contact position (same as predictContactPos). */
+  // ═══════════════════════════════════════════════════════════════════════
+  // VOLLEYBALL MOVEMENT SYSTEM  (based on real volleyball mechanics + Big-B's design doc)
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // ROLES (auto-classified per player):
+  //   setter   - runs offense, always heads to net-front-middle "target zone"
+  //   oh1/oh2  - outside hitters, attack from left pin (both sides)
+  //   opp      - opposite hitter, attacks from right pin
+  //   mb1/mb2  - middle blockers, attack quick middle & lead the block
+  //   libero   - defensive specialist, back-row anchor, best passer
+  //
+  // FORMATIONS (whole-team movement patterns triggered by phase, not by event):
+  //   serve_prep      - our team about to serve. Server behind endline, rest in base.
+  //   serve_receive   - opponent served. Passers form arc, setter releases to target.
+  //   attack_ready    - we have the ball, building attack. Hitters back off for approach.
+  //   defense_base    - opponent has the ball, mid-play. Ready-to-read positioning.
+  //   defense_block   - opponent about to spike. 3-blocker wall + perimeter dig.
+  //   transition      - just made contact, need to switch offense↔defense.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /** Classify a player's on-court role from their position string + home coords. */
+  function classifyRole(pid) {
+    const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
+    const home = HOME_POS[pid];
+    if (!el || !home) return 'other';
+    const roleStr = (el.dataset.role || '').toUpperCase();
+    if (roleStr.split('/').includes('S')) return 'setter';
+    if (roleStr.split('/').includes('L') || roleStr.split('/').includes('DS')) return 'libero';
+    if (roleStr.split('/').includes('OP')) return 'opp';
+    if (roleStr.split('/').includes('MB')) return home.y < 0.5 ? 'mb1' : 'mb2';
+    if (roleStr.split('/').includes('OH')) return home.y < 0.5 ? 'oh1' : 'oh2';
+    // Fallback by home position
+    if (home.y < 0.35) return 'oh1';
+    if (home.y > 0.65) return 'oh2';
+    return 'mb1';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ROLE-BASED ZONES — from Big-B's design doc.
+  // Each role has DIFFERENT size + shape. Zones INTENTIONALLY OVERLAP.
+  // Priority number decides who takes a ball in an overlapping area.
+  //
+  // Home center (0..1 court coords) + width/height (0..1 court units).
+  // Zone rectangle = center ± width/2, center ± height/2.
+  //
+  //   Role       | Home (x,y)  | Width | Height | Type   | Priority | Row
+  //   -----------|-------------|-------|--------|--------|----------|-----
+  //   Setter     | (0.20,0.75) | 0.20  | 0.30   | Medium | 2        | back
+  //   Opposite   | (0.375,0.20)| 0.15  | 0.24   | Small  | 3        | front
+  //   Middle     | (0.35,0.50) | 0.28  | 0.18   | WIDE   | 5        | front
+  //   Outside    | (0.35,0.80) | 0.18  | 0.30   | Medium | 3        | front
+  //   Left Back  | (0.10,0.20) | 0.22  | 0.36   | Large  | 4        | back
+  //   Libero     | (0.15,0.50) | 0.28  | 0.40   | HUGE   | 1        | back
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /** Role definitions (home-side coordinates). Priority: 1=highest (libero first). */
+  const ROLE_ZONES_HOME = {
+    setter:     { home: { x: 0.22, y: 0.80 }, width: 0.24, height: 0.36, priority: 2, row: 'back',
+                  attackPos: { x: 0.46, y: 0.55 } },   // runs here on set
+    opp:        { home: { x: 0.38, y: 0.20 }, width: 0.18, height: 0.28, priority: 3, row: 'front',
+                  attackPos: { x: 0.46, y: 0.18 } },
+    middle:     { home: { x: 0.42, y: 0.50 }, width: 0.16, height: 0.60, priority: 5, row: 'front',
+                  attackPos: { x: 0.46, y: 0.50 } },   // WIDE across the net (slide + quick)
+    outside:    { home: { x: 0.38, y: 0.82 }, width: 0.22, height: 0.34, priority: 3, row: 'front',
+                  attackPos: { x: 0.46, y: 0.82 } },
+    leftBack:   { home: { x: 0.12, y: 0.20 }, width: 0.24, height: 0.40, priority: 4, row: 'back',
+                  attackPos: null },
+    libero:     { home: { x: 0.15, y: 0.50 }, width: 0.30, height: 0.70, priority: 1, row: 'back',
+                  attackPos: null }
+  };
+  // Zone label for the debug overlay
+  const ZONE_LABEL = {
+    setter:   'Z1 SETTER',
+    opp:      'Z2 OPPOSITE',
+    middle:   'Z3 MIDDLE',
+    outside:  'Z4 OUTSIDE',
+    leftBack: 'Z5 LEFT-BACK',
+    libero:   'Z6 LIBERO'
+  };
+
+  /** Convert a role's home-side definition to actual rectangle bounds.
+   *  Mirrors across net for away side. */
+  function roleZoneRect(roleKey, side) {
+    const rz = ROLE_ZONES_HOME[roleKey];
+    if (!rz) return null;
+    const cx = side === 'home' ? rz.home.x : (1 - rz.home.x);
+    const cy = rz.home.y;
+    const halfW = rz.width / 2;
+    const halfH = rz.height / 2;
+    return {
+      xMin: Math.max(0.01, cx - halfW),
+      xMax: Math.min(0.99, cx + halfW),
+      yMin: Math.max(0.01, cy - halfH),
+      yMax: Math.min(0.99, cy + halfH),
+      priority: rz.priority,
+      row: rz.row,
+      roleKey
+    };
+  }
+
+  const PLAYER_ZONE = {};        // pid → zone bounds (with priority + row + roleKey)
+  const PLAYER_ZONE_NAME = {};   // pid → 'setter' | 'opp' | 'middle' | 'outside' | 'leftBack' | 'libero'
+
+  /** Clockwise cycle order: Z1 → Z6 → Z5 → Z4 → Z3 → Z2 → Z1
+   *  Used ONLY for the rotation-dance animation (brief visual shuffle between rallies).
+   *  Players ALWAYS end up back in their role zone — we don't permanently shift roles,
+   *  because the engine already handles the rotation via `rotationOffset` for spot logic.
+   *  Locking zones to role keeps setters at the setter zone, liberos at libero zone, etc. */
+  const ZONE_CYCLE = ['setter', 'libero', 'leftBack', 'outside', 'middle', 'opp'];
+
+  /** Each player's assigned role zone (set once, never shifts). */
+  const PLAYER_ROLE_ZONE = {};
+
+  /** Assign each player to their zone based on their volleyball role.
+   *  Zones stay locked to role across the whole match — the engine tracks rotation
+   *  independently via rotationOffset. Between rallies, animateClockwiseRotation
+   *  plays a brief visual "shuffle" that ends back at role zones. */
+  function assignZones(side) {
+    const players = playersOnSide(side);
+    const roleClaimed = new Set();
+
+    const roleForClassified = {
+      setter: 'setter', opp: 'opp',
+      mb1: 'middle', mb2: 'middle',
+      oh1: 'outside', oh2: 'outside',
+      libero: 'libero'
+    };
+
+    // Pass 1: assign each player their role zone (persists across rallies).
+    for (const p of players) {
+      if (!PLAYER_ROLE_ZONE[p.pid]) {
+        const cls = classifyRole(p.pid);
+        const roleKey = roleForClassified[cls];
+        if (roleKey && !roleClaimed.has(roleKey)) {
+          PLAYER_ROLE_ZONE[p.pid] = roleKey;
+          roleClaimed.add(roleKey);
+        }
+      } else {
+        roleClaimed.add(PLAYER_ROLE_ZONE[p.pid]);
+      }
+    }
+    // Pass 2: overflow players (duplicate roles) get closest free zone
+    const unassigned = players.filter(p => !PLAYER_ROLE_ZONE[p.pid]);
+    const allRoles = Object.keys(ROLE_ZONES_HOME);
+    for (const p of unassigned) {
+      const free = allRoles.filter(r => !roleClaimed.has(r));
+      if (!free.length) continue;
+      let best = free[0], bestD = Infinity;
+      for (const roleKey of free) {
+        const zRect = roleZoneRect(roleKey, side);
+        const cx = (zRect.xMin + zRect.xMax) / 2;
+        const cy = (zRect.yMin + zRect.yMax) / 2;
+        const d = Math.hypot(p.home.x - cx, p.home.y - cy);
+        if (d < bestD) { bestD = d; best = roleKey; }
+      }
+      PLAYER_ROLE_ZONE[p.pid] = best;
+      roleClaimed.add(best);
+    }
+
+    // Pass 3: bind PLAYER_ZONE rect + name to the role (never rotated).
+    for (const p of players) {
+      const role = PLAYER_ROLE_ZONE[p.pid];
+      if (!role) continue;
+      PLAYER_ZONE[p.pid] = roleZoneRect(role, side);
+      PLAYER_ZONE_NAME[p.pid] = role;
+    }
+  }
+
+  /** Clamp a target to the player's zone (with 2% inset so they don't paint the boundary line). */
+  function clampToZone(pid, targetX, targetY) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: targetX, y: targetY };
+    return {
+      x: Math.max(z.xMin + 0.01, Math.min(z.xMax - 0.01, targetX)),
+      y: Math.max(z.yMin + 0.01, Math.min(z.yMax - 0.01, targetY))
+    };
+  }
+
+  /** Center of a player's zone. */
+  function zoneCenter(pid) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: 0.5, y: 0.5 };
+    return { x: (z.xMin + z.xMax) / 2, y: (z.yMin + z.yMax) / 2 };
+  }
+
+  /** Is the player currently in a front-row zone (near the net)?
+   *  Front-row roles: opp, middle, outside. Back-row: setter (starts back), leftBack, libero. */
+  function isFrontZone(pid) {
+    const name = PLAYER_ZONE_NAME[pid];
+    return name === 'opp' || name === 'middle' || name === 'outside';
+  }
+
+  /** Get the priority number for a player's current role zone (1 = highest / gets ball first). */
+  function playerZonePriority(pid) {
+    const zone = PLAYER_ZONE[pid];
+    return zone ? (zone.priority || 5) : 5;
+  }
+
+  /** Position at the net inside a player's zone. */
+  function netEdgeOfZone(pid, side) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: 0.5, y: 0.5 };
+    const netX = side === 'home' ? z.xMax - 0.02 : z.xMin + 0.02;
+    return { x: netX, y: (z.yMin + z.yMax) / 2 };
+  }
+
+  /** Position at the endline inside a player's zone. */
+  function backEdgeOfZone(pid, side) {
+    const z = PLAYER_ZONE[pid];
+    if (!z) return { x: 0.5, y: 0.5 };
+    const endX = side === 'home' ? z.xMin + 0.02 : z.xMax - 0.02;
+    return { x: endX, y: (z.yMin + z.yMax) / 2 };
+  }
+  /** Zone-based formations. Each player moves within THEIR zone based on the play phase.
+   *  Formations only tell each player WHERE inside their zone (net/back/center + y bias).
+   *  Because everyone stays in their zone, overlap is impossible by design. */
+  function moveTeamToFormation(side, phase, skipPid) {
+    const players = playersOnSide(side);
+    for (const p of players) {
+      if (p.pid === skipPid) continue;
+      const target = zonePositionForPhase(p.pid, side, phase);
+      if (target) movePlayerTo(p.pid, target.x, target.y);
+    }
+  }
+
+  /** Compute a player's target position INSIDE their zone for a given phase.
+   *  Phases: serve_prep | serve_receive | attack_ready | defense_base | defense_block */
+  function zonePositionForPhase(pid, side, phase) {
+    const front = isFrontZone(pid);
+    const center = zoneCenter(pid);
+    const role = classifyRole(pid);
+    let target = center;
+    switch (phase) {
+      case 'serve_prep':
+        // Everyone at their zone center, back players slightly forward
+        target = center;
+        break;
+      case 'serve_receive':
+        // Passers (back row + libero) push to front of their zone to receive
+        // Front-row hitters lurk at net for quick
+        // Setter runs to net edge (they'll release to target)
+        if (role === 'setter') target = netEdgeOfZone(pid, side);
+        else if (front)        target = center;                   // front-row hitters hold zone
+        else                   target = { x: center.x + (side==='home' ? +0.05 : -0.05), y: center.y };
+        break;
+      case 'attack_ready':
+        // Setter at net edge, front-row hitters back off toward zone endline for approach
+        // Back-row players hold center
+        if (role === 'setter') target = netEdgeOfZone(pid, side);
+        else if (front)        target = backEdgeOfZone(pid, side);   // approach start
+        else                   target = center;
+        break;
+      case 'defense_base':
+        // Reading defense — front row near net, back row centered
+        if (front) target = netEdgeOfZone(pid, side);
+        else       target = center;
+        break;
+      case 'defense_block':
+        // Front row commits to net edge (block wall), back row spreads to zone perimeter
+        if (front) target = netEdgeOfZone(pid, side);
+        else       target = backEdgeOfZone(pid, side);
+        break;
+      default:
+        target = center;
+    }
+    return clampToZone(pid, target.x, target.y);
+  }
+
+  /** Push overlapping circles apart so they never stack.
+   *  Uses CURRENT_POS (which movePlayerTo updates). Runs a few iterations for stability. */
+  const MIN_SEPARATION = 0.075;   // ~7.5% of court width — 2 circles' radius
+  function resolveCollisions(sideFilter) {
+    const players = Object.entries(CURRENT_POS).filter(([pid]) => {
+      if (!sideFilter) return true;
+      return HOME_POS[pid] && HOME_POS[pid].side === sideFilter;
+    });
+    for (let iter = 0; iter < 4; iter++) {
+      let anyPush = false;
+      for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+          const [pidA, posA] = players[i];
+          const [pidB, posB] = players[j];
+          const dx = posA.x - posB.x;
+          const dy = posA.y - posB.y;
+          const d = Math.hypot(dx, dy);
+          if (d < MIN_SEPARATION && d > 0.0001) {
+            anyPush = true;
+            const push = (MIN_SEPARATION - d) / 2;
+            const nx = dx / d, ny = dy / d;
+            // Push both players apart, then clamp to each player's zone (keeps positional order)
+            let newAx = posA.x + nx * push;
+            let newAy = posA.y + ny * push;
+            let newBx = posB.x - nx * push;
+            let newBy = posB.y - ny * push;
+            // Zone clamp — respects side boundaries automatically
+            const clampedA = clampToZone(pidA, newAx, newAy);
+            const clampedB = clampToZone(pidB, newBx, newBy);
+            newAx = clampedA.x; newAy = clampedA.y;
+            newBx = clampedB.x; newBy = clampedB.y;
+            movePlayerTo(pidA, newAx, newAy);   // already clamped, skip re-clamp
+            movePlayerTo(pidB, newBx, newBy);
+            // update in-loop positions
+            players[i][1] = { x: newAx, y: newAy };
+            players[j][1] = { x: newBx, y: newBy };
+          }
+        }
+      }
+      if (!anyPush) break;
+    }
+  }
+
+  /** Choreograph movement for a given event.
+   *  Whole-team formations by rally phase, actor to their contact position. */
+  function choreographMovement(ev, prevEv) {
+    const target = predictContactPos(ev, prevEv);
+    if (!target) return null;
+    const actorPid = ev.actor.player.id;
+    const side = HOME_POS[actorPid].side;
+    const otherSide = side === 'home' ? 'away' : 'home';
+
+    // Actor to their contact position. Serves & aces let the server go OUTSIDE the court
+    // (behind the endline) — bypass the zone clamp with force=true.
+    const isServe = (ev.type === 'serve' || ev.type === 'ace');
+    movePlayerTo(actorPid, target.x, target.y, isServe);
+
+    // Phase-based team formations
+    switch (ev.type) {
+      case 'serve':
+        // We're serving: server steps up (target). Rest of our team in serve_prep base.
+        // Receiving team gets in SERVE_RECEIVE formation.
+        moveTeamToFormation(side, 'serve_prep', actorPid);
+        moveTeamToFormation(otherSide, 'serve_receive', null);
+        break;
+      case 'ace':
+      case 'serve-error':
+        // Serve terminated. Positions stay as-is (rally ends).
+        break;
+      case 'pass':
+      case 'pass-error':
+        // We received (or tried to). Setter runs to target, hitters back off for approach.
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
+      case 'set':
+        // Setter has the ball. Team fully in attack_ready. Defenders commit to DEFENSE BASE.
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
+      case 'attack':
+      case 'kill':
+      case 'attack-error':
+      case 'attack-net':
+      case 'attack-out':
+        // Attacker running to net. Team still attack_ready (they cover in case of block).
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        // Defenders COMMIT to block wall + perimeter dig
+        moveTeamToFormation(otherSide, 'defense_block', null);
+        break;
+      case 'setter-dump':
+        // Sneaky attack from the setter — defenders are still in defense_base (surprise!)
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
+      case 'tip':
+        // Same visual as attack — hitter jumps, but sends it soft
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_block', null);
+        break;
+      case 'block':
+        // Block happened. Wall stays, back row covers tips. Attacker team stays in cover.
+        moveTeamToFormation(side, 'defense_block', actorPid);
+        moveTeamToFormation(otherSide, 'attack_ready', null);
+        break;
+      case 'dig':
+        // Dug! We're now on offense. Digger's team switches to attack_ready.
+        moveTeamToFormation(side, 'attack_ready', actorPid);
+        moveTeamToFormation(otherSide, 'defense_base', null);
+        break;
+    }
+    // Final pass: resolve any remaining overlaps globally (both sides)
+    resolveCollisions(null);
+    return target;
+  }
+
+  /** Legacy stub — team-wide formations in choreographMovement now handle this. */
+  function proactivePositioning(ev) { /* no-op */ }
+
+  async function animateEvent(ev, prevEv, nextEv, ball, shadow) {
+    // Base tempo per touch — slower feels more like real volleyball
+    const stepMs = 900 / speed;
+    const actorEl = (ev.actor && ev.actor.player)
+      ? document.querySelector(`.player-circle[data-pid="${ev.actor.player.id}"]`)
+      : null;
+
+    const currActorId = ev.actor && ev.actor.player ? ev.actor.player.id : null;
+    const prevActorId = prevEv && prevEv.actor && prevEv.actor.player ? prevEv.actor.player.id : null;
+    const nextActorId = nextEv && nextEv.actor && nextEv.actor.player ? nextEv.actor.player.id : null;
+    const isTerminating = ['kill','ace','block','attack-net','attack-out','attack-error','pass-error','serve-error','setter-dump','tip'].includes(ev.type);
+    const skipPhase1 = currActorId && prevActorId && currActorId === prevActorId;
+
+    // Non-visual events (point, rotation, set-won, match-won, etc.) — just a small beat
+    if (!ev.actor && !ev.toSpot) {
+      await sleep(stepMs * 0.3);
+      return;
+    }
+
+    // SERVE CEREMONY: 4 seconds (at 1× speed) of toss + settle before the serve.
+    // Only for the FIRST event of a rally (no prev event).
+    if (ev.type === 'serve' && !prevEv) {
+      await performServeCeremony(ev, ball, shadow, actorEl);
+    }
+
+    const contactLevel = HEIGHT_AT_CONTACT[ev.type] || 'mid';
+    const stance = STANCE_FOR_EVENT[ev.type] || null;
+
+    // Who jumps as the block wall on an incoming attack?
+    // REAL VOLLEYBALL RULE: only FRONT-ROW players can block. Back-row (libero, setter when
+    // rotated back, leftBack) are NEVER allowed to block. We check role zones — if the
+    // player's assigned role is one of the front-row roles (opp/middle/outside), they can
+    // legally form the wall.
+    const wallEls = [];
+    const FRONT_ROLES = new Set(['opp', 'middle', 'outside']);
+    if ((ev.type === 'attack' || ev.type === 'kill') && ev.actor && ev.actor.spot && match) {
+      const attackerOnHome = ev.actor.spot.y > 0.5;
+      const defTeam = attackerOnHome ? match.away : match.home;
+      if (defTeam && defTeam.lineup) {
+        defTeam.lineup.forEach(slot => {
+          if (!slot || !slot.player) return;
+          const roleName = PLAYER_ZONE_NAME[slot.player.id];
+          if (!FRONT_ROLES.has(roleName)) return;   // back-row can't block
+          const el = document.querySelector(`.player-circle[data-pid="${slot.player.id}"]`);
+          if (el && el !== actorEl && !wallEls.includes(el)) wallEls.push(el);
+        });
+      }
+    }
+    // On an explicit 'block' event, engine picked the blockers — but re-verify they're
+    // front-row roles. If engine gave us a back-row player (shouldn't happen but safety),
+    // silently drop them.
+    if (ev.type === 'block' && Array.isArray(ev.blockers)) {
+      ev.blockers.forEach(b => {
+        if (!b || !b.player) return;
+        const roleName = PLAYER_ZONE_NAME[b.player.id];
+        if (!FRONT_ROLES.has(roleName)) return;   // back-row can't block, ignore
+        const el = document.querySelector(`.player-circle[data-pid="${b.player.id}"]`);
+        if (el && el !== actorEl && !wallEls.includes(el)) wallEls.push(el);
+      });
+    }
+
+    // --- PHASE 1: REAL POSITION MOVEMENT ---
+    // Move the actor (and supporting teammates) to realistic play positions.
+    // Returns where the actor is heading, so the ball can be aimed at the same spot.
+    let actorContactPos = null;
+    if (!skipPhase1 && ev.actor && ev.actor.player) {
+      actorContactPos = choreographMovement(ev, prevEv);
+    }
+    // Fallback: use CURRENT_POS if choreography returned null (no move for this event type)
+    if (!actorContactPos && currActorId && CURRENT_POS[currActorId]) {
+      actorContactPos = CURRENT_POS[currActorId];
+    }
+    if (!actorContactPos && ev.actor && ev.actor.spot) {
+      actorContactPos = toScreen(ev.actor.spot);
+    }
+    // Also pre-position the defending block wall when this event is an attack
+    proactivePositioning(ev);
+
+    // --- PHASE 2: ball travels TO the actor's position ---
+    // KEY FIX: ball flight MUST wait long enough for the actor to actually get there.
+    // Otherwise you see "player 5 miles away but ball at spot" — the classic disconnect.
+    if (!skipPhase1 && actorContactPos && ball) {
+      // Short head-start so the player begins running before the ball leaves
+      await sleep(Math.min(120, stepMs * 0.12));
+      const actorWalkMs = WALK_TIMES[currActorId] || 0;
+      // Ball must arrive AFTER the player is settled (30ms buffer for stance)
+      const minFlight = actorWalkMs + 30;
+      const flightMs = setBallPos(ball, shadow, actorContactPos, Math.max(stepMs * 0.35, minFlight));
+      setBallHeight(ball, shadow, contactLevel);
+      if (actorEl) actorEl.classList.add('active');
+      // Trigger STANCE right BEFORE contact so timing looks clean
+      const stanceDelay = Math.max(80, flightMs * 0.75);
+      setTimeout(() => {
+        if (actorEl && stance) actorEl.classList.add(stance);
+        wallEls.forEach(el => el.classList.add('jumping'));
+      }, stanceDelay);
+      await sleep(flightMs);
+    } else if (actorEl) {
+      // Ball is already at the actor — glow + stance immediately
+      setBallHeight(ball, shadow, contactLevel);
+      actorEl.classList.add('active');
+      if (stance) actorEl.classList.add(stance);
+      wallEls.forEach(el => el.classList.add('jumping'));
+    }
+
+    // V2: Signature move cinematic BEFORE burst so it stages the moment
+    if (ev.ability === 'signature' && actorEl) {
+      await playSignatureCinematic(ev, actorEl, ball);
+    }
+
+    // V2: Tier flash on player circle (BAD shake / PERFECT green glow)
+    if (actorEl && ev.tier) {
+      if (ev.tier === 'PERFECT') {
+        actorEl.classList.add('tier-perfect');
+        setTimeout(() => actorEl.classList.remove('tier-perfect'), 600);
+      } else if (ev.tier === 'BAD') {
+        actorEl.classList.add('tier-bad');
+        setTimeout(() => actorEl.classList.remove('tier-bad'), 500);
+      }
+    }
+
+    // Fire the burst + sfx right at the moment of contact
+    if (isTerminating) {
+      showBurst(ev);
+      try { if (ev.type === 'kill' || ev.type === 'ace') playPick(); } catch (e) {}
+      if (ev.toSpot && ['kill','ace','attack-net','attack-out','attack-error'].includes(ev.type)) {
+        setTimeout(() => showImpactRing(ev.toSpot), stepMs * 0.15);
+      }
+    }
+
+    // V2: Crit damage number popup (à la Fly High "9014")
+    if (ev.crit && ev.damage && ev.actor && ev.actor.spot) {
+      showCritDamage(ev.damage, ev.actor.spot);
+    }
+
+    // V2: Update morale bars after each event that changed them
+    if (ev.moraleAfter) {
+      updateMoraleBars();
+    }
+
+    // --- PHASE 3: ball flies to the MEETUP POINT for the next event ---
+    // Start the next player running to the meetup point NOW (parallel with ball flight),
+    // then set the ball's flight time to WAIT for them if they can't get there in time.
+    let destScreen = null;
+    let nextPlayerWalkMs = 0;
+    if (nextEv && nextEv.actor && nextEv.actor.player && nextActorId !== currActorId) {
+      destScreen = predictContactPos(nextEv, ev);
+      if (destScreen) {
+        // Trigger the next event's team formation early so everyone starts moving
+        choreographMovement(nextEv, ev);
+        // Get the walk time the next actor will need (movePlayerTo returned this into WALK_TIMES)
+        nextPlayerWalkMs = WALK_TIMES[nextActorId] || 0;
+      }
+    } else if (ev.toSpot) {
+      destScreen = toScreen(ev.toSpot);
+    }
+    let phase3FlightMs = 0;
+    if (destScreen && ball) {
+      const midHeight = HEIGHT_MIDFLIGHT_AFTER[ev.type] || 'mid';
+      setBallHeight(ball, shadow, midHeight);
+      // Ball can't arrive faster than the player can get there.
+      // Add a tiny buffer (30ms) so player settles into stance before contact.
+      const minFlight = nextPlayerWalkMs + 30;
+      phase3FlightMs = setBallPos(ball, shadow, destScreen, Math.max(stepMs * 0.35, minFlight));
+    }
+
+    // Hold stance through the follow-through, but at least until the ball has cleared this player.
+    // Stance is released BEFORE the ball arrives at the next player (so this player is neutral by then).
+    const followThrough = Math.max(stepMs * 0.3, phase3FlightMs * 0.3);
+    await sleep(followThrough);
+
+    // Release stance (recover to standing)
+    if (actorEl && stance) actorEl.classList.remove(stance);
+    wallEls.forEach(el => el.classList.remove('jumping'));
+
+    // Small settle beat before next event
+    await sleep(stepMs * 0.15);
+
+    // Clear this actor's glow BEFORE next event's actor lights up
+    if (actorEl) actorEl.classList.remove('active');
+  }
+
+  function showImpactRing(spotEngine) {
+    const court = document.getElementById('court');
+    const s = toScreen(spotEngine);
+    const ring = document.createElement('div');
+    ring.className = 'impact-ring';
+    // Scale duration to speed too
+    const dur = Math.max(220, 700 / speed);
+    ring.style.animationDuration = dur + 'ms';
+    ring.style.left = (s.x * 100) + '%';
+    ring.style.top = (s.y * 100) + '%';
+    court.appendChild(ring);
+    setTimeout(() => ring.remove(), dur + 50);
+  }
+
+  function showBurst(ev) {
+    if (!ev.actor || !ev.actor.spot) return;
+    const court = document.getElementById('court');
+    // Clear any old bursts still on screen (fixes ERROR lingering on 4× speed and stacking labels)
+    court.querySelectorAll('.action-burst').forEach(el => el.remove());
+    const burst = document.createElement('div');
+    const label = {
+      'kill': 'KILL!', 'ace': 'ACE!', 'block': 'BLOCK!', 'dig': 'DIG!',
+      'attack-out':   'OUT!',
+      'attack-net':   'NET!',
+      'attack-error': 'OUT!',
+      'pass-error':   'MISS!',   // missed pass
+      'serve-error':  'NET!',
+      'setter-dump':  'DUMP!',
+      'tip':          'TIP!'
+    }[ev.type] || '';
+    const cls = ['kill','ace'].includes(ev.type) ? ev.type
+      : ev.type === 'block' ? 'block'
+      : ev.type === 'dig' ? 'dig'
+      : (ev.type === 'setter-dump' || ev.type === 'tip') ? 'trick'
+      : 'error';
+    burst.className = 'action-burst ' + cls;
+    burst.textContent = label;
+    // Scale animation duration to speed so bursts don't outlast rallies at 4× (fixes ERROR bug)
+    const dur = Math.max(280, 1000 / speed);
+    burst.style.animationDuration = dur + 'ms';
+    const s = toScreen(ev.actor.spot);
+    burst.style.left = (s.x * 100) + '%';
+    burst.style.top = (s.y * 100) + '%';
+    court.appendChild(burst);
+    setTimeout(() => burst.remove(), dur + 50);
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  // ═══════════════════════════════════════════════════════════════
+  // V2 MECHANICS RENDER HELPERS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Update the morale bar fills based on match.morale. */
+  function updateMoraleBars() {
+    if (!match || !match.morale) return;
+    for (const side of ['home','away']) {
+      const el = document.getElementById(`morale-fill-${side}`);
+      if (!el) continue;
+      const pct = Math.max(0, Math.min(100, match.morale[side] || 0));
+      el.style.width = pct + '%';
+      el.classList.toggle('full', pct >= 100);
+    }
+  }
+
+  /** Big crit damage popup à la Fly High. spotEngine in engine coords. */
+  function showCritDamage(damage, spotEngine) {
+    const court = document.getElementById('court');
+    const s = toScreen(spotEngine);
+    const el = document.createElement('div');
+    el.className = 'crit-damage';
+    el.textContent = damage.toLocaleString();
+    el.style.left = (s.x * 100) + '%';
+    el.style.top  = (s.y * 100) + '%';
+    const dur = Math.max(700, 1400 / speed);
+    el.style.animationDuration = dur + 'ms';
+    court.appendChild(el);
+    setTimeout(() => el.remove(), dur + 50);
+  }
+
+  /** The climax moment — freeze the court, spotlight the player, banner + streaks + flame ball.
+   *  Awaits so the ball animation pauses during the drama. */
+  async function playSignatureCinematic(ev, actorEl, ball) {
+    const court = document.getElementById('court');
+    // Freeze other players by making the court dim + spotlight the actor
+    court.classList.add('signature-active');
+    actorEl.classList.add('signature-star');
+
+    // Diagonal streaks overlay
+    const streak = document.createElement('div');
+    streak.className = 'signature-streak';
+    court.appendChild(streak);
+
+    // Signature name banner
+    const banner = document.createElement('div');
+    banner.className = 'signature-banner';
+    banner.textContent = ev.signature.name;
+    court.appendChild(banner);
+
+    // Flame trail on ball
+    if (ball) ball.classList.add('signature-flame');
+
+    // Sound
+    try { playPick(); } catch (e) {}
+
+    // Duration scaled to sim speed (min 900ms so the drama registers even at 4×)
+    const dur = Math.max(900, 1800 / speed);
+    await sleep(dur);
+
+    // Cleanup
+    court.classList.remove('signature-active');
+    actorEl.classList.remove('signature-star');
+    if (ball) ball.classList.remove('signature-flame');
+    streak.remove();
+    banner.remove();
+  }
+
+  function classForEvent(ev) {
+    if (ev.type === 'point') return 'point';
+    if (ev.type === 'set-won') return 'setwon';
+    if (ev.type === 'match-won') return 'matchwon';
+    return '';
+  }
+
+  function formatEvent(ev) {
+    // Use real player names (not nicknames) — easier to follow the play-by-play
+    const name = (a) => a && a.player ? (a.player.name || a.player.nickname || '?') : '?';
+    // V2: prefix touch tier + crit + signature so the play-by-play tells the full story
+    let prefix = '';
+    if (ev.ability === 'signature' && ev.signature) prefix += `🌟 ${ev.signature.name}! `;
+    else if (ev.crit)                                prefix += '💫 CRIT! ';
+    if (ev.tier === 'PERFECT')                       prefix += '✨ ';
+    else if (ev.tier === 'BAD' && !['serve-error','pass-error','attack-net','attack-out','attack-error'].includes(ev.type)) prefix += '⚠️ ';
+    if (ev.manualCall)                               prefix += '🎯 ';
+    let suffix = '';
+    if (ev.damage && ev.crit)                        suffix = ` [${ev.damage.toLocaleString()}]`;
+    const wrap = (s) => prefix + s + suffix;
+    switch (ev.type) {
+      case 'serve': return wrap(`🎾 ${name(ev.actor)} serves…`);
+      case 'ace':   return wrap(`⚡ ACE! ${name(ev.actor)} — untouchable serve`);
+      case 'serve-error': return wrap(`❌ ${name(ev.actor)} serves into the net (NET!)`);
+      case 'pass':  return wrap(`  ↳ ${name(ev.actor)} receives`);
+      case 'set': {
+        const tag = ev.tactic === 'quick' ? ' (quick)'
+                  : ev.tactic === 'slide' ? ' (slide)'
+                  : ev.tactic === 'back-row' ? ' (back-row)'
+                  : ev.tactic === 'fake' ? ' 🎭 (fake to ' + name({player: ev.decoy?.player}) + ')'
+                  : '';
+        return wrap(`  ↳ ${name(ev.actor)} sets${tag}`);
+      }
+      case 'attack': return wrap(`  ↳ ${name(ev.actor)} swings…`);
+      case 'kill':  return wrap(`💥 KILL by ${name(ev.actor)}`);
+      case 'setter-dump': return wrap(`🎭 SETTER DUMP by ${name(ev.actor)}!`);
+      case 'tip':   return wrap(`🪶 TIP by ${name(ev.actor)}`);
+      case 'block': return wrap(`🧱 BLOCKED by ${name(ev.actor)}`);
+      case 'dig':   return wrap(`🛡 DUG by ${name(ev.actor)}`);
+      case 'attack-net':   return wrap(`🧱 ${name(ev.actor)} hits it INTO THE NET (NET!)`);
+      case 'attack-out':   return wrap(`❌ ${name(ev.actor)} hits it out of bounds (OUT!)`);
+      case 'pass-error':   return wrap(`😬 ${name(ev.actor)} missed the pass!`);
+      case 'attack-error': return wrap(`❌ ${name(ev.actor)} attack error`);   // legacy fallback
+      case 'point': {
+        const teamName = ev.team === 'home' ? match.home.name : match.away.name;
+        const flame = (ev.streak >= 5) ? ' 🔥🔥🔥 ON FIRE!' :
+                      (ev.streak >= 4) ? ' 🔥🔥 STREAK!' :
+                      (ev.streak >= 3) ? ' 🔥 hot streak' : '';
+        return `▶ Point ${teamName} (${ev.home}-${ev.away})${flame}`;
+      }
+      case 'rotation': return `  ↺ ${ev.team === 'home' ? match.home.name : match.away.name} rotates`;
+      case 'set-won': {
+        const winnerName = ev.team === 'home' ? match.home.name : match.away.name;
+        const score = (ev.finalHome != null && ev.finalAway != null)
+          ? ` ${ev.finalHome}-${ev.finalAway}` : '';
+        return `🏁 Set ${ev.setNumber} to ${winnerName}${score}  (sets: ${ev.setsHome}-${ev.setsAway})`;
+      }
+      case 'match-won': return `🏆 MATCH WON by ${ev.team === 'home' ? match.home.name : match.away.name}`;
+      default: return ev.type;
+    }
+  }
+
+  function appendLog(text, cls) {
+    const panel = document.getElementById('log-panel');
+    const div = document.createElement('div');
+    div.className = 'log-entry' + (cls ? ' ' + cls : '');
+    div.textContent = text;
+    panel.appendChild(div);
+    scrollLog();
+  }
+  function scrollLog() {
+    const panel = document.getElementById('log-panel');
+    panel.scrollTop = panel.scrollHeight;
+  }
+  function logSeed() {
+    appendLog(`Match starting: ${match.home.name} vs ${match.away.name}`);
+    appendLog(`Best of 5 sets — first to 3 wins the match`);
+    appendLog('');
+  }
+</script>
+</body>
+</html>

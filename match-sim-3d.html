@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gomi Cup — 3D Match Sim (v3 scaffold)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  /* ─── 3D match view layout ─── */
+  .three-canvas {
+    display: block;
+    width: 100%;
+    max-width: 1100px;
+    height: 620px;
+    margin: 0 auto 16px;
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    background: #0a1929;
+    border: 3px solid #f5f5f5;
+  }
+
+  /* Sim header (reuses classes) */
+  .sim-header {
+    display: flex; align-items: center; justify-content: center; gap: 16px;
+    margin: 0 auto 12px; max-width: 1100px; padding: 12px;
+    background: rgba(15,23,42,0.7); border-radius: 12px;
+    flex-wrap: wrap;
+  }
+  .team-tag { display: flex; align-items: center; gap: 8px; }
+  .team-tag .swatch { width: 18px; height: 18px; border-radius: 4px; }
+  .team-tag .name { font-weight: 900; }
+  .score-box { text-align: center; min-width: 200px; }
+  .score-big { font-size: 2.2rem; font-weight: 900; letter-spacing: 2px; }
+  .set-info { color: #cbd5e1; font-size: 0.85rem; margin-top: 4px; }
+  .sets-row { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+  .set-pill { padding: 3px 8px; border-radius: 6px; font-family: monospace; font-size: 0.8rem; font-weight: 700; }
+
+  /* Morale bars (same as 2D) */
+  .morale-wrap {
+    display: flex; gap: 24px; margin-top: 8px;
+    justify-content: center; align-items: center;
+  }
+  .morale-side { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 120px; }
+  .morale-label {
+    font-size: 0.6rem; letter-spacing: 2px; font-weight: 900;
+    color: #fbbf24; opacity: 0.85;
+  }
+  .morale-bar {
+    width: 120px; height: 8px; border-radius: 4px;
+    background: rgba(0,0,0,0.5); overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .morale-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #f59e0b, #ef4444, #ec4899);
+    transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 0 0 8px rgba(251,191,36,0.5);
+  }
+  .morale-fill.full {
+    animation: moraleFullPulse 0.8s ease-in-out infinite;
+    background: linear-gradient(90deg, #fbbf24, #ef4444, #f0abfc);
+  }
+  @keyframes moraleFullPulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.5); }
+    50%      { box-shadow: 0 0 20px 5px rgba(251,191,36,0.9), 0 0 30px 10px rgba(240,171,252,0.5); }
+  }
+
+  /* Play-by-play under the canvas */
+  .log-panel-3d {
+    max-width: 1100px; margin: 0 auto 16px; padding: 12px 16px;
+    background: rgba(15,23,42,0.7); border-radius: 12px;
+    max-height: 200px; overflow-y: auto;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.9rem; line-height: 1.55; color: #cbd5e1;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .log-entry { padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+  .log-entry.point { color: #fbbf24; font-weight: 700; }
+  .log-entry.setwon { color: #22c55e; font-weight: 900; padding: 8px 0; border-top: 1px solid rgba(34,197,94,0.3); }
+  .log-entry.matchwon { color: #f97316; font-weight: 900; font-size: 1rem; padding: 10px 0; }
+
+  /* V3: Team specialty pill */
+  .specialty-pill {
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 0.7rem; font-weight: 900; letter-spacing: 2px;
+    text-transform: uppercase;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  .specialty-pill.power   { color: #ef4444; border-color: rgba(239,68,68,0.6); }
+  .specialty-pill.quick   { color: #fbbf24; border-color: rgba(251,191,36,0.6); }
+  .specialty-pill.block   { color: #c084fc; border-color: rgba(192,132,252,0.6); }
+  .specialty-pill.receive { color: #22c55e; border-color: rgba(34,197,94,0.6); }
+  .specialty-pill.counter { box-shadow: 0 0 12px 2px currentColor; animation: counterPulse 1.2s ease-in-out infinite; }
+  @keyframes counterPulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.08); }
+  }
+
+  /* V3: Roster + stamina panel */
+  .roster-panel {
+    max-width: 1100px; margin: 0 auto 16px;
+    padding: 12px; background: rgba(15,23,42,0.7);
+    border-radius: 12px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  .roster-side { display: flex; flex-direction: column; gap: 6px; }
+  .roster-side h4 {
+    margin: 0 0 4px 0; font-size: 0.75rem; letter-spacing: 2px;
+    color: #94a3b8; text-transform: uppercase;
+  }
+  .roster-row {
+    display: grid; grid-template-columns: 22px 1fr 90px 30px; gap: 8px;
+    align-items: center; padding: 3px 6px; border-radius: 4px;
+    font-size: 0.82rem;
+  }
+  .roster-row.bench { opacity: 0.65; background: rgba(0,0,0,0.2); }
+  .roster-row.exhausted .stamina-fill { background: #ef4444; }
+  .roster-row.exhausted .name { color: #f87171; }
+  .roster-row.subbed { animation: subFlash 1.5s ease-out; }
+  @keyframes subFlash {
+    0%   { background: rgba(251,191,36,0.5); }
+    100% { background: transparent; }
+  }
+  .roster-row .num { font-family: monospace; color: #64748b; font-size: 0.75rem; }
+  .roster-row .name { font-weight: 600; }
+  .roster-row .pos { font-size: 0.7rem; color: #94a3b8; }
+  .stamina-bar {
+    width: 100%; height: 6px; border-radius: 3px;
+    background: rgba(0,0,0,0.4); overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .stamina-fill {
+    height: 100%; background: linear-gradient(90deg, #22c55e, #84cc16);
+    transition: width 0.4s ease, background 0.3s;
+  }
+  .stamina-fill.low    { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+  .stamina-fill.critical { background: linear-gradient(90deg, #ef4444, #b91c1c); }
+  .stamina-val { text-align: right; font-family: monospace; font-size: 0.7rem; color: #94a3b8; }
+
+  /* Play-by-play: substitution and ball-magnet flags */
+  .log-entry.substitution { color: #fbbf24; font-weight: 700; background: rgba(251,191,36,0.08); padding: 6px 8px; border-radius: 4px; }
+  .log-entry.manual-call  { color: #38bdf8; font-weight: 700; }
+
+  /* V3: Manual shot-call panel */
+  .shot-call-panel {
+    max-width: 1100px; margin: 0 auto 12px;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(236,72,153,0.15));
+    border: 2px solid rgba(251,191,36,0.5);
+    border-radius: 12px;
+    animation: shotCallPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes shotCallPulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.3); }
+    50%      { box-shadow: 0 0 24px rgba(251,191,36,0.6); }
+  }
+  .shot-call-header { font-size: 1.05rem; margin-bottom: 10px; color: #fbbf24; }
+  .shot-call-buttons {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .shot-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 10px 14px; border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 8px; background: rgba(15,23,42,0.7); color: #e2e8f0;
+    cursor: pointer; font-family: inherit; font-size: 0.85rem;
+    min-width: 110px; transition: all 0.15s;
+  }
+  .shot-btn:hover {
+    transform: translateY(-2px);
+    border-color: #fbbf24; box-shadow: 0 4px 12px rgba(251,191,36,0.4);
+  }
+  .shot-btn .name { font-weight: 800; font-size: 0.95rem; }
+  .shot-btn .pos { color: #94a3b8; font-size: 0.72rem; }
+  .shot-btn .row-tag {
+    display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px;
+    background: rgba(0,0,0,0.4); margin-top: 3px; letter-spacing: 1px;
+  }
+  .shot-btn.frontrow .row-tag { background: rgba(239,68,68,0.4); color: #fca5a5; }
+  .shot-btn.backrow  .row-tag { background: rgba(59,130,246,0.4); color: #93c5fd; }
+  .shot-btn .stat { color: #fbbf24; font-family: monospace; font-size: 0.75rem; }
+  .shot-btn .chem { color: #22c55e; font-size: 0.7rem; }
+  .shot-call-footer { margin-top: 10px; }
+  .auto-shot-btn {
+    padding: 6px 14px; background: rgba(30,41,59,0.8); color: #cbd5e1;
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;
+    cursor: pointer; font-family: inherit;
+  }
+  .auto-shot-btn:hover { border-color: #fbbf24; color: #fbbf24; }
+  .hidden { display: none !important; }
+
+  /* Controls bar */
+  .controls-3d {
+    display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+    max-width: 1100px; margin: 0 auto 16px;
+  }
+  .controls-3d button { padding: 8px 16px; font-weight: 700; }
+  .controls-3d select { padding: 8px 12px; }
+
+  /* Setup card */
+  #match-picker { padding: 16px; background: rgba(15,23,42,0.7); border-radius: 12px; max-width: 700px; margin: 0 auto 20px; }
+  #match-picker .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+
+  .banner-warning {
+    max-width: 1100px; margin: 0 auto 16px;
+    padding: 10px 14px;
+    background: rgba(251,191,36,0.15);
+    border-left: 4px solid #fbbf24;
+    border-radius: 6px;
+    color: #fbbf24; font-size: 0.85rem;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="./index.html">🏠 Home</a>
+  <a href="./match-sim.html">🎮 2D Match Sim</a>
+  <a href="./match-sim-3d.html" class="active">🕹️ 3D Match Sim (beta)</a>
+</nav>
+
+<h1><span class="emoji">🕹️</span> 3D MATCH SIMULATOR <sup style="font-size:0.5em; color:#fbbf24;">v3 SCAFFOLD</sup></h1>
+<p class="tagline">Same engine, 3D renderer. Placeholder character rigs today, real 3D models in v3.</p>
+
+<div class="banner-warning">
+  ⚠️ <strong>Preview build.</strong> This is the scaffold for the v3 3D renderer.
+  Characters are placeholder low-poly rigs (capsule bodies) — real 3D models will drop into these slots
+  without changing any engine code. Uses the same match-engine + v2 mechanics as the 2D sim.
+</div>
+
+<div id="setup-card">
+  <div id="match-picker">
+    <label>League</label>
+    <select id="league-select"></select>
+    <div class="row">
+      <div>
+        <label>Home team</label>
+        <select id="home-team"></select>
+      </div>
+      <div>
+        <label>Away team</label>
+        <select id="away-team"></select>
+      </div>
+    </div>
+    <div style="margin-top: 14px;">
+      <label style="display:block; margin-bottom:6px;">Play mode</label>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:8px 12px; background:rgba(30,41,59,0.6); border-radius:6px;">
+          <input type="radio" name="play-mode" value="auto" checked> 🤖 Auto (engine picks hitter)
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:8px 12px; background:rgba(30,41,59,0.6); border-radius:6px;">
+          <input type="radio" name="play-mode" value="manual"> 🎯 Manual (you call the shots)
+        </label>
+      </div>
+      <label style="display:block; margin-top:10px; font-size:0.85rem;">
+        <input type="radio" name="control-side" value="home" checked style="margin-right:4px;"> Control home team
+      </label>
+      <label style="display:block; font-size:0.85rem;">
+        <input type="radio" name="control-side" value="away" style="margin-right:4px;"> Control away team
+      </label>
+    </div>
+    <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+      <button onclick="startMatch3D()">▶️ Start 3D match</button>
+    </div>
+    <p id="roster-note" style="color:#94a3b8; font-size:0.8rem; margin-top:10px;">
+      Loading rosters…
+    </p>
+  </div>
+</div>
+
+<div id="match-view" class="hidden">
+  <div class="sim-header">
+    <div class="team-tag" id="tag-home">
+      <div class="swatch"></div>
+      <div class="name"></div>
+      <div class="specialty-pill" id="specialty-home"></div>
+    </div>
+    <div class="score-box">
+      <div class="score-big"><span id="score-home">0</span> : <span id="score-away">0</span></div>
+      <div class="set-info" id="set-info">Set 1 of 5</div>
+      <div class="sets-row" id="sets-row"></div>
+      <div class="morale-wrap">
+        <div class="morale-side">
+          <span class="morale-label">TEAM MORALE</span>
+          <div class="morale-bar"><div class="morale-fill" id="morale-fill-home"></div></div>
+        </div>
+        <div class="morale-side">
+          <span class="morale-label">TEAM MORALE</span>
+          <div class="morale-bar"><div class="morale-fill" id="morale-fill-away"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="team-tag" id="tag-away">
+      <div class="specialty-pill" id="specialty-away"></div>
+      <div class="swatch"></div>
+      <div class="name"></div>
+    </div>
+  </div>
+
+  <canvas id="three-canvas" class="three-canvas" width="1100" height="620"></canvas>
+
+  <!-- V3: on-court roster with stamina bars + bench players -->
+  <!-- V3: Manual shot-call panel — shows before rally when in manual mode & user's team attacks -->
+  <div class="shot-call-panel hidden" id="shot-call-panel">
+    <div class="shot-call-header">
+      🎯 <strong>Call the shot!</strong> Pick who spikes this rally
+    </div>
+    <div class="shot-call-buttons" id="shot-call-buttons"></div>
+    <div class="shot-call-footer">
+      <button class="auto-shot-btn" id="auto-shot-btn">🤖 Let engine pick</button>
+      <span style="color:#94a3b8; font-size:0.8rem; margin-left:12px;">
+        Or pick a hitter above (backrow = back-row attack)
+      </span>
+    </div>
+  </div>
+
+  <div class="roster-panel" id="roster-panel"></div>
+
+  <div class="controls-3d">
+    <button onclick="togglePause3D()" id="btn-pause">⏸️ Pause</button>
+    <select id="speed-select" onchange="setSpeed3D()">
+      <option value="0.5">0.5× (slow-mo)</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2× (fast)</option>
+    </select>
+    <button onclick="location.reload()" class="secondary">🔄 Reset</button>
+  </div>
+
+  <div class="log-panel-3d" id="log-panel"></div>
+</div>
+
+<script type="module" src="./js/back-button.js"></script>
+<script type="module">
+  import { createMatch, simulateRally, specialtyCounters, setManualHitter, playerAtSpot } from "./js/match-engine-v3.js";
+  import { augmentEvents, resetV3State } from "./js/mechanics-v3.js";
+  import { traitsFor } from "./js/data.js";
+  import { GomiCupRenderer3D } from "./js/renderer-3d.js";
+  import { getLeague, currentLeagueId, listLeagues, ensureGomiCupSeeded } from "./js/leagues.js";
+  import { getAllPlayers } from "./js/players.js";
+  import { escapeHtml, shuffle } from "./js/util.js";
+  import { buildChemistryMap } from "./js/chemistry.js";
+
+  let match = null;
+  let renderer = null;
+  let speed = 1;
+  let paused = false;
+  let setScores = [];
+  // V3: manual play mode
+  let playMode = 'auto';       // 'auto' | 'manual'
+  let controlSide = 'home';    // which side the user controls in manual mode
+  let awaitingShotCall = null; // resolver for the shot-call promise
+
+  await ensureGomiCupSeeded();
+
+  const leagues = await listLeagues();
+  const lgSel = document.getElementById('league-select');
+  const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
+  lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  lgSel.addEventListener('change', populateTeams);
+
+  const ALL_PLAYERS = await getAllPlayers();
+  const PLAYERS_BY_ID = Object.fromEntries(ALL_PLAYERS.map(p => [p.id, p]));
+
+  let leagueCaptains = [];
+
+  await populateTeams();
+
+  async function populateTeams() {
+    const leagueId = lgSel.value;
+    const homeSel = document.getElementById('home-team');
+    const awaySel = document.getElementById('away-team');
+    const noteEl = document.getElementById('roster-note');
+
+    const league = await getLeague(leagueId);
+    leagueCaptains = (league && league.captains) || [];
+
+    if (leagueCaptains.length < 2) {
+      if (noteEl) noteEl.textContent = 'Need at least 2 captains in the league.';
+      return;
+    }
+
+    const opts = leagueCaptains.map((c, i) =>
+      `<option value="${i}">${escapeHtml(c.team || c.name)}</option>`).join('');
+    homeSel.innerHTML = opts;
+    awaySel.innerHTML = opts;
+    if (leagueCaptains[1]) awaySel.value = '1';
+    noteEl.textContent = `${leagueCaptains.length} team${leagueCaptains.length === 1 ? '' : 's'} available. Rosters auto-filled with random players.`;
+  }
+
+  function captainAsPlayer(cap) {
+    if (cap.linkedPlayerId && PLAYERS_BY_ID[cap.linkedPlayerId]) {
+      return { ...PLAYERS_BY_ID[cap.linkedPlayerId], jerseyNum: 'C' };
+    }
+    return {
+      id: cap.id || ('cap-' + (cap.name || 'x').toLowerCase()),
+      name: cap.name || 'Captain',
+      nickname: cap.name || 'Captain',
+      attack: 6.5, serve: 6.5, defense: 6.5, setting: 6.5, athletic: 6.5,
+      position: (cap.role || 'OH').split(/[^A-Za-z]/)[0].toUpperCase() || 'OH',
+      jerseyNum: 'C',
+      heightCm: 185,
+    };
+  }
+
+  /** V3: return { starters: Player[6], bench: Player[0..6] } */
+  function getRoster(captainIdx, usedIds) {
+    const cap = leagueCaptains[captainIdx];
+    const starters = [captainAsPlayer(cap)];
+    usedIds.add(starters[0].id);
+    const linkedByOthers = new Set(
+      leagueCaptains.filter((_, i) => i !== captainIdx).map(c => c.linkedPlayerId).filter(Boolean)
+    );
+    const pool = shuffle(ALL_PLAYERS.filter(p => !usedIds.has(p.id) && !linkedByOthers.has(p.id)));
+    while (starters.length < 6 && pool.length) {
+      const p = pool.shift();
+      starters.push({ ...p, jerseyNum: starters.length });
+      usedIds.add(p.id);
+    }
+    // V3: pull up to 4 bench players (fewer than max 6 so pool doesn't dry up in small leagues)
+    const bench = [];
+    while (bench.length < 4 && pool.length) {
+      const p = pool.shift();
+      bench.push({ ...p, jerseyNum: 'B' + (bench.length + 1) });
+      usedIds.add(p.id);
+    }
+    return { starters, bench };
+  }
+
+  window.startMatch3D = async () => {
+    const homeIdx = parseInt(document.getElementById('home-team').value);
+    const awayIdx = parseInt(document.getElementById('away-team').value);
+    if (homeIdx === awayIdx) { alert('Pick two different teams.'); return; }
+
+    const used = new Set();
+    const home = getRoster(homeIdx, used);
+    const away = getRoster(awayIdx, used);
+
+    const chemistryMap = await buildChemistryMap([
+      ...home.starters, ...home.bench, ...away.starters, ...away.bench,
+    ]);
+
+    match = createMatch({
+      homeTeam: home.starters, awayTeam: away.starters,
+      homeBench: home.bench, awayBench: away.bench,
+      homeName: leagueCaptains[homeIdx].team || leagueCaptains[homeIdx].name,
+      awayName: leagueCaptains[awayIdx].team || leagueCaptains[awayIdx].name,
+      homeColor: leagueCaptains[homeIdx].color || '#dc2626',
+      awayColor: leagueCaptains[awayIdx].color || '#2563eb',
+      chemistryMap,
+    });
+    setScores = [];
+    resetV3State(match);
+
+    // V3: read play-mode selection
+    playMode = document.querySelector('input[name="play-mode"]:checked')?.value || 'auto';
+    controlSide = document.querySelector('input[name="control-side"]:checked')?.value || 'home';
+
+    document.getElementById('setup-card').classList.add('hidden');
+    document.getElementById('match-view').classList.remove('hidden');
+
+    renderHeader();
+
+    // Boot the 3D renderer (once)
+    const canvas = document.getElementById('three-canvas');
+    if (!renderer) {
+      renderer = new GomiCupRenderer3D(canvas);
+      window.addEventListener('resize', () => renderer.resize());
+    }
+    renderer.attachMatch(match);
+    renderRosterPanel();
+
+    logSeed();
+    paused = false;
+    scheduleNextRally();
+  };
+
+  window.togglePause3D = () => {
+    paused = !paused;
+    document.getElementById('btn-pause').textContent = paused ? '▶️ Resume' : '⏸️ Pause';
+    if (!paused) scheduleNextRally();
+  };
+  window.setSpeed3D = () => {
+    speed = parseFloat(document.getElementById('speed-select').value) || 1;
+  };
+
+  let rallyTimer = null;
+  function scheduleNextRally() {
+    if (paused || !match || match.matchOver) return;
+    rallyTimer = setTimeout(async () => {
+      // V3: in manual mode, if the controlled team will be attacking, ask user to call the shot.
+      // "Attacking" means: they aren't the current server (opponent serves, they receive → attack).
+      // OR they ARE the server and we let them call in advance too (setter dumps or hits after long rally).
+      if (playMode === 'manual') {
+        await promptShotCall();
+      }
+      await playRally();
+      renderHeader();
+      if (!match.matchOver && !paused) scheduleNextRally();
+      else if (match.matchOver) {
+        appendLog(`🏆 ${match.winner === 'home' ? match.home.name : match.away.name} WINS THE MATCH ${match.setsHome}-${match.setsAway}!`, 'matchwon');
+      }
+    }, 400 / speed);
+  }
+
+  /** Show the shot-call panel and wait for user to pick a hitter (or auto).
+   *  Populates buttons with the 5 non-setter, non-libero players on the controlled team's lineup.
+   *  Resolves when user clicks. */
+  function promptShotCall() {
+    return new Promise((resolve) => {
+      const panel = document.getElementById('shot-call-panel');
+      const btnRow = document.getElementById('shot-call-buttons');
+      const team = match[controlSide];
+      if (!team || !team.lineup) { resolve(); return; }
+
+      // Build 5 hitter candidates: all 6 on court MINUS the designated setter.
+      // Liberos are back-row defenders — including them lets user pick backrow spike (rare but real).
+      const setterId = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'))?.player?.id;
+      const candidates = [];
+      for (let i = 0; i < 6; i++) {
+        const slot = team.lineup[i];
+        if (!slot || !slot.player) continue;
+        if (slot.player.id === setterId) continue;   // setter doesn't spike (usually)
+        const isFront = i >= 1 && i <= 3;   // rotation spots 2/3/4 = front row (index 1/2/3)
+        // With rotation, front = (i + rotOffset) % 6 falls in 1..3
+        const rotIdx = (6 + i - team.rotationOffset) % 6;
+        const isFrontRotated = rotIdx >= 1 && rotIdx <= 3;
+        candidates.push({ slot, player: slot.player, isFront: isFrontRotated });
+      }
+
+      // Get setter for chemistry display
+      const setterSlot = team.lineup.find(s => s && s.player && s.player.id === setterId);
+      const setterTraits = setterSlot ? traitsFor(setterSlot.player.id) : null;
+
+      btnRow.innerHTML = candidates.map(c => {
+        const chem = setterTraits?.chemistry?.[c.player.id] || 0;
+        const chemLabel = chem >= 0.9 ? '❤️ BFF' : chem >= 0.7 ? '💚 Close' : chem >= 0.5 ? '💛 Friend' : '';
+        const rowTag = c.isFront ? 'FRONT ROW' : 'BACK ROW (backrow spike)';
+        return `
+          <button class="shot-btn ${c.isFront ? 'frontrow' : 'backrow'}" data-pid="${c.player.id}">
+            <span class="name">${c.player.name}</span>
+            <span class="pos">${c.player.position || '?'}</span>
+            <span class="stat">ATK ${c.player.attack || 5} · ATH ${c.player.athletic || 5}</span>
+            <span class="row-tag">${rowTag}</span>
+            ${chemLabel ? `<span class="chem">${chemLabel}</span>` : ''}
+          </button>`;
+      }).join('');
+
+      const cleanup = (pid) => {
+        panel.classList.add('hidden');
+        awaitingShotCall = null;
+        if (pid) setManualHitter(controlSide, pid);
+        else setManualHitter(null);
+        resolve();
+      };
+
+      panel.classList.remove('hidden');
+      awaitingShotCall = cleanup;
+      // Wire buttons
+      btnRow.querySelectorAll('.shot-btn').forEach(btn => {
+        btn.onclick = () => cleanup(btn.dataset.pid);
+      });
+      document.getElementById('auto-shot-btn').onclick = () => cleanup(null);
+    });
+  }
+
+  async function playRally() {
+    if (!match) return;
+    const events = augmentEvents(simulateRally(match), match);
+    updateMoraleBars();
+
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      const prev = events[i - 1] || null;
+      const next = events[i + 1] || null;
+
+      if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
+        setScores.push({ setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team });
+      }
+
+      appendLog(formatEvent(ev), classForEvent(ev));
+
+      // V3: substitution events — flash the roster row + swap the 3D rig
+      if (ev.type === 'substitution') {
+        renderer.attachMatch(match);   // rebuild rigs so the sub appears on court
+        renderRosterPanel(ev);
+        continue;   // no ball animation for a sub
+      }
+
+      await renderer.playEvent(ev, prev, next, speed);
+
+      if (ev.moraleAfter) updateMoraleBars();
+      // V3: refresh stamina bars after each event (they drop as actions happen)
+      if (ev.staminaAfter != null) renderRosterPanel();
+    }
+    renderer.syncPositions(match);
+    renderRosterPanel();
+  }
+
+  /** V3: render the on-court + bench roster with stamina bars. */
+  function renderRosterPanel(subEv = null) {
+    if (!match) return;
+    const panel = document.getElementById('roster-panel');
+    if (!panel) return;
+    const sides = ['home','away'];
+    panel.innerHTML = sides.map(side => {
+      const team = match[side];
+      const starters = team.lineup.map(s => s && s.player).filter(Boolean);
+      const bench = (team.bench || []).slice();
+      const rowFor = (p, isBench) => {
+        const sta = match.stamina?.[p.id] ?? 100;
+        const cls = sta <= 15 ? 'critical' : sta <= 40 ? 'low' : '';
+        const exhausted = sta <= 15 ? 'exhausted' : '';
+        const flashed = subEv && (subEv.outPid === p.id || subEv.inPid === p.id) ? 'subbed' : '';
+        return `
+          <div class="roster-row ${isBench ? 'bench' : ''} ${exhausted} ${flashed}">
+            <span class="num">${p.jerseyNum ?? '?'}</span>
+            <span class="name">${p.name} <span class="pos">[${p.position || '?'}]</span></span>
+            <div class="stamina-bar"><div class="stamina-fill ${cls}" style="width:${sta}%"></div></div>
+            <span class="stamina-val">${Math.round(sta)}</span>
+          </div>`;
+      };
+      return `
+        <div class="roster-side">
+          <h4 style="color:${team.color}">${team.name} — ON COURT</h4>
+          ${starters.map(p => rowFor(p, false)).join('')}
+          ${bench.length ? `<h4 style="margin-top:8px">BENCH (${bench.length})</h4>` : ''}
+          ${bench.map(p => rowFor(p, true)).join('')}
+        </div>`;
+    }).join('');
+  }
+
+  function updateMoraleBars() {
+    if (!match || !match.morale) return;
+    for (const side of ['home','away']) {
+      const el = document.getElementById(`morale-fill-${side}`);
+      if (!el) continue;
+      const pct = Math.max(0, Math.min(100, match.morale[side] || 0));
+      el.style.width = pct + '%';
+      el.classList.toggle('full', pct >= 100);
+    }
+  }
+
+  function renderHeader() {
+    if (!match) return;
+    const th = document.getElementById('tag-home');
+    const ta = document.getElementById('tag-away');
+    th.querySelector('.swatch').style.background = match.home.color;
+    th.querySelector('.name').textContent = match.home.name;
+    th.querySelector('.name').style.color = match.home.color;
+    ta.querySelector('.swatch').style.background = match.away.color;
+    ta.querySelector('.name').textContent = match.away.name;
+    ta.querySelector('.name').style.color = match.away.color;
+    document.getElementById('score-home').textContent = match.pointsHome;
+    document.getElementById('score-away').textContent = match.pointsAway;
+    document.getElementById('set-info').textContent = match.matchOver
+      ? '🏆 MATCH OVER'
+      : `Set ${match.setNumber} · First to ${match.setNumber === 5 ? match.finalSetTarget : match.setTarget}`;
+    const setsRow = document.getElementById('sets-row');
+    const pills = setScores.map(s => {
+      const winColor = s.winner === 'home' ? match.home.color : match.away.color;
+      return `<span class="set-pill" style="background:${winColor}; color:#fff;">${s.home}–${s.away}</span>`;
+    });
+    const tally = `<span class="set-pill" style="background:rgba(0,0,0,0.4);">Sets ${match.setsHome}–${match.setsAway}</span>`;
+    setsRow.innerHTML = tally + ' ' + pills.join(' ');
+    updateMoraleBars();
+    // V3: specialty pills, glow the one that counters opponent
+    const homeSp = match.home.specialty || 'power';
+    const awaySp = match.away.specialty || 'power';
+    const hEl = document.getElementById('specialty-home');
+    const aEl = document.getElementById('specialty-away');
+    if (hEl) {
+      hEl.textContent = '★ ' + homeSp.toUpperCase();
+      hEl.className = 'specialty-pill ' + homeSp + (specialtyCounters(homeSp, awaySp) ? ' counter' : '');
+      hEl.title = specialtyCounters(homeSp, awaySp) ? `Counters ${awaySp} → +30% ${homeSp} actions` : `Team specialty: ${homeSp}`;
+    }
+    if (aEl) {
+      aEl.textContent = awaySp.toUpperCase() + ' ★';
+      aEl.className = 'specialty-pill ' + awaySp + (specialtyCounters(awaySp, homeSp) ? ' counter' : '');
+      aEl.title = specialtyCounters(awaySp, homeSp) ? `Counters ${homeSp} → +30% ${awaySp} actions` : `Team specialty: ${awaySp}`;
+    }
+  }
+
+  function appendLog(text, cls) {
+    const panel = document.getElementById('log-panel');
+    const div = document.createElement('div');
+    div.className = 'log-entry' + (cls ? ' ' + cls : '');
+    div.textContent = text;
+    panel.appendChild(div);
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  function classForEvent(ev) {
+    if (ev.type === 'point') return 'point';
+    if (ev.type === 'set-won') return 'setwon';
+    if (ev.type === 'match-won') return 'matchwon';
+    if (ev.type === 'substitution') return 'substitution';
+    return '';
+  }
+
+  function formatEvent(ev) {
+    const name = (a) => a && a.player ? (a.player.name || a.player.nickname || '?') : '?';
+    let prefix = '';
+    if (ev.ability === 'signature' && ev.signature) prefix += `🌟 ${ev.signature.name}! `;
+    else if (ev.crit)                                prefix += '💫 CRIT! ';
+    if (ev.tier === 'PERFECT')                       prefix += '✨ ';
+    else if (ev.tier === 'BAD' && !['serve-error','pass-error','attack-net','attack-out','attack-error'].includes(ev.type)) prefix += '⚠️ ';
+    if (ev.ballMagnet)                               prefix += '🧲 ';
+    if (ev.manualCall)                               prefix += '🎯 ';
+    let suffix = '';
+    if (ev.damage && ev.crit) suffix = ` [${ev.damage.toLocaleString()}]`;
+    if (ev.staminaAfter != null && ev.staminaAfter <= 20) suffix += ' 😮‍💨';
+    const wrap = (s) => prefix + s + suffix;
+    // V3: substitution event
+    if (ev.type === 'substitution') {
+      const teamName = ev.team === 'home' ? match.home.name : match.away.name;
+      return `🔄 SUB (${teamName}): ${ev.inName} in for ${ev.outName}`;
+    }
+    switch (ev.type) {
+      case 'serve': return wrap(`🎾 ${name(ev.actor)} serves…`);
+      case 'ace':   return wrap(`⚡ ACE! ${name(ev.actor)}`);
+      case 'serve-error': return wrap(`❌ ${name(ev.actor)} serve into net`);
+      case 'pass':  return wrap(`  ↳ ${name(ev.actor)} receives`);
+      case 'set':   return wrap(`  ↳ ${name(ev.actor)} sets`);
+      case 'attack': return wrap(`  ↳ ${name(ev.actor)} swings…`);
+      case 'kill':  return wrap(`💥 KILL by ${name(ev.actor)}`);
+      case 'setter-dump': return wrap(`🎭 DUMP by ${name(ev.actor)}`);
+      case 'tip':   return wrap(`🪶 TIP by ${name(ev.actor)}`);
+      case 'block': return wrap(`🧱 BLOCK by ${name(ev.actor)}`);
+      case 'dig':   return wrap(`🛡 DUG by ${name(ev.actor)}`);
+      case 'attack-net':   return wrap(`🧱 ${name(ev.actor)} into net`);
+      case 'attack-out':   return wrap(`❌ ${name(ev.actor)} out of bounds`);
+      case 'pass-error':   return wrap(`😬 ${name(ev.actor)} missed pass`);
+      case 'point': {
+        const teamName = ev.team === 'home' ? match.home.name : match.away.name;
+        return `▶ Point ${teamName} (${ev.home}-${ev.away})`;
+      }
+      case 'rotation': return `  ↺ ${ev.team === 'home' ? match.home.name : match.away.name} rotates`;
+      case 'set-won': {
+        const winnerName = ev.team === 'home' ? match.home.name : match.away.name;
+        const score = (ev.finalHome != null && ev.finalAway != null)
+          ? ` ${ev.finalHome}-${ev.finalAway}` : '';
+        return `🏁 Set ${ev.setNumber} to ${winnerName}${score}`;
+      }
+      case 'match-won': return `🏆 MATCH WON by ${ev.team === 'home' ? match.home.name : match.away.name}`;
+      default: return ev.type;
+    }
+  }
+
+  function logSeed() {
+    appendLog(`3D Match starting: ${match.home.name} vs ${match.away.name}`);
+    appendLog(`Home specialty: ★${match.home.specialty.toUpperCase()}  |  Away specialty: ★${match.away.specialty.toUpperCase()}`);
+    if (specialtyCounters(match.home.specialty, match.away.specialty)) {
+      appendLog(`⚔️ ${match.home.name} counters ${match.away.name}'s ${match.away.specialty} → +30% ${match.home.specialty} actions`);
+    } else if (specialtyCounters(match.away.specialty, match.home.specialty)) {
+      appendLog(`⚔️ ${match.away.name} counters ${match.home.name}'s ${match.home.specialty} → +30% ${match.away.specialty} actions`);
+    }
+    appendLog(`Best of 5 sets — first to 3 wins`);
+    appendLog('');
+  }
+</script>
+
+</body>
+</html>
