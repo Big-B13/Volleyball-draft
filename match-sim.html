@@ -1563,20 +1563,20 @@
       });
     }
     // Assign each player to their invisible zone (based on role + current rotation shift).
-    // Zones prevent overlap and keep positional roles cleaner.
+    // Zones are used to clamp movement during rally so nobody wanders far out of role.
     assignZones('home');
     assignZones('away');
-    // Snap each circle to its assigned zone's center (so rotations "stick" visually).
-    for (const [pid, zRect] of Object.entries(PLAYER_ZONE)) {
+    // ── REAL VOLLEYBALL: snap each circle to their ROTATION POSITION (P1-P6) ──
+    // At the start of a rally, everyone stands at their engine spot (server at back-right,
+    // etc.). During rally, choreographMovement releases them into their zone as needed.
+    // This matches real vball: rotation is enforced at moment of serve contact.
+    for (const [pid, home] of Object.entries(HOME_POS)) {
       const el = document.querySelector(`.player-circle[data-pid="${pid}"]`);
       if (!el) continue;
-      const cx = (zRect.xMin + zRect.xMax) / 2;
-      const cy = (zRect.yMin + zRect.yMax) / 2;
-      el.style.transitionDuration = '0s';   // instant snap (no animation on rebuild)
-      el.style.left = (cx * 100) + '%';
-      el.style.top  = (cy * 100) + '%';
-      CURRENT_POS[pid] = { x: cx, y: cy };
-      // Restore transition on next frame so future moves animate normally
+      el.style.transitionDuration = '0s';
+      el.style.left = (home.x * 100) + '%';
+      el.style.top  = (home.y * 100) + '%';
+      CURRENT_POS[pid] = { x: home.x, y: home.y };
       requestAnimationFrame(() => { el.style.transitionDuration = ''; });
     }
     // Visualize zones — toggled by the checkbox. Uses role-specific colors so
@@ -1628,14 +1628,10 @@
     let serveOriginX = 0.5, serveOriginY = 0.5;
     if (serverSlot && serverSlot.player) {
       const isHome = match.serving === 'home';
-      // Use the server's ROLE-ZONE center for y (they always live in their zone visually).
-      // Fall back to HOME_POS if zone isn't ready yet.
-      const zRect = PLAYER_ZONE[serverSlot.player.id];
+      // Use the server's ROTATION POSITION (P1 = back-right) for the y coord — matches real vball.
       const serverHome = HOME_POS[serverSlot.player.id];
       serveOriginX = isHome ? -0.05 : 1.05;
-      serveOriginY = zRect
-        ? (zRect.yMin + zRect.yMax) / 2
-        : (serverHome ? serverHome.y : 0.5);
+      serveOriginY = serverHome ? serverHome.y : 0.5;
       // Snap server INSTANTLY to that spot (bypass zone clamp + transition)
       const serverEl = document.querySelector(`.player-circle[data-pid="${serverSlot.player.id}"]`);
       if (serverEl) {
@@ -1816,42 +1812,40 @@
     setTimeout(() => badge.remove(), 1400 / speed);
   }
 
-  /** Real rotation walk: everyone shifts ONE zone clockwise, holds briefly, then
-   *  renderCourt snaps them back to their role zone at the end of the rally.
-   *  ZONE_CYCLE = ['setter','libero','leftBack','outside','middle','opp'] means
-   *  Setter → Libero spot, Libero → LeftBack, LeftBack → Outside, Outside → Middle,
-   *  Middle → Opp, Opp → Setter. Exactly like real volleyball rotation viewed from above. */
+  /** Real rotation walk: after a side-out win, everyone shifts one spot clockwise
+   *  in rotation positions (P1→P2, P2→P3, P3→P4, P4→P5, P5→P6, P6→P1).
+   *  Uses the engine's rotation-position spots so the visual matches gameplay.
+   *  renderCourt then re-snaps everyone to the NEW rotation positions for next rally. */
   async function animateRotationWalk(side) {
-    const players = playersOnSide(side);
-    if (!players.length) return;
     const walkMs = Math.max(500, 900 / speed);
-    // Compute each player's target position (one zone clockwise from their role)
-    const targets = [];
+    // Get the rotation-spot coord list for this side (P1..P6)
+    const spots = side === 'home' ? [
+      { x: 0.75, y: 0.85 },{ x: 0.75, y: 0.60 },{ x: 0.50, y: 0.60 },
+      { x: 0.25, y: 0.60 },{ x: 0.25, y: 0.85 },{ x: 0.50, y: 0.85 }
+    ] : [
+      { x: 0.25, y: 0.15 },{ x: 0.25, y: 0.40 },{ x: 0.50, y: 0.40 },
+      { x: 0.75, y: 0.40 },{ x: 0.75, y: 0.15 },{ x: 0.50, y: 0.15 }
+    ];
+    // For each on-court player: find their CURRENT rotation-spot index in HOME_POS,
+    // then walk to the NEXT clockwise spot (P1→P2 means index 0→1).
+    const players = playersOnSide(side);
     for (const p of players) {
-      const role = PLAYER_ROLE_ZONE[p.pid];
-      if (!role) continue;
-      const idx = ZONE_CYCLE.indexOf(role);
-      if (idx < 0) continue;
-      const nextRole = ZONE_CYCLE[(idx + 1) % ZONE_CYCLE.length];
-      const rect = roleZoneRect(nextRole, side);
-      if (!rect) continue;
-      const cx = (rect.xMin + rect.xMax) / 2;
-      const cy = (rect.yMin + rect.yMax) / 2;
-      targets.push({ pid: p.pid, x: cx, y: cy });
-    }
-    // Walk everyone to the next-role position simultaneously (bypass zone clamp)
-    for (const t of targets) {
-      const el = document.querySelector(`.player-circle[data-pid="${t.pid}"]`);
+      const home = HOME_POS[p.pid];
+      if (!home) continue;
+      const nextSpotIdx = ((home.spotIndex ?? 0) + 1) % 6;
+      const nextEngine = spots[nextSpotIdx];
+      const nextScreen = toScreen(nextEngine);
+      const el = document.querySelector(`.player-circle[data-pid="${p.pid}"]`);
       if (!el) continue;
       el.classList.add('walking');
       el.style.transition = `left ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), top ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), transform 0.32s cubic-bezier(0.34,1.4,0.64,1), filter 0.3s, box-shadow 0.3s`;
-      el.style.left = (t.x * 100) + '%';
-      el.style.top  = (t.y * 100) + '%';
-      CURRENT_POS[t.pid] = { x: t.x, y: t.y };
+      el.style.left = (nextScreen.x * 100) + '%';
+      el.style.top  = (nextScreen.y * 100) + '%';
+      CURRENT_POS[p.pid] = { x: nextScreen.x, y: nextScreen.y };
     }
     await sleep(walkMs + 100);
-    // renderCourt() runs right after this (in playRally) and snaps everyone back to their role zone.
-    // Result: user sees "rotation walk one spot clockwise, then reset for next rally."
+    // renderCourt() runs right after — will re-snap everyone to their NEW rotation spots
+    // based on the engine's updated rotationOffset. The walk you just saw is where they end up.
   }
 
   // Height profile per event type: what height is the ball AT the moment of this touch,
