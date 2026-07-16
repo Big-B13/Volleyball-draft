@@ -14,7 +14,9 @@ export const LOGO_URLS = {
 
 // Bump this any time DEFAULT_PLAYERS changes — clients with a lower version
 // will auto-refresh their local cache to pick up the new list.
-export const PLAYER_DATA_VERSION = 7;
+// V3: captain + 10 picks = 11 total (7 starters + 4 bench). Was 5 (6 starters, no bench).
+export const PICKS_PER_TEAM = 10;
+export const PLAYER_DATA_VERSION = 11;
 
 // Photo path convention: ./assets/players/<id>.png (transparent PNG cutout preferred)
 // If a file doesn't exist, cards fall back to a silhouette + initials.
@@ -86,4 +88,111 @@ export function getInitials(name) {
 
 export const STAT_KEYS = ['attack', 'serve', 'defense', 'setting', 'athletic'];
 export const STAT_LABELS = { attack: 'Attack', serve: 'Serve', defense: 'Defense', setting: 'Setting', athletic: 'Athletic' };
-export const PICKS_PER_TEAM = 5;
+
+// ═══════════════════════════════════════════════════════════════════════
+// PERSONALITY TRAITS — six 0..1 sliders that shape player behavior
+// ═══════════════════════════════════════════════════════════════════════
+//   aggression    - swing hard vs tip smart (0=tipper, 1=hammer)
+//   showboat      - loves flashy plays: setter dumps, slides, fakes (0=safe, 1=trickster)
+//   discipline    - reads plays, commits to blocks (0=lazy blocker, 1=always jumps)
+//   hustle        - chases every ball, dives for saves (0=laid back, 1=all-out)
+//   confidence    - performs under pressure (0=chokes on tight sets, 1=big-moment player)
+//   chemistry     - a MAP of friend IDs → bond strength (0..1). Setter passes to friends more.
+export const TRAIT_KEYS = ['aggression', 'showboat', 'discipline', 'hustle', 'confidence'];
+
+// Preset personalities for the Gomi Cup roster (based on Brian's descriptions).
+// Chemistry: 0.9 = best friend, 0.7 = close, 0.5 = friendly (top 3 for each player).
+// Merges bidirectionally — max() taken when players list each other.
+export const PLAYER_TRAITS = {
+  // ── Captains ──
+  'big-b':        { aggression: 0.85, showboat: 0.30, discipline: 0.90, hustle: 0.85, confidence: 0.80,
+                    chemistry: { 'burla': 0.9, 'stratus': 0.9, 'zakhar': 0.7 } },
+  'burla':        { aggression: 0.40, showboat: 0.95, discipline: 0.70, hustle: 0.70, confidence: 0.75,
+                    chemistry: { 'big-b': 0.9, 'stratus': 0.9, 'bouschra': 0.7, 'mandie': 0.5, 'joran': 0.6 } },
+  'stratus':      { aggression: 0.20, showboat: 0.10, discipline: 0.90, hustle: 0.95, confidence: 0.85,
+                    chemistry: { 'big-b': 0.9, 'burla': 0.9, 'bouschra': 0.7 } },
+
+  // ── Draft pool with real friendships ──
+  'ayaz':         { aggression: 0.60, showboat: 0.50, discipline: 0.50, hustle: 0.80, confidence: 0.55,
+                    chemistry: { 'big-b': 0.9, 'pavel': 0.7, 'stratus': 0.5 } },
+  'steven':       { aggression: 0.75, showboat: 0.40, discipline: 0.80, hustle: 0.75, confidence: 0.80,
+                    chemistry: { 'ricardo': 0.9, 'renars': 0.7, 'dawood': 0.5 } },
+  'pato':         { aggression: 0.20, showboat: 0.60, discipline: 0.85, hustle: 0.95, confidence: 0.75,
+                    chemistry: { 'ani': 0.9, 'merel': 0.7 } },
+  'moon':         { aggression: 0.95, showboat: 0.40, discipline: 0.50, hustle: 0.60, confidence: 0.70,
+                    chemistry: { 'daan': 0.9, 'floor': 0.7, 'luna': 0.5 } },
+  'ibrahim':      { aggression: 0.60, showboat: 0.30, discipline: 0.40, hustle: 0.70, confidence: 0.50,
+                    chemistry: { 'big-b': 0.9, 'skuppa': 0.7, 'burla': 0.5 } },
+  'tamara':       { aggression: 0.30, showboat: 0.40, discipline: 0.85, hustle: 0.90, confidence: 0.70,
+                    chemistry: { 'gabsche': 0.9, 'ani': 0.7, 'moon': 0.5 } },
+  'ricardo':      { aggression: 0.75, showboat: 0.35, discipline: 0.85, hustle: 0.75, confidence: 0.90,
+                    chemistry: { 'renars': 0.9, 'steven': 0.7 } },
+  'nikita-blond': { aggression: 0.85, showboat: 0.55, discipline: 0.55, hustle: 0.60, confidence: 0.75,
+                    chemistry: { 'zakhar': 0.9, 'ihor': 0.7, 'pavel': 0.5 } },
+  'nikita-brown': { aggression: 0.90, showboat: 0.50, discipline: 0.85, hustle: 0.80, confidence: 0.95,
+                    chemistry: { 'islom': 0.9, 'ihor': 0.7, 'nikita-blond': 0.5 } },
+  'max':          { aggression: 0.55, showboat: 0.30, discipline: 0.45, hustle: 0.55, confidence: 0.55,
+                    chemistry: { 'merel': 0.9, 'ani': 0.7, 'gabsche': 0.5 } },
+  'luna':         { aggression: 0.25, showboat: 0.50, discipline: 0.80, hustle: 0.85, confidence: 0.75,
+                    chemistry: { 'moon': 0.9, 'floor': 0.7 } },
+  'floor':        { aggression: 0.70, showboat: 0.45, discipline: 0.70, hustle: 0.75, confidence: 0.70,
+                    chemistry: { 'luna': 0.9, 'moon': 0.7, 'daan': 0.5 } },
+  'narcis':       { aggression: 0.55, showboat: 0.60, discipline: 0.55, hustle: 0.65, confidence: 0.60,
+                    chemistry: { 'rei': 0.9, 'bouschra': 0.7, 'renars': 0.5 } },
+  'rei':          { aggression: 0.40, showboat: 0.75, discipline: 0.80, hustle: 0.80, confidence: 0.75,
+                    chemistry: { 'narcis': 0.9, 'burla': 0.7, 'big-b': 0.5 } },
+  'zakhar':       { aggression: 0.30, showboat: 0.30, discipline: 0.90, hustle: 0.95, confidence: 0.80,
+                    chemistry: { 'nikita-blond': 0.9, 'big-b': 0.7, 'joran': 0.5 } },
+  'renars':       { aggression: 0.75, showboat: 0.70, discipline: 0.70, hustle: 0.70, confidence: 0.80,
+                    chemistry: { 'ricardo': 0.9, 'steven': 0.7, 'narcis': 0.5 } },
+  'rashid':       { aggression: 0.60, showboat: 0.35, discipline: 0.70, hustle: 0.75, confidence: 0.65,
+                    chemistry: { 'dawood': 0.9, 'gabsche': 0.7, 'pavel': 0.5 } },
+  'mizu':         { aggression: 0.55, showboat: 0.35, discipline: 0.75, hustle: 0.70, confidence: 0.70,
+                    chemistry: { 'floor': 0.9, 'merel': 0.7, 'ani': 0.5 } },
+  'linus':        { aggression: 0.90, showboat: 0.55, discipline: 0.55, hustle: 0.70, confidence: 0.80,
+                    chemistry: { 'joran': 0.9, 'islom': 0.7, 'ricardo': 0.5 } },
+  'joran':        { aggression: 0.80, showboat: 0.70, discipline: 0.85, hustle: 0.85, confidence: 0.95,
+                    chemistry: { 'steven': 0.9, 'ricardo': 0.7, 'dawood': 0.5, 'burla': 0.6 } },
+  'skuppa':       { aggression: 0.45, showboat: 0.65, discipline: 0.40, hustle: 0.55, confidence: 0.50,
+                    chemistry: { 'ibrahim': 0.9, 'big-b': 0.7, 'burla': 0.5 } },
+  'islom':        { aggression: 0.85, showboat: 0.50, discipline: 0.60, hustle: 0.65, confidence: 0.75,
+                    chemistry: { 'nikita-brown': 0.9, 'ihor': 0.7, 'pavel': 0.5 } },
+  'ihor':         { aggression: 0.65, showboat: 0.30, discipline: 0.80, hustle: 0.75, confidence: 0.70,
+                    chemistry: { 'nikita-blond': 0.9, 'pavel': 0.7, 'islom': 0.5 } },
+  'bouschra':     { aggression: 0.70, showboat: 0.40, discipline: 0.75, hustle: 0.90, confidence: 0.75,
+                    chemistry: { 'narcis': 0.9, 'burla': 0.7, 'ricardo': 0.5 } },
+  'anezka':       { aggression: 0.40, showboat: 0.35, discipline: 0.60, hustle: 0.65, confidence: 0.55,
+                    chemistry: { 'burla': 0.9, 'big-b': 0.7, 'rei': 0.5 } },
+  'joep':         { aggression: 0.35, showboat: 0.30, discipline: 0.85, hustle: 0.75, confidence: 0.75,
+                    chemistry: { 'daan': 0.9, 'moon': 0.7, 'joran': 0.5 } },
+  'pavel':        { aggression: 0.55, showboat: 0.35, discipline: 0.85, hustle: 0.90, confidence: 0.70,
+                    chemistry: { 'ihor': 0.9, 'nikita-blond': 0.7, 'zakhar': 0.5 } },
+  'merel':        { aggression: 0.65, showboat: 0.55, discipline: 0.70, hustle: 0.80, confidence: 0.70,
+                    chemistry: { 'ani': 0.9, 'gabsche': 0.7, 'max': 0.5 } },
+  'tabeeb':       { aggression: 0.70, showboat: 0.40, discipline: 0.50, hustle: 0.65, confidence: 0.55,
+                    chemistry: { 'big-b': 0.9, 'stratus': 0.7, 'skuppa': 0.5 } },
+  'daan':         { aggression: 0.70, showboat: 0.50, discipline: 0.75, hustle: 0.75, confidence: 0.75,
+                    chemistry: { 'moon': 0.9, 'joep': 0.7, 'gabsche': 0.5 } },
+  'gabsche':      { aggression: 0.80, showboat: 0.60, discipline: 0.85, hustle: 0.85, confidence: 0.90,
+                    chemistry: { 'ani': 0.9, 'merel': 0.7, 'robin': 0.5 } },
+  'ani':          { aggression: 0.50, showboat: 0.60, discipline: 0.65, hustle: 0.70, confidence: 0.65,
+                    chemistry: { 'gabsche': 0.9, 'robin': 0.7, 'daan': 0.5 } },
+  'mandie':       { aggression: 0.70, showboat: 0.55, discipline: 0.75, hustle: 0.75, confidence: 0.75,
+                    chemistry: { 'burla': 0.9, 'big-b': 0.7, 'stratus': 0.5 } },
+  'dawood':       { aggression: 0.65, showboat: 0.80, discipline: 0.75, hustle: 0.75, confidence: 0.80,
+                    chemistry: { 'ayaz': 0.9, 'rashid': 0.7, 'stratus': 0.5 } },
+  'aizaz':        { aggression: 0.55, showboat: 0.50, discipline: 0.65, hustle: 0.75, confidence: 0.65,
+                    chemistry: { 'dawood': 0.9, 'ayaz': 0.7, 'rashid': 0.5 } },
+  'robin':        { aggression: 0.70, showboat: 0.45, discipline: 0.80, hustle: 0.80, confidence: 0.75,
+                    chemistry: { 'gabsche': 0.9, 'ani': 0.7, 'merel': 0.5 } }
+};
+
+// Default traits for anyone not in the map (e.g. players added via admin)
+export const DEFAULT_TRAITS = {
+  aggression: 0.60, showboat: 0.40, discipline: 0.65, hustle: 0.70, confidence: 0.65, chemistry: {}
+};
+
+/** Get merged traits for a player id (with fallback defaults). */
+export function traitsFor(pid) {
+  return { ...DEFAULT_TRAITS, ...(PLAYER_TRAITS[pid] || {}) };
+}

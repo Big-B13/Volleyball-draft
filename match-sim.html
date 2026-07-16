@@ -860,10 +860,26 @@
 
   await ensureGomiCupSeeded();
 
-  const leagues = await listLeagues();
+  // Diagnostic: log what Firebase returns so users can spot data issues in dev tools
+  let leagues = [];
+  try {
+    leagues = await listLeagues();
+    console.log(`[match-sim] listLeagues() returned ${leagues.length} leagues:`, leagues.map(l => l.id));
+  } catch (err) {
+    console.error('[match-sim] listLeagues() failed:', err);
+    alert('Could not load leagues from Firebase. Check the browser console for details, or check Firebase rules/auth. Falling back to Gomi Cup only.');
+    leagues = [{ id: 'gomi-cup', name: 'The Gomi Cup' }];
+  }
   const lgSel = document.getElementById('league-select');
   const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
-  lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  if (leagues.length === 0) {
+    lgSel.innerHTML = '<option value="">⚠️ No leagues found — check Firebase</option>';
+    document.getElementById('roster-note').innerHTML =
+      '⚠️ <b>No leagues in Firebase.</b> Open the browser console (F12) to see errors. ' +
+      'Try visiting <a href="./league-editor.html" style="color:#fbbf24;">League Editor</a> first.';
+  } else {
+    lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  }
   lgSel.addEventListener('change', populateTeams);
 
   // Cache all players once (needed for random-fill rosters when there's no draft)
@@ -881,14 +897,30 @@
     const homeSel = document.getElementById('home-team');
     const awaySel = document.getElementById('away-team');
     const noteEl = document.getElementById('roster-note');
+    if (!leagueId) {
+      homeSel.innerHTML = '<option value="">No league selected</option>';
+      awaySel.innerHTML = '<option value="">No league selected</option>';
+      return;
+    }
 
     // Always load the league's captains first
-    const league = await getLeague(leagueId);
+    let league = null;
+    try {
+      league = await getLeague(leagueId);
+    } catch (err) {
+      console.error(`[match-sim] getLeague("${leagueId}") failed:`, err);
+    }
     leagueCaptains = (league && league.captains) || [];
+    console.log(`[match-sim] League "${leagueId}" has ${leagueCaptains.length} captains:`, leagueCaptains.map(c => c.name));
 
     // Try to find the most recent completed draft for this league
-    const draftsSnap = await get(ref(db, 'drafts'));
-    const drafts = draftsSnap.val() || {};
+    let drafts = {};
+    try {
+      const draftsSnap = await get(ref(db, 'drafts'));
+      drafts = draftsSnap.val() || {};
+    } catch (err) {
+      console.error('[match-sim] Firebase read of /drafts failed:', err);
+    }
     let latest = null;
     for (const d of Object.values(drafts)) {
       if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
@@ -897,6 +929,7 @@
     }
     leagueDraft = latest;
     rosterSource = latest ? 'draft' : 'random';
+    console.log(`[match-sim] Draft source for "${leagueId}":`, rosterSource, latest ? `(created ${new Date(latest.createdAt).toISOString()})` : '');
 
     if (!leagueCaptains.length) {
       homeSel.innerHTML = '<option value="">No teams in this league yet</option>';

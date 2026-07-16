@@ -337,6 +337,7 @@
   import { augmentEvents, resetV3State } from "./js/mechanics-v3.js";
   import { traitsFor } from "./js/data.js";
   import { GomiCupRenderer3D } from "./js/renderer-3d.js";
+  import { db, ref, get } from "./js/firebase-init.js";
   import { getLeague, currentLeagueId, listLeagues, ensureGomiCupSeeded } from "./js/leagues.js";
   import { getAllPlayers } from "./js/players.js";
   import { escapeHtml, shuffle } from "./js/util.js";
@@ -354,16 +355,33 @@
 
   await ensureGomiCupSeeded();
 
-  const leagues = await listLeagues();
+  let leagues = [];
+  try {
+    leagues = await listLeagues();
+    console.log(`[match-sim-3d] listLeagues() returned ${leagues.length} leagues:`, leagues.map(l => l.id));
+  } catch (err) {
+    console.error('[match-sim-3d] listLeagues() failed:', err);
+    alert('Could not load leagues from Firebase. Check the browser console for details. Falling back to Gomi Cup only.');
+    leagues = [{ id: 'gomi-cup', name: 'The Gomi Cup' }];
+  }
   const lgSel = document.getElementById('league-select');
   const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
-  lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  if (leagues.length === 0) {
+    lgSel.innerHTML = '<option value="">⚠️ No leagues found — check Firebase</option>';
+    document.getElementById('roster-note').innerHTML =
+      '⚠️ <b>No leagues in Firebase.</b> Open the browser console (F12) to see errors. ' +
+      'Try visiting <a href="./league-editor.html" style="color:#fbbf24;">League Editor</a> first.';
+  } else {
+    lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  }
   lgSel.addEventListener('change', populateTeams);
 
   const ALL_PLAYERS = await getAllPlayers();
   const PLAYERS_BY_ID = Object.fromEntries(ALL_PLAYERS.map(p => [p.id, p]));
 
   let leagueCaptains = [];
+  let leagueDraft = null;      // most recent completed draft for the league
+  let rosterSource = 'random'; // 'draft' | 'random'
 
   await populateTeams();
 
@@ -372,12 +390,44 @@
     const homeSel = document.getElementById('home-team');
     const awaySel = document.getElementById('away-team');
     const noteEl = document.getElementById('roster-note');
+    if (!leagueId) {
+      homeSel.innerHTML = '<option value="">No league selected</option>';
+      awaySel.innerHTML = '<option value="">No league selected</option>';
+      return;
+    }
 
-    const league = await getLeague(leagueId);
+    let league = null;
+    try {
+      league = await getLeague(leagueId);
+    } catch (err) {
+      console.error(`[match-sim-3d] getLeague("${leagueId}") failed:`, err);
+    }
     leagueCaptains = (league && league.captains) || [];
+    console.log(`[match-sim-3d] League "${leagueId}" has ${leagueCaptains.length} captains`);
+
+    // Try to find the most recent completed draft for this league
+    try {
+      const draftsSnap = await get(ref(db, 'drafts'));
+      const drafts = draftsSnap.val() || {};
+      let latest = null;
+      for (const d of Object.values(drafts)) {
+        if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
+        if (d.status !== 'complete') continue;
+        if (!latest || (d.createdAt || 0) > (latest.createdAt || 0)) latest = d;
+      }
+      leagueDraft = latest;
+      rosterSource = latest ? 'draft' : 'random';
+    } catch (err) {
+      console.error('[match-sim-3d] Firebase read of /drafts failed:', err);
+      leagueDraft = null;
+      rosterSource = 'random';
+    }
+    console.log(`[match-sim-3d] Draft source for "${leagueId}":`, rosterSource);
 
     if (leagueCaptains.length < 2) {
-      if (noteEl) noteEl.textContent = 'Need at least 2 captains in the league.';
+      homeSel.innerHTML = '<option value="">No teams in this league</option>';
+      awaySel.innerHTML = '<option value="">No teams in this league</option>';
+      if (noteEl) noteEl.textContent = 'Need at least 2 captains in the league. Add them in League Editor.';
       return;
     }
 
@@ -386,7 +436,11 @@
     homeSel.innerHTML = opts;
     awaySel.innerHTML = opts;
     if (leagueCaptains[1]) awaySel.value = '1';
-    noteEl.textContent = `${leagueCaptains.length} team${leagueCaptains.length === 1 ? '' : 's'} available. Rosters auto-filled with random players.`;
+    if (noteEl) {
+      noteEl.textContent = leagueDraft
+        ? `${leagueCaptains.length} teams · Rosters loaded from most recent completed draft.`
+        : `${leagueCaptains.length} teams · No completed draft yet — rosters auto-filled with random players.`;
+    }
   }
 
   function captainAsPlayer(cap) {
@@ -404,11 +458,31 @@
     };
   }
 
-  /** V3: return { starters: Player[6], bench: Player[0..6] } */
+  /** V3: return { starters: Player[6], bench: Player[0..6] }
+   *  Uses drafted picks if a completed draft exists for this league, else random-fill. */
   function getRoster(captainIdx, usedIds) {
     const cap = leagueCaptains[captainIdx];
     const starters = [captainAsPlayer(cap)];
     usedIds.add(starters[0].id);
+
+    // ─ Pull drafted picks from the most recent completed draft (if any)
+    if (rosterSource === 'draft' && leagueDraft) {
+      const picks = (leagueDraft.picks || []).filter(p => p.captainIdx === captainIdx);
+      const playersById = Object.fromEntries((leagueDraft.players || []).map(p => [p.id, p]));
+      picks.forEach((pk, i) => {
+        const p = playersById[pk.playerId] || PLAYERS_BY_ID[pk.playerId];
+        if (p && !usedIds.has(p.id)) {
+          if (starters.length < 7) {
+            starters.push({ ...p, jerseyNum: starters.length });
+          } else {
+            // fills bench below
+          }
+          usedIds.add(p.id);
+        }
+      });
+    }
+
+    // ─ Fill remaining starter slots from random pool (up to 6 total for v2, or 7 for v3-bench mode)
     const linkedByOthers = new Set(
       leagueCaptains.filter((_, i) => i !== captainIdx).map(c => c.linkedPlayerId).filter(Boolean)
     );
@@ -418,8 +492,19 @@
       starters.push({ ...p, jerseyNum: starters.length });
       usedIds.add(p.id);
     }
-    // V3: pull up to 4 bench players (fewer than max 6 so pool doesn't dry up in small leagues)
+
+    // ─ Bench: use additional drafted picks (beyond 6 starters) first, then random pool
     const bench = [];
+    if (rosterSource === 'draft' && leagueDraft) {
+      const picks = (leagueDraft.picks || []).filter(p => p.captainIdx === captainIdx);
+      const playersById = Object.fromEntries((leagueDraft.players || []).map(p => [p.id, p]));
+      picks.forEach((pk) => {
+        const p = playersById[pk.playerId] || PLAYERS_BY_ID[pk.playerId];
+        if (p && !starters.some(s => s.id === p.id) && bench.length < 4) {
+          bench.push({ ...p, jerseyNum: 'B' + (bench.length + 1) });
+        }
+      });
+    }
     while (bench.length < 4 && pool.length) {
       const p = pool.shift();
       bench.push({ ...p, jerseyNum: 'B' + (bench.length + 1) });

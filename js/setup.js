@@ -1,6 +1,6 @@
 import { db, ref, set, serverTimestamp } from "./firebase-init.js";
 import { DEFAULT_CAPTAINS, DEFAULT_PLAYERS, STAT_KEYS, STAT_LABELS, PICKS_PER_TEAM, PLAYER_DATA_VERSION } from "./data.js";
-import { makeRoomId, makeCaptainCode, buildDraftOrder, shuffle, overall, saveLocal, loadLocal, escapeHtml } from "./util.js";
+import { makeRoomId, makeCaptainCode, buildDraftOrder, buildDraftOrderVariable, distributePicks, shuffle, overall, saveLocal, loadLocal, escapeHtml } from "./util.js";
 import { guardPage, renderAuthBadge } from "./auth.js";
 import { listLeagues, getLeague, ensureGomiCupSeeded, currentLeagueId, GOMI_CUP_LEAGUE_ID } from "./leagues.js";
 import { getAllPlayers } from "./players.js";
@@ -76,7 +76,7 @@ function persist() {
 function buildCaptainInputs() {
   const g = document.getElementById('captains-grid');
   g.innerHTML = captains.map((c, i) => `
-    <div>
+    <div class="captain-card" data-linked-player-id="${c.linkedPlayerId || ''}">
       <label>Captain ${i + 1} name</label>
       <input type="text" value="${escapeHtml(c.name)}" data-i="${i}" data-field="name" readonly style="opacity:0.7; cursor:not-allowed;">
       <label style="margin-top:8px;">Team name</label>
@@ -102,7 +102,7 @@ function buildPlayerInputs() {
       ? `<div style="grid-column:1/-1; color:#fbbf24; font-size:0.72rem; padding:2px 6px;">🎖️ Excluded — captain in ${captains.find(c => c.linkedPlayerId === p.id)?.team || 'this league'}</div>`
       : '';
     return `
-    <div class="player-row" ${styleAttr}>
+    <div class="player-row" data-pid="${escapeHtml(p.id)}" ${styleAttr}>
       ${badge}
       <div class="num">${i + 1}</div>
       <input type="text" value="${escapeHtml(p.name)}"     data-i="${i}" data-field="name"     placeholder="Real name">
@@ -150,17 +150,44 @@ window.createRoom = async () => {
     if (!p.name.trim()) { alert('Every player needs a real name (or delete the empty row).'); return; }
   }
 
+  // Read draft depth (5 = classic, 10 = full squad). Default to 10.
+  const pickModeInput = document.querySelector('input[name="pick-mode"]:checked');
+  const picksPerTeamFixed = pickModeInput ? parseInt(pickModeInput.value, 10) : PICKS_PER_TEAM;
+
+  // Read attendance mode
+  const attendanceMode = document.querySelector('input[name="attend-mode"]:checked')?.value === 'on';
+  const attendeeIds = attendanceMode && window.__attendance ? new Set(window.__attendance) : null;
+
   // Run the NBA-style lottery animation to determine captain order
   const captainOrder = await runLotteryAnimation(captains);
 
   const roomId = makeRoomId();
-  const draftOrder = buildDraftOrder(captainOrder, PICKS_PER_TEAM);
-
   const captainsWithCodes = captains.map(c => ({ ...c, code: makeCaptainCode() }));
   const excluded = excludedPlayerIds();
-  const activePlayers = players.filter(p => !excluded.has(p.id));
-  if (activePlayers.length < captains.length * PICKS_PER_TEAM) {
-    return alert(`After excluding captains from the pool, only ${activePlayers.length} players remain, but ${captains.length * PICKS_PER_TEAM} draft picks are needed. Add more players or reduce captain count.`);
+  let activePlayers = players.filter(p => !excluded.has(p.id));
+
+  let draftOrder, picksPerTeam, picksPerCaptain;
+  if (attendanceMode) {
+    // ─── ATTENDANCE MODE ───
+    // Filter pool to only attendees (captains are auto-included and already excluded from `activePlayers`).
+    activePlayers = activePlayers.filter(p => attendeeIds.has(p.id));
+    const draftable = activePlayers.length;
+    if (draftable === 0) {
+      return alert('Attendance mode: no non-captain attendees selected. Check off who\'s here today first.');
+    }
+    // Distribute picks evenly, extras to later-round-1 captains
+    picksPerCaptain = distributePicks(draftable, captainOrder);
+    picksPerTeam = Math.max(...Object.values(picksPerCaptain));   // used for progress display
+    draftOrder = buildDraftOrderVariable(captainOrder, picksPerCaptain);
+  } else {
+    // ─── STANDARD MODE ───
+    picksPerTeam = picksPerTeamFixed;
+    if (activePlayers.length < captains.length * picksPerTeam) {
+      return alert(`After excluding captains from the pool, only ${activePlayers.length} players remain, but ${captains.length * picksPerTeam} draft picks are needed for ${picksPerTeam}-pick mode. Add more players, reduce captain count, or switch to 5-pick / attendance mode.`);
+    }
+    picksPerCaptain = {};
+    captainOrder.forEach(i => { picksPerCaptain[i] = picksPerTeam; });
+    draftOrder = buildDraftOrder(captainOrder, picksPerTeam);
   }
   const playersWithOverall = activePlayers.map(p => ({ ...p, overall: overall(p) }));
 
@@ -169,7 +196,9 @@ window.createRoom = async () => {
 
   const draftData = {
     createdAt: Date.now(),
-    picksPerTeam: PICKS_PER_TEAM,
+    picksPerTeam,
+    picksPerCaptain,        // NEW: per-captain quota (attendance mode has different numbers)
+    attendanceMode,         // NEW: flag for the draft UI
     leagueId: selectedLeagueId,
     captains: captainsWithCodes,
     players: playersWithOverall,

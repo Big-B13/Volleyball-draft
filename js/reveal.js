@@ -11,10 +11,11 @@ import { getAllPlayers } from "./players.js";
 // admin panel show up on the reveal page. Falls back to PLAYER_BIOS map if not found.
 let __bioById = { ...PLAYER_BIOS };
 let __nickById = {};
-(async () => {
+let __allPlayers = [];
+let __playersReady = (async () => {
   try {
-    const list = await getAllPlayers();
-    for (const p of list) {
+    __allPlayers = await getAllPlayers();
+    for (const p of __allPlayers) {
       if (p.bio) __bioById[p.id] = p.bio;
       if (p.nickname) __nickById[p.id] = p.nickname;
     }
@@ -164,6 +165,9 @@ function setConn(ok) {
 
 async function render() {
   document.getElementById('loading').classList.add('hidden');
+  // Wait for admin-edited player data (nicknames, stats, bios) to be loaded
+  // so captain cards show YOUR ratings (like Blackout) instead of hardcoded defaults.
+  await __playersReady;
   const container = document.getElementById('reveal-teams');
 
   const pickedIds = new Set((state.picks || []).map(p => p.playerId));
@@ -177,12 +181,17 @@ async function render() {
       : '';
     const club = clubFor(cap);
 
-    // Build captain "player" object so it can render as a mini card
+    // Build captain "player" object so it can render as a mini card.
+    // Pull stats + nickname from the merged player data (admin edits win over defaults).
     const capId = captainIdForCaptain(cap);
     const capPhotoUrl = await getPhotoUrl(capId);
-    const capAsPlayer = {
-      id: capId,
-      name: cap.name,
+    const capPlayerRecord = __allPlayers.find(pp => pp.id === capId);
+    const capAsPlayer = capPlayerRecord ? {
+      ...capPlayerRecord,
+      overall: Math.round(((capPlayerRecord.attack + capPlayerRecord.serve + capPlayerRecord.defense + capPlayerRecord.setting + capPlayerRecord.athletic) / 5) * 10) / 10,
+      _photoUrl: capPhotoUrl
+    } : {
+      id: capId, name: cap.name,
       nickname: club ? club.captain.title : (cap.role || 'Captain'),
       attack: 8, serve: 8, defense: 8, setting: 8, athletic: 8, overall: 8.5,
       _photoUrl: capPhotoUrl
