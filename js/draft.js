@@ -579,15 +579,16 @@ function renderWaiting(onClock, whoHtml, onClockPresent) {
   document.getElementById('who-am-i').innerHTML = whoHtml;
   document.getElementById('wait-team-name').innerHTML = teamHeaderHtml(onClock);
   const numCaptains = state.captains.length;
-  const totalPicks = state.picksPerTeam * numCaptains;
+  const totalPicks = state.draftOrder ? state.draftOrder.length : state.picksPerTeam * numCaptains;
   const round = Math.floor(state.currentPick / numCaptains) + 1;
   const absentMsg = !onClockPresent
     ? `<div style="margin-top: 12px; padding: 10px 14px; background: rgba(239,68,68,0.15); border: 1px solid #ef4444; border-radius: 8px; color: #fecaca; font-size: 0.9rem;">
          ⚠️ <strong>${escapeHtml(onClock.name)}</strong> hasn't joined yet — the draft is paused waiting for them.
        </div>`
     : '';
+  const modeTag = state.attendanceMode ? ' <span style="color:#fbbf24; font-size:0.85em;">📋 Attendance mode</span>' : '';
   document.getElementById('wait-round-info').innerHTML =
-    `Round ${round} of ${state.picksPerTeam} · Captain: ${escapeHtml(onClock.name)} · Overall pick #${state.currentPick + 1} of ${totalPicks}${absentMsg}`;
+    `Round ${round} of ${state.picksPerTeam}${modeTag} · Captain: ${escapeHtml(onClock.name)} · Overall pick #${state.currentPick + 1} of ${totalPicks}${absentMsg}`;
 }
 
 // Filter state (persists during the current pick)
@@ -673,18 +674,26 @@ function analyzeRosterAndSuggest(myCaptainIdx) {
     }
   }
   const totalRoster = myPlayers.length;
-  const remaining = state.picksPerTeam - myPicks.length;
-  // A "full" 6-player team should have: 1 setter, 2 outsides, 2 middles, 1 libero (typical 5-1)
-  const idealCounts = { S: 1, OH: 2, MB: 2, L: 1 };
+  // Attendance mode: each captain has their own quota
+  const myQuota = state.picksPerCaptain ? (state.picksPerCaptain[myCaptainIdx] ?? state.picksPerTeam) : state.picksPerTeam;
+  const remaining = myQuota - myPicks.length;
+  // V3: A "full" 11-player squad (7 starters + 4 bench) needs:
+  //   2 setters (starter + backup)
+  //   3 outsides (2 starters + 1 flex/bench)
+  //   3 middles (2 starters + 1 for rotation/bench)
+  //   2 liberos (starter + defensive sub)
+  //   1 opposite (starter, or use OH/OP flex)
+  const idealCounts = { S: 2, OH: 3, MB: 3, L: 2, OP: 1 };
 
   const missing = [];
   const nice = [];
   // Priority order: setter > libero > middle > outside (based on how essential)
   const priorityChecks = [
-    { key: 'S',  label: '🎯 Setter',          essential: true,  msg: 'Every team needs a setter — they run the offense on the 2nd touch.' },
-    { key: 'L',  label: '🛡️ Libero',           essential: true,  msg: 'A libero locks down back-row defense (highest dig priority).' },
-    { key: 'MB', label: '🧱 Middle Blocker',   essential: true,  msg: 'Middles anchor the block wall — you\'ll get stuffed without one.' },
-    { key: 'OH', label: '💥 Outside Hitter',  essential: true,  msg: 'Outsides are your main attackers on the left pin.' },
+    { key: 'S',  label: '🎯 Setter',          essential: true,  msg: 'Every team needs a setter — they run the offense. Pick 2 for bench depth.' },
+    { key: 'L',  label: '🛡️ Libero',           essential: true,  msg: 'A libero locks down back-row defense (highest dig priority). Pick 2 for rotation.' },
+    { key: 'MB', label: '🧱 Middle Blocker',   essential: true,  msg: 'Middles anchor the block wall. Pick 3 for bench rotation.' },
+    { key: 'OH', label: '💥 Outside Hitter',  essential: true,  msg: 'Outsides are your main attackers. Pick 3 for depth.' },
+    { key: 'OP', label: '⚔️ Opposite',         essential: false, msg: 'Opposites attack from the right pin — great counter to blockers.' },
   ];
   for (const check of priorityChecks) {
     const have = roleCounts[check.key] || 0;
@@ -747,8 +756,11 @@ async function renderMyTurn(onClock, whoHtml) {
   document.getElementById('my-team-name').innerHTML = teamHeaderHtml(onClock);
   const numCaptains = state.captains.length;
   const round = Math.floor(state.currentPick / numCaptains) + 1;
+  const totalPicksAll = state.draftOrder ? state.draftOrder.length : state.picksPerTeam * numCaptains;
+  const modeTag = state.attendanceMode ? ' 📋 attendance' : '';
+  const myQuota = state.picksPerCaptain ? (state.picksPerCaptain[myCaptainIdx] ?? state.picksPerTeam) : state.picksPerTeam;
   document.getElementById('my-round-info').textContent =
-    `Round ${round} of ${state.picksPerTeam} · Overall pick #${state.currentPick + 1} of ${state.picksPerTeam * numCaptains}`;
+    `Round ${round} of ${state.picksPerTeam}${modeTag} · Overall pick #${state.currentPick + 1} of ${totalPicksAll} · You get ${myQuota} picks total`;
 
   // Roster tip — only show when it's YOUR turn (this render function only runs then)
   const tipEl = document.getElementById('roster-tip');
@@ -899,7 +911,7 @@ function renderTeamsPanel() {
       <div class="team-box${meClass}" style="border-top-color:${cap.color}">
         <h4 style="color:${cap.color}">${logo}<span>${escapeHtml(cap.team)}</span></h4>
         <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:8px;">
-          Captain: ${escapeHtml(cap.name)} · ${picks.length} / ${state.picksPerTeam} picks
+          Captain: ${escapeHtml(cap.name)} · ${picks.length} / ${state.picksPerCaptain ? (state.picksPerCaptain[i] ?? state.picksPerTeam) : state.picksPerTeam} picks
         </div>
         ${picks.map(pk => {
           const p = state.players.find(pp => pp.id === pk.playerId);

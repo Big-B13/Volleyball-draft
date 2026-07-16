@@ -9,12 +9,19 @@ import { traitsFor } from './data.js';
 // Merged on top of preset traits so persistent Firebase chemistry drives in-match decisions.
 let MATCH_CHEMISTRY = {};
 
-// V3-lite: manual hitter override so the 2D sim can also let user pick who to spike.
+// ═══════════════════════════════════════════════════════════════════════
+// V3: MANUAL HITTER OVERRIDE
+// When set, the next rally's attacker call will use this pid instead of the
+// AI-picked hitter. Set by the UI when the user manually picks a target.
+// Format: { side: 'home'|'away', pid: 'big-b', tactic: 'normal'|'quick'|'back-row' }
+// Cleared automatically after being consumed.
+// ═══════════════════════════════════════════════════════════════════════
 let MANUAL_HITTER_OVERRIDE = null;
 export function setManualHitter(side, pid, tactic = null) {
   MANUAL_HITTER_OVERRIDE = pid ? { side, pid, tactic } : null;
 }
 export function clearManualHitter() { MANUAL_HITTER_OVERRIDE = null; }
+export function getManualHitter() { return MANUAL_HITTER_OVERRIDE; }
 
 // Get personality traits for a slot (with graceful fallbacks + live chemistry).
 function t(slot) {
@@ -99,34 +106,208 @@ function assignSpots(players, sideSpots) {
 }
 
 // ============ MATCH STATE ============
-export function createMatch({ homeTeam, awayTeam, homeName, awayName, homeColor, awayColor, chemistryMap }) {
+// ═══════════════════════════════════════════════════════════════════════
+// V3 ADDITIONS — Lineup Specialty (Power/Quick/Block/Receive)
+// The starter's SETTER determines team specialty. RPS counter chart gives
+// +30% to actions of your specialty when you beat opponent's.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const SPECIALTIES = ['power', 'quick', 'block', 'receive'];
+
+/** Rock-paper-scissors counter chart:
+ *  Power > Receive > Quick > Block > Power (cycle)
+ *  Interpretation:
+ *    Power BEATS Receive (raw force overwhelms passers)
+ *    Receive BEATS Quick (great defense reads fast tempo)
+ *    Quick BEATS Block (releases before wall forms)
+ *    Block BEATS Power (giant wall stuffs the swing)  */
+const SPECIALTY_COUNTERS = {
+  'power':   'receive',
+  'receive': 'quick',
+  'quick':   'block',
+  'block':   'power',
+};
+export function specialtyCounters(mine, theirs) {
+  return SPECIALTY_COUNTERS[mine] === theirs;
+}
+
+/** Auto-derive a team's specialty from setter stats + squad shape.
+ *  If the designated setter has high `setting` and there's a tall MB with
+ *  high `athletic`, lean Quick. High `attack` avg → Power. High `defense`
+ *  avg → Receive. Tall front row → Block. */
+export function deriveSpecialty(lineup) {
+  const players = lineup.map(s => s && s.player).filter(Boolean);
+  if (!players.length) return 'power';
+  const avg = (key) => players.reduce((s, p) => s + (p[key] || 5), 0) / players.length;
+  const setter = players.find(p => (p.position || '').split('/').includes('S'));
+  const setterAthletic = setter ? (setter.athletic || 5) : 5;
+  const setterSetting  = setter ? (setter.setting || 5) : 5;
+  // Score each specialty
+  const scores = {
+    power:   avg('attack') * 1.0 + avg('serve') * 0.4,
+    quick:   setterAthletic * 0.6 + setterSetting * 0.5 + avg('athletic') * 0.4,
+    block:   avg('defense') * 0.6 + players.filter(p => (p.heightCm || 180) > 190).length * 1.5,
+    receive: avg('defense') * 0.7 + avg('setting') * 0.3 + players.filter(p => (p.position || '').includes('L')).length * 1.5,
+  };
+  return Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// V3 ADDITIONS — Stamina economy
+// Every player has a 0..100 stamina bar. Actions cost stamina. When
+// stamina drops below 40, tier score is penalized. Below 20, penalty
+// doubles. Encourages substituting tired players.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const STAMINA_MAX = 100;
+export const STAMINA_COST = {
+  'serve': 5, 'ace': 5, 'serve-error': 5,
+  'pass': 2, 'pass-error': 2,
+  'set': 2,
+  'attack': 8, 'kill': 8, 'attack-net': 8, 'attack-out': 8, 'attack-error': 8,
+  'block': 4,
+  'dig': 3,
+  'setter-dump': 3,
+  'tip': 4,
+};
+
+export function staminaPenalty(currentStamina) {
+  // 100→0 penalty, 40→0 penalty, 20→-0.10 penalty, 0→-0.20 penalty
+  if (currentStamina >= 40) return 0;
+  if (currentStamina >= 20) return -0.05 * (40 - currentStamina) / 20;   // 0 → -0.05
+  return -0.05 - 0.15 * (20 - currentStamina) / 20;                       // -0.05 → -0.20
+}
+
+export function spendStamina(match, pid, eventType) {
+  if (!match.stamina) match.stamina = {};
+  if (match.stamina[pid] == null) match.stamina[pid] = STAMINA_MAX;
+  const cost = STAMINA_COST[eventType] || 1;
+  match.stamina[pid] = Math.max(0, match.stamina[pid] - cost);
+  return match.stamina[pid];
+}
+
+export function restStamina(match, pid, amount = 10) {
+  if (!match.stamina) match.stamina = {};
+  if (match.stamina[pid] == null) match.stamina[pid] = STAMINA_MAX;
+  match.stamina[pid] = Math.min(STAMINA_MAX, match.stamina[pid] + amount);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// V3 ADDITIONS — Bench & subs (7 starters + up to 6 bench)
+// Engine still plays 6 on-court, but a 7th "sub" player sits on bench and
+// can rotate in for tired teammates between rallies. Auto-sub is called
+// after each point if a starter is exhausted.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Substitute bench[benchIdx] in for lineup[lineupIdx]. Returns true if ok. */
+export function substitute(team, lineupIdx, benchIdx) {
+  if (!team.bench || !team.bench[benchIdx]) return false;
+  const outSlot = team.lineup[lineupIdx];
+  const inPlayer = team.bench[benchIdx];
+  if (!outSlot || !inPlayer) return false;
+  // Swap the player onto the current spot (positions stay geographically same)
+  team.bench[benchIdx] = outSlot.player;
+  team.lineup[lineupIdx] = { player: inPlayer, spot: outSlot.spot };
+  return true;
+}
+
+/** Auto-sub any exhausted starter (stamina ≤ 15) with a rested bench player of
+ *  a compatible position. Called between rallies from applyEndOfRallyEffects.  */
+export function autoSubExhausted(match) {
+  const subs = [];   // records for the event log
+  for (const side of ['home', 'away']) {
+    const team = match[side];
+    if (!team.bench || !team.bench.length) continue;
+    team.lineup.forEach((slot, i) => {
+      if (!slot || !slot.player) return;
+      const pid = slot.player.id;
+      const sta = match.stamina?.[pid] ?? STAMINA_MAX;
+      if (sta > 15) return;
+      // Find a bench player of same position family with high stamina
+      const outPos = (slot.player.position || '').split('/');
+      const bestBenchIdx = team.bench.findIndex(bp => {
+        if (!bp) return false;
+        const bpPos = (bp.position || '').split('/');
+        const posOverlap = outPos.some(p => bpPos.includes(p));
+        const bpSta = match.stamina?.[bp.id] ?? STAMINA_MAX;
+        return posOverlap && bpSta >= 60;
+      });
+      if (bestBenchIdx >= 0) {
+        const outPid = slot.player.id;
+        const inPlayer = team.bench[bestBenchIdx];
+        substitute(team, i, bestBenchIdx);
+        subs.push({ side, outPid, inPid: inPlayer.id, outName: slot.player.name, inName: inPlayer.name });
+      }
+    });
+  }
+  return subs;
+}
+
+/** Between-rally rest: all on-court players regen a bit, bench regens more. */
+export function endOfRallyRest(match) {
+  if (!match.stamina) match.stamina = {};
+  for (const side of ['home', 'away']) {
+    const team = match[side];
+    team.lineup.forEach(slot => {
+      if (slot && slot.player) restStamina(match, slot.player.id, 4);
+    });
+    if (team.bench) team.bench.forEach(bp => {
+      if (bp) restStamina(match, bp.id, 10);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+
+export function createMatch({ homeTeam, awayTeam, homeBench = [], awayBench = [],
+                              homeName, awayName, homeColor, awayColor,
+                              homeSpecialty, awaySpecialty, chemistryMap }) {
   // Store chemistry map for use by t() throughout this match
   MATCH_CHEMISTRY = chemistryMap || {};
+  const home = {
+    name: homeName || 'Home',
+    color: homeColor || '#dc2626',
+    lineup: assignSpots(homeTeam, ROTATION_SPOTS_HOME),
+    bench: (homeBench || []).slice(0, 6),   // up to 6 bench players
+    rotationOffset: 0,
+  };
+  const away = {
+    name: awayName || 'Away',
+    color: awayColor || '#2563eb',
+    lineup: assignSpots(awayTeam, ROTATION_SPOTS_AWAY),
+    bench: (awayBench || []).slice(0, 6),
+    rotationOffset: 0,
+  };
+  home.specialty = homeSpecialty || deriveSpecialty(home.lineup);
+  away.specialty = awaySpecialty || deriveSpecialty(away.lineup);
+
+  // Initialize stamina for all starters + bench
+  const stamina = {};
+  [...home.lineup, ...away.lineup].forEach(s => {
+    if (s && s.player) stamina[s.player.id] = STAMINA_MAX;
+  });
+  [...home.bench, ...away.bench].forEach(p => {
+    if (p) stamina[p.id] = STAMINA_MAX;
+  });
+
   return {
-    home: {
-      name: homeName || 'Home',
-      color: homeColor || '#dc2626',
-      lineup: assignSpots(homeTeam, ROTATION_SPOTS_HOME),
-      rotationOffset: 0
-    },
-    away: {
-      name: awayName || 'Away',
-      color: awayColor || '#2563eb',
-      lineup: assignSpots(awayTeam, ROTATION_SPOTS_AWAY),
-      rotationOffset: 0
-    },
+    home, away,
     setsHome: 0,
     setsAway: 0,
     pointsHome: 0,
     pointsAway: 0,
-    serving: 'home',       // 'home' or 'away'
+    serving: 'home',
     rallyNumber: 0,
     setNumber: 1,
-    setTarget: 25,          // sets 1-4
-    finalSetTarget: 15,     // set 5 (if needed)
+    setTarget: 25,
+    finalSetTarget: 15,
     matchOver: false,
     winner: null,
-    log: []
+    log: [],
+    // ── V3 state ──
+    stamina,
+    subHistory: [],       // records each sub for the play-by-play
+    version: 3,
   };
 }
 
@@ -424,14 +605,16 @@ function chooseAttackTactic(team, setter, incomingQuality, attackingSide) {
   const frontRow = [1, 2, 3].map(i => playerAtSpot(team, i)).filter(Boolean);
   const backRow  = [0, 4, 5].map(i => playerAtSpot(team, i)).filter(Boolean);
 
-  // Manual hitter override — user picked who to spike
+  // ── V3: MANUAL OVERRIDE ── if user picked a hitter for this side, honor it
   if (MANUAL_HITTER_OVERRIDE && MANUAL_HITTER_OVERRIDE.side === attackingSide) {
     const manualPid = MANUAL_HITTER_OVERRIDE.pid;
     const manualTactic = MANUAL_HITTER_OVERRIDE.tactic;
+    // Find that player in the lineup (must be on court)
     const all = [...frontRow, ...backRow];
     const chosen = all.find(s => s.player && s.player.id === manualPid);
-    MANUAL_HITTER_OVERRIDE = null;
+    MANUAL_HITTER_OVERRIDE = null;   // consume single-shot
     if (chosen) {
+      // Determine tactic: auto (based on position) unless user specified
       const isFront = frontRow.some(s => s.player.id === manualPid);
       let tac = manualTactic;
       if (!tac) {
@@ -441,6 +624,7 @@ function chooseAttackTactic(team, setter, incomingQuality, attackingSide) {
       }
       return { hitter: chosen, tactic: tac, manual: true };
     }
+    // else fall through to auto (player not on court somehow)
   }
   const middles  = frontRow.filter(s => hasPos(s, 'MB'));
   const outsides = frontRow.filter(s => hasPos(s, 'OH') || hasPos(s, 'OP'));
@@ -582,20 +766,33 @@ function pickDiggers(defendingTeam, blockers, ballTarget, range = 0.35) {
 // Returns an array of events describing what happens in the rally.
 // Each event has: { type, from, to, ball, delay, sound, text? }
 export function simulateRally(match) {
-  // Convenience: run both phases back-to-back (auto mode).
   const p1 = simulateRallyPhase1(match);
   if (p1.rallyEnded) return p1.events;
   const p2 = simulateRallyPhase2(match, p1.attackingSide, p1.incomingQuality);
   return [...p1.events, ...p2];
 }
 
-/** V3: Phase-1 rally simulation — serve, ace check, serve error, pass reception.
- *  Stops after the pass (or serve-terminating event). Returns:
- *    { events, rallyEnded, attackingSide, incomingQuality }
- *  If rallyEnded is true, the point is already decided. Otherwise call
- *  simulateRallyPhase2 with the returned attackingSide + incomingQuality to
- *  finish the rally. This lets the UI insert a "call the shot" prompt between
- *  the pass and the set. */
+export function simulateRallyPhase2(match, attackingSide, incomingQuality) {
+  return continueRally(match, [], attackingSide, incomingQuality);
+}
+
+export function availableHitters(match, attackingSide) {
+  const team = match[attackingSide];
+  if (!team || !team.lineup) return [];
+  const setterSlot = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'));
+  const setterId = setterSlot?.player?.id;
+  const out = [];
+  for (let i = 0; i < 6; i++) {
+    const slot = team.lineup[i];
+    if (!slot || !slot.player) continue;
+    if (slot.player.id === setterId) continue;
+    const rotIdx = (6 + i - team.rotationOffset) % 6;
+    const isFront = rotIdx >= 1 && rotIdx <= 3;
+    out.push({ slot, player: slot.player, isFront });
+  }
+  return out;
+}
+
 export function simulateRallyPhase1(match) {
   const events = [];
   const servingTeam = match.serving === 'home' ? match.home : match.away;
@@ -692,52 +889,20 @@ export function simulateRallyPhase1(match) {
     events.push({ type: 'pass-error', actor: receiver, team: receivingSide,
                   toSpot: { x: receiver.spot.x, y: receiver.spot.y } });
     recordFail(match, receiver?.player?.id);
-    // 60% chance the ball dies on the floor immediately (dropped pass)
     if (Math.random() < 0.6) {
       finishPoint(match, events, servingSide);
       return { events, rallyEnded: true };
     }
-    // 40% chance a scrappy setter still gets to it — rally continues with terrible incoming quality
     events.push({ type: 'pass', actor: receiver, team: receivingSide });
     return { events, rallyEnded: false, attackingSide: receivingSide, incomingQuality: 0.25 };
   }
-  // Good pass
   events.push({ type: 'pass', actor: receiver, team: receivingSide });
   recordSuccess(match, receiver?.player?.id);
-  // Pass quality: better passer + hustle + chem → tighter pass → better set
   const passQuality = Math.min(1.0,
     Math.random() * 0.25 + 0.45 +
-    (passerSkill - 5) * 0.06 +      // above-avg passer bumps up
+    (passerSkill - 5) * 0.06 +
     chemBonus + hustleBonus);
   return { events, rallyEnded: false, attackingSide: receivingSide, incomingQuality: passQuality };
-}
-
-/** V3: Phase-2 — everything after the pass. Wraps continueRally.
- *  Call this AFTER Phase 1 returns rallyEnded: false. */
-export function simulateRallyPhase2(match, attackingSide, incomingQuality) {
-  const events = [];
-  return continueRally(match, events, attackingSide, incomingQuality);
-}
-
-/** V3: Return the 5 available hitters on `attackingSide` (front-row + back-row spikers,
- *  minus the setter). Used by the UI to build the shot-call panel with LIVE data
- *  after the pass has landed. */
-export function availableHitters(match, attackingSide) {
-  const team = match[attackingSide];
-  if (!team || !team.lineup) return [];
-  const setterSlot = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'));
-  const setterId = setterSlot?.player?.id;
-  const out = [];
-  for (let i = 0; i < 6; i++) {
-    const slot = team.lineup[i];
-    if (!slot || !slot.player) continue;
-    if (slot.player.id === setterId) continue;
-    // Rotation-aware front/back check: rotIdx 1..3 = front row (P2/P3/P4)
-    const rotIdx = (6 + i - team.rotationOffset) % 6;
-    const isFront = rotIdx >= 1 && rotIdx <= 3;
-    out.push({ slot, player: slot.player, isFront });
-  }
-  return out;
 }
 
 /** Continue the rally on the side that's now attacking */
@@ -806,7 +971,7 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
     actor: setter, team: attackingSide,
     tactic,                                  // for the visual layer
     realHitter: hitter, decoy: hitterChoice.decoy,
-    manualCall: !!hitterChoice.manual
+    manualCall: !!hitterChoice.manual   // V3: flag if user manually picked hitter
   });
 
   // Set quality (better for quicks & slides due to faster tempo)

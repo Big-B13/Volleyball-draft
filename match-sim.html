@@ -511,6 +511,195 @@
     .player-circle { width: 11%; font-size: 0.6rem; }
     .player-circle .num { width: 14px; height: 14px; font-size: 0.55rem; }
   }
+/* ═══════════════════════════════════════════════════════════════
+   V2 MECHANICS STYLES (Fly High–inspired)
+   Morale bars, tier glows, crit damage popups, signature cutscene
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─ Morale bars in the header */
+.morale-wrap {
+  display: flex; gap: 24px; margin-top: 8px;
+  justify-content: center; align-items: center;
+}
+.morale-side { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 120px; }
+.morale-label {
+  font-size: 0.6rem; letter-spacing: 2px; font-weight: 900;
+  color: #fbbf24; opacity: 0.85;
+}
+.morale-bar {
+  width: 120px; height: 8px; border-radius: 4px;
+  background: rgba(0,0,0,0.5); overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.15);
+  position: relative;
+}
+.morale-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #f59e0b, #ef4444, #ec4899);
+  transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
+  box-shadow: 0 0 8px rgba(251,191,36,0.5);
+}
+.morale-fill.full {
+  animation: moraleFullPulse 0.8s ease-in-out infinite;
+  background: linear-gradient(90deg, #fbbf24, #ef4444, #f0abfc);
+}
+@keyframes moraleFullPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.5); }
+  50%      { box-shadow: 0 0 20px 5px rgba(251,191,36,0.9), 0 0 30px 10px rgba(240,171,252,0.5); }
+}
+
+/* ─ Touch-tier flashes on player circles */
+.player-circle.tier-perfect {
+  animation: tierPerfect 0.6s ease-out;
+}
+@keyframes tierPerfect {
+  0%   { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 0 0 rgba(74,222,128,0); }
+  40%  { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 24px 12px rgba(74,222,128,0.85); }
+  100% { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 0 0 rgba(74,222,128,0); }
+}
+.player-circle.tier-bad {
+  animation: tierBad 0.5s ease-out;
+}
+@keyframes tierBad {
+  0%   { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 0 0 rgba(239,68,68,0); transform: translate(-50%,-50%); }
+  20%  { transform: translate(calc(-50% - 4px), -50%); }
+  40%  { box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 20px 8px rgba(239,68,68,0.85); transform: translate(calc(-50% + 4px), -50%); }
+  60%  { transform: translate(calc(-50% - 3px), -50%); }
+  80%  { transform: translate(calc(-50% + 2px), -50%); }
+  100% { box-shadow: 0 3px 10px rgba(0,0,0,0.6); transform: translate(-50%,-50%); }
+}
+
+/* ─ Crit damage popup à la Fly High (big number that floats up + fades) */
+.crit-damage {
+  position: absolute; z-index: 30;
+  transform: translate(-50%, -50%);
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  font-size: 2.4rem; font-weight: 900;
+  color: #fbbf24;
+  text-shadow:
+    0 0 8px rgba(251,191,36,0.9),
+    0 0 20px rgba(251,191,36,0.5),
+    2px 2px 0 #7c2d12,
+    -2px -2px 0 #7c2d12,
+    2px -2px 0 #7c2d12,
+    -2px 2px 0 #7c2d12;
+  animation: critFloat 1.4s cubic-bezier(0.2, 1.4, 0.6, 1) forwards;
+  pointer-events: none;
+  letter-spacing: 2px;
+}
+@keyframes critFloat {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-8deg); }
+  15%  { opacity: 1; transform: translate(-50%, -80%) scale(1.4) rotate(4deg); }
+  40%  { transform: translate(-50%, -110%) scale(1.15) rotate(-2deg); }
+  100% { opacity: 0; transform: translate(-50%, -180%) scale(0.9) rotate(0deg); }
+}
+
+/* ─ Signature move cutscene (the climax moment) */
+#court.signature-active {
+  position: relative;
+}
+#court.signature-active::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 20%, rgba(0,0,0,0.75) 70%);
+  z-index: 25; pointer-events: none;
+  animation: sigDim 1.8s ease-out;
+}
+@keyframes sigDim {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.player-circle.signature-star {
+  z-index: 40 !important;
+  animation: sigStar 1.8s ease-out !important;
+}
+@keyframes sigStar {
+  0%   { transform: translate(-50%,-50%) scale(1); filter: brightness(1); }
+  20%  { transform: translate(-50%,-50%) scale(1.9); filter: brightness(1.6) drop-shadow(0 0 20px gold); }
+  70%  { transform: translate(-50%,-50%) scale(1.9); filter: brightness(1.6) drop-shadow(0 0 30px gold); }
+  100% { transform: translate(-50%,-50%) scale(1); filter: brightness(1); }
+}
+.signature-banner {
+  position: absolute; left: 50%; top: 45%;
+  transform: translate(-50%, -50%) scale(0);
+  z-index: 50; pointer-events: none;
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  font-size: 3.8rem; font-weight: 900;
+  color: #fbbf24;
+  text-shadow:
+    0 0 16px #f59e0b,
+    0 0 32px #ec4899,
+    3px 3px 0 #7c2d12,
+    -3px -3px 0 #7c2d12,
+    3px -3px 0 #7c2d12,
+    -3px 3px 0 #7c2d12;
+  letter-spacing: 5px;
+  animation: sigBanner 1.8s cubic-bezier(0.2,1.4,0.6,1) forwards;
+  white-space: nowrap;
+}
+@keyframes sigBanner {
+  0%   { transform: translate(-50%,-50%) scale(0) rotate(-15deg); opacity: 0; }
+  25%  { transform: translate(-50%,-50%) scale(1.4) rotate(3deg); opacity: 1; }
+  70%  { transform: translate(-50%,-50%) scale(1.1) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(0.5) rotate(0deg); opacity: 0; }
+}
+/* Diagonal light streaks across court */
+.signature-streak {
+  position: absolute; inset: 0; z-index: 26; pointer-events: none;
+  background:
+    repeating-linear-gradient(45deg,
+      transparent 0 40px,
+      rgba(251,191,36,0.15) 40px 60px,
+      transparent 60px 100px);
+  animation: sigStreak 1.6s linear;
+}
+@keyframes sigStreak {
+  0%   { opacity: 0; transform: translateX(-30%); }
+  30%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(30%); }
+}
+/* Ball flame trail during signature */
+.ball.signature-flame {
+  filter: drop-shadow(0 0 8px #f59e0b) drop-shadow(0 0 16px #ef4444) drop-shadow(0 0 24px #ec4899) !important;
+}
+
+/* V3-lite: shot-call panel for 2D sim */
+.shot-call-panel-2d {
+  max-width: 1256px; margin: 0 auto 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(236,72,153,0.15));
+  border: 2px solid rgba(251,191,36,0.5);
+  border-radius: 12px;
+  animation: shotCallPulse2d 1.5s ease-in-out infinite;
+}
+@keyframes shotCallPulse2d {
+  0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,0.3); }
+  50%      { box-shadow: 0 0 24px rgba(251,191,36,0.6); }
+}
+.shot-call-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.shot-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 12px; border: 2px solid rgba(255,255,255,0.2);
+  border-radius: 8px; background: rgba(15,23,42,0.7); color: #e2e8f0;
+  cursor: pointer; font-family: inherit; font-size: 0.8rem;
+  min-width: 100px; transition: all 0.15s;
+}
+.shot-btn:hover { transform: translateY(-2px); border-color: #fbbf24; box-shadow: 0 4px 12px rgba(251,191,36,0.4); }
+.shot-btn .name { font-weight: 800; font-size: 0.9rem; }
+.shot-btn .pos { color: #94a3b8; font-size: 0.7rem; }
+.shot-btn .row-tag { font-size: 0.6rem; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,0.4); margin-top: 2px; letter-spacing: 1px; }
+.shot-btn.frontrow .row-tag { background: rgba(239,68,68,0.4); color: #fca5a5; }
+.shot-btn.backrow  .row-tag { background: rgba(59,130,246,0.4); color: #93c5fd; }
+.shot-btn .stat { color: #fbbf24; font-family: monospace; font-size: 0.7rem; }
+.shot-btn .chem { color: #22c55e; font-size: 0.65rem; }
+.auto-shot-btn {
+  padding: 6px 14px; background: rgba(30,41,59,0.8); color: #cbd5e1;
+  border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;
+  cursor: pointer; font-family: inherit;
+}
+.auto-shot-btn:hover { border-color: #fbbf24; color: #fbbf24; }
+.hidden { display: none !important; }
+
 </style>
 </head>
 <body>
@@ -522,6 +711,7 @@
     <a href="./chemistry.html">💚 Chemistry</a>
     <a href="./synergies.html">⚡ Synergies</a>
     <a href="./match-sim.html" class="active">🎮 Match Sim</a>
+    <a href="./match-sim-3d.html">🕹️ 3D Sim (beta)</a>
   </nav>
 
   <h1><span class="emoji">🎮</span> MATCH SIMULATOR</h1>
@@ -539,6 +729,24 @@
         <div>
           <label>Away team (top)</label>
           <select id="away-team"></select>
+        </div>
+      </div>
+      <div style="margin-top: 14px;">
+        <label style="display:block; margin-bottom:6px;">Play mode</label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:6px 10px; background:rgba(30,41,59,0.6); border-radius:6px; font-size:0.85rem;">
+            <input type="radio" name="play-mode" value="auto" checked> 🤖 Auto
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:6px 10px; background:rgba(30,41,59,0.6); border-radius:6px; font-size:0.85rem;">
+            <input type="radio" name="play-mode" value="manual"> 🎯 Manual (call the shots)
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px; font-size:0.8rem;">
+            Control:
+            <select id="control-side-2d" style="padding:2px 6px;">
+              <option value="home">Home</option>
+              <option value="away">Away</option>
+            </select>
+          </label>
         </div>
       </div>
       <div class="row-btns" style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
@@ -565,6 +773,17 @@
         <div class="score-big"><span id="score-home">0</span> : <span id="score-away">0</span></div>
         <div class="set-info" id="set-info">Set 1 of 5</div>
         <div class="sets-row" id="sets-row"></div>
+        <!-- Morale bars (v2 mechanic): fills 0→100 with team energy; at 100 triggers a signature move -->
+        <div class="morale-wrap">
+          <div class="morale-side">
+            <span class="morale-label">TEAM MORALE</span>
+            <div class="morale-bar"><div class="morale-fill" id="morale-fill-home"></div></div>
+          </div>
+          <div class="morale-side">
+            <span class="morale-label">TEAM MORALE</span>
+            <div class="morale-bar"><div class="morale-fill" id="morale-fill-away"></div></div>
+          </div>
+        </div>
       </div>
       <div class="team-tag away" id="tag-away">
         <div class="swatch"></div>
@@ -573,6 +792,15 @@
     </div>
 
     <!-- Side-by-side layout: court on the left, play-by-play on the right -->
+    <!-- V3: Manual shot-call panel — appears before rally in manual mode -->
+    <div class="shot-call-panel-2d hidden" id="shot-call-panel">
+      <div style="font-weight:800; color:#fbbf24; margin-bottom:8px;">🎯 Call the shot — who spikes?</div>
+      <div class="shot-call-buttons" id="shot-call-buttons"></div>
+      <div style="margin-top:8px;">
+        <button class="auto-shot-btn" id="auto-shot-btn">🤖 Let engine pick</button>
+      </div>
+    </div>
+
     <div class="match-grid">
       <div class="court-wrap" id="court">
         <div class="attack-line-far"></div>
@@ -613,7 +841,8 @@
   import { db, ref, get } from "./js/firebase-init.js";
   import { listLeagues, ensureGomiCupSeeded, currentLeagueId, getLeague } from "./js/leagues.js";
   import { escapeHtml, shuffle } from "./js/util.js";
-  import { createMatch, simulateRally, playerAtSpot } from "./js/match-engine.js";
+  import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, playerAtSpot, setManualHitter } from "./js/match-engine.js";
+  import { augmentEvents, resetV2State, SIGNATURE_MOVES } from "./js/mechanics-v2.js";
   import { getAllPlayers } from "./js/players.js";
   import { photoPathFor, getInitials, traitsFor, PLAYER_TRAITS } from "./js/data.js";
   import { loadLeagueChemistry, buildChemistryMap, formatChemistry, chemistryScore } from "./js/chemistry.js";
@@ -631,10 +860,26 @@
 
   await ensureGomiCupSeeded();
 
-  const leagues = await listLeagues();
+  // Diagnostic: log what Firebase returns so users can spot data issues in dev tools
+  let leagues = [];
+  try {
+    leagues = await listLeagues();
+    console.log(`[match-sim] listLeagues() returned ${leagues.length} leagues:`, leagues.map(l => l.id));
+  } catch (err) {
+    console.error('[match-sim] listLeagues() failed:', err);
+    alert('Could not load leagues from Firebase. Check the browser console for details, or check Firebase rules/auth. Falling back to Gomi Cup only.');
+    leagues = [{ id: 'gomi-cup', name: 'The Gomi Cup' }];
+  }
   const lgSel = document.getElementById('league-select');
   const initialId = new URLSearchParams(location.search).get('league') || currentLeagueId();
-  lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  if (leagues.length === 0) {
+    lgSel.innerHTML = '<option value="">⚠️ No leagues found — check Firebase</option>';
+    document.getElementById('roster-note').innerHTML =
+      '⚠️ <b>No leagues in Firebase.</b> Open the browser console (F12) to see errors. ' +
+      'Try visiting <a href="./league-editor.html" style="color:#fbbf24;">League Editor</a> first.';
+  } else {
+    lgSel.innerHTML = leagues.map(l => `<option value="${l.id}" ${l.id === initialId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  }
   lgSel.addEventListener('change', populateTeams);
 
   // Cache all players once (needed for random-fill rosters when there's no draft)
@@ -652,14 +897,30 @@
     const homeSel = document.getElementById('home-team');
     const awaySel = document.getElementById('away-team');
     const noteEl = document.getElementById('roster-note');
+    if (!leagueId) {
+      homeSel.innerHTML = '<option value="">No league selected</option>';
+      awaySel.innerHTML = '<option value="">No league selected</option>';
+      return;
+    }
 
     // Always load the league's captains first
-    const league = await getLeague(leagueId);
+    let league = null;
+    try {
+      league = await getLeague(leagueId);
+    } catch (err) {
+      console.error(`[match-sim] getLeague("${leagueId}") failed:`, err);
+    }
     leagueCaptains = (league && league.captains) || [];
+    console.log(`[match-sim] League "${leagueId}" has ${leagueCaptains.length} captains:`, leagueCaptains.map(c => c.name));
 
     // Try to find the most recent completed draft for this league
-    const draftsSnap = await get(ref(db, 'drafts'));
-    const drafts = draftsSnap.val() || {};
+    let drafts = {};
+    try {
+      const draftsSnap = await get(ref(db, 'drafts'));
+      drafts = draftsSnap.val() || {};
+    } catch (err) {
+      console.error('[match-sim] Firebase read of /drafts failed:', err);
+    }
     let latest = null;
     for (const d of Object.values(drafts)) {
       if ((d.leagueId || 'gomi-cup') !== leagueId) continue;
@@ -668,6 +929,7 @@
     }
     leagueDraft = latest;
     rosterSource = latest ? 'draft' : 'random';
+    console.log(`[match-sim] Draft source for "${leagueId}":`, rosterSource, latest ? `(created ${new Date(latest.createdAt).toISOString()})` : '');
 
     if (!leagueCaptains.length) {
       homeSel.innerHTML = '<option value="">No teams in this league yet</option>';
@@ -739,6 +1001,9 @@
   // ============ SIM RUNTIME ============
   let match = null;
   let paused = false;
+  // V3-lite: manual mode
+  let playMode = 'auto';
+  let controlSide = 'home';
   let currentChemistryBlob = {};  // raw Firebase chemistry blob for the loaded league
   let currentSynergies = { home: [], away: [] };  // active squad bonuses this match
   let setScores = [];   // [{setNum, home, away, winner}] appended when each set finishes
@@ -920,10 +1185,14 @@
       chemistryMap
     });
     setScores = [];   // fresh set-score history for this match
-    // Reset rotation state for new match
-    SIDE_ROTATIONS.home = 0;
-    SIDE_ROTATIONS.away = 0;
-    for (const k of Object.keys(ORIGINAL_ZONE)) delete ORIGINAL_ZONE[k];
+    // Reset zone assignments for new match (fresh rosters get re-classified)
+    for (const k of Object.keys(PLAYER_ROLE_ZONE)) delete PLAYER_ROLE_ZONE[k];
+    // Reset v2 mechanics state (morale, net crossings, ability cooldowns)
+    resetV2State(match);
+
+    // V3-lite: capture play mode
+    playMode = document.querySelector('input[name="play-mode"]:checked')?.value || 'auto';
+    controlSide = document.getElementById('control-side-2d')?.value || 'home';
 
     document.getElementById('setup-card').classList.add('hidden');
     document.getElementById('match-view').classList.remove('hidden');
@@ -1157,6 +1426,7 @@
     // Overall set tally at the front
     const tally = `<span class="set-pill" style="background:rgba(0,0,0,0.4);">Sets ${match.setsHome}–${match.setsAway}</span>`;
     setsRow.innerHTML = tally + ' ' + pills.join(' ');
+    updateMoraleBars();
   }
 
   function renderCourt() {
@@ -1347,8 +1617,21 @@
     const servingTeam = match[match.serving];
     let serverSlot = null;
     if (servingTeam && servingTeam.lineup) {
-      const idx = (0 + servingTeam.rotationOffset) % 6;
-      serverSlot = servingTeam.lineup[idx];
+      // Match engine's server pick exactly: spot 1 (P1), but skip MB/L/DS (they never serve).
+      const isLegalServer = (slot) => {
+        if (!slot || !slot.player) return false;
+        const pos = (slot.player.position || '').split('/');
+        return !pos.includes('MB') && !pos.includes('L') && !pos.includes('DS');
+      };
+      for (let offset = 0; offset < 6; offset++) {
+        const idx = (offset + servingTeam.rotationOffset) % 6;
+        const cand = servingTeam.lineup[idx];
+        if (isLegalServer(cand)) { serverSlot = cand; break; }
+      }
+      if (!serverSlot) {
+        const idx = (0 + servingTeam.rotationOffset) % 6;
+        serverSlot = servingTeam.lineup[idx];
+      }
     }
     // Move the server OUTSIDE the court immediately — INSTANT snap, no walk animation.
     // (Between rallies is a natural break, so teleport is fine and prevents the "ball at
@@ -1356,9 +1639,14 @@
     let serveOriginX = 0.5, serveOriginY = 0.5;
     if (serverSlot && serverSlot.player) {
       const isHome = match.serving === 'home';
+      // Use the server's ROLE-ZONE center for y (they always live in their zone visually).
+      // Fall back to HOME_POS if zone isn't ready yet.
+      const zRect = PLAYER_ZONE[serverSlot.player.id];
       const serverHome = HOME_POS[serverSlot.player.id];
       serveOriginX = isHome ? -0.05 : 1.05;
-      serveOriginY = serverHome ? serverHome.y : 0.5;
+      serveOriginY = zRect
+        ? (zRect.yMin + zRect.yMax) / 2
+        : (serverHome ? serverHome.y : 0.5);
       // Snap server INSTANTLY to that spot (bypass zone clamp + transition)
       const serverEl = document.querySelector(`.player-circle[data-pid="${serverSlot.player.id}"]`);
       if (serverEl) {
@@ -1390,6 +1678,7 @@
     if (paused || !match || match.matchOver) return;
     const delay = 400 / speed; // between-rally pause (playRally already adds its own)
     rallyTimer = setTimeout(async () => {
+      // V3: manual choice happens BETWEEN pass and set (see playRally)
       await playRally();
       renderHeader();
       if (!match.matchOver && !paused) scheduleNextRally();
@@ -1400,9 +1689,47 @@
     }, delay);
   }
 
+  /** V3: mid-rally shot-call prompt. Fires AFTER the pass, BEFORE the set.
+   *  User picks who the setter delivers to. Setter runs the play with a proper
+   *  approach for the chosen hitter (front-row spike / back-row attack). */
+  function promptShotCallLive(attackingSide) {
+    return new Promise((resolve) => {
+      const panel = document.getElementById('shot-call-panel');
+      const btnRow = document.getElementById('shot-call-buttons');
+      const team = match[attackingSide];
+      if (!team || !team.lineup) { resolve(); return; }
+      const candidates = availableHitters(match, attackingSide);
+      const setterSlot = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'));
+      const setterTraits = setterSlot ? traitsFor(setterSlot.player.id) : null;
+      btnRow.innerHTML = candidates.map(c => {
+        const chem = setterTraits?.chemistry?.[c.player.id] || 0;
+        const chemLabel = chem >= 0.9 ? '❤️ BFF' : chem >= 0.7 ? '💚 Close' : chem >= 0.5 ? '💛 Friend' : '';
+        const rowTag = c.isFront ? 'FRONT ROW' : 'BACK ROW (back-row spike)';
+        return `
+          <button class="shot-btn ${c.isFront ? 'frontrow' : 'backrow'}" data-pid="${c.player.id}">
+            <span class="name">${c.player.name}</span>
+            <span class="pos">${c.player.position || '?'}</span>
+            <span class="stat">ATK ${c.player.attack || 5} · ATH ${c.player.athletic || 5}</span>
+            <span class="row-tag">${rowTag}</span>
+            ${chemLabel ? `<span class="chem">${chemLabel}</span>` : ''}
+          </button>`;
+      }).join('');
+      const cleanup = (pid) => {
+        panel.classList.add('hidden');
+        if (pid) setManualHitter(attackingSide, pid);
+        else setManualHitter(null);
+        resolve();
+      };
+      panel.classList.remove('hidden');
+      btnRow.querySelectorAll('.shot-btn').forEach(btn => {
+        btn.onclick = () => cleanup(btn.dataset.pid);
+      });
+      document.getElementById('auto-shot-btn').onclick = () => cleanup(null);
+    });
+  }
+
   async function playRally() {
     if (!match) return;
-    const events = simulateRally(match);
     // Stop idle sway during the rally so nothing fights the smooth walk/jump motion
     stopIdleMotion();
     // Reset the tiny --sx/--sy nudges from any previous idle tick
@@ -1416,75 +1743,72 @@
     });
     const ball = document.querySelector('.ball');
     const shadow = document.querySelector('.ball-shadow');
-    for (let i = 0; i < events.length; i++) {
-      const ev = events[i];
-      const prev = events[i - 1] || null;
-      const next = events[i + 1] || null;
-      // Record set final scores as they happen so the header can display 25-23, 22-25, etc.
+
+    // ─── V3: Split rally into PHASE 1 (serve+pass) and PHASE 2 (set+attack+beyond) ───
+    // In manual mode, we PAUSE between the two phases so the user can call the shot.
+    const phase1 = simulateRallyPhase1(match);
+    let allEvents = phase1.events.slice();
+
+    // Play Phase 1 events (serve, ace, serve-error, pass, pass-error)
+    // Augment them for tier/crit/morale (in isolation — we'll re-augment the full list at end)
+    augmentEvents(phase1.events, match);
+    updateMoraleBars();
+    for (let i = 0; i < phase1.events.length; i++) {
+      const ev = phase1.events[i];
+      const prev = phase1.events[i - 1] || null;
+      const next = phase1.events[i + 1] || null;
       if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
-        setScores.push({
-          setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team
-        });
+        setScores.push({ setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team });
       }
-      // On a point event: update fire/cold visual states based on team momentum + player streaks
-      if (ev.type === 'point') {
-        updateMomentumVisuals(ev);
-      }
+      if (ev.type === 'point') updateMomentumVisuals(ev);
       appendLog(formatEvent(ev), classForEvent(ev));
       await animateEvent(ev, prev, next, ball, shadow);
     }
+
+    // Phase 1 didn't end the rally (i.e. good/scrappy pass landed) → maybe pause for user
+    if (!phase1.rallyEnded) {
+      const attackingSide = phase1.attackingSide;
+      if (playMode === 'manual' && attackingSide === controlSide) {
+        // PAUSE — show shot-call panel populated with the actual on-court hitters
+        await promptShotCallLive(attackingSide);
+      }
+      // Now run Phase 2 (set + attack + rally continuation)
+      const phase2 = simulateRallyPhase2(match, attackingSide, phase1.incomingQuality);
+      augmentEvents(phase2, match);
+      updateMoraleBars();
+      allEvents = allEvents.concat(phase2);
+      for (let i = 0; i < phase2.length; i++) {
+        const ev = phase2[i];
+        const prev = i > 0 ? phase2[i - 1] : phase1.events[phase1.events.length - 1];
+        const next = phase2[i + 1] || null;
+        if (ev.type === 'set-won' && ev.finalHome != null && ev.finalAway != null) {
+          setScores.push({ setNum: ev.setNumber, home: ev.finalHome, away: ev.finalAway, winner: ev.team });
+        }
+        if (ev.type === 'point') updateMomentumVisuals(ev);
+        appendLog(formatEvent(ev), classForEvent(ev));
+        await animateEvent(ev, prev, next, ball, shadow);
+      }
+    }
+
+    const events = allEvents;   // for the tail cleanup section below (rotation badges, etc.)
     // Small pause between rallies (feels like an actual match reset)
     await sleep(600 / speed);
     // Safety: clear all transient states after rally in case something got stuck
     ['active','jumping','diving','crouching','walking'].forEach(cls => {
       document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
     });
-    // Did a rotation happen this rally? Animate the clockwise walk!
+    // Did a rotation happen this rally? Just flash the badge — NO player animation.
+    // (The engine already tracks rotation via rotationOffset for gameplay logic.
+    //  Players stay locked to their role zone visually — no confusing shuffle that
+    //  puts Big-B in the opposite zone or anything like that.)
     const rotationEvents = events.filter(e => e.type === 'rotation');
     for (const rotEv of rotationEvents) {
       showRotationBadge(rotEv.team);
-      await animateClockwiseRotation(rotEv.team);
     }
-    // At end of rally, refresh court (renderCourt uses updated SIDE_ROTATIONS)
+    // At end of rally, refresh court (re-syncs engine spots + zone snap)
     renderCourt();
     // Restart idle motion for between-rally moments (subtle)
     startIdleMotion();
-  }
-
-  /** Animate the clockwise rotation walk of all 6 players on `side`.
-   *  Each player moves from their CURRENT zone → the NEXT zone clockwise (Z1→Z6→Z5→Z4→Z3→Z2→Z1).
-   *  Uses direct DOM manipulation (bypasses movePlayerTo's zone clamp so they can walk into
-   *  another zone's rectangle). Increments SIDE_ROTATIONS so subsequent renderCourt calls
-   *  place them there permanently. */
-  async function animateClockwiseRotation(side) {
-    const players = playersOnSide(side);
-    if (!players.length) return;
-    const currentRotations = SIDE_ROTATIONS[side] || 0;
-    const nextRotations = currentRotations + 1;
-    // Compute each player's new zone center
-    const walkMs = Math.max(700, 1400 / speed);
-    let anyMoved = false;
-    for (const p of players) {
-      const orig = ORIGINAL_ZONE[p.pid];
-      if (!orig) continue;
-      const newZoneName = shiftZoneClockwise(orig, nextRotations);
-      const newZoneRect = roleZoneRect(newZoneName, side);
-      if (!newZoneRect) continue;
-      const cx = (newZoneRect.xMin + newZoneRect.xMax) / 2;
-      const cy = (newZoneRect.yMin + newZoneRect.yMax) / 2;
-      const el = document.querySelector(`.player-circle[data-pid="${p.pid}"]`);
-      if (!el) continue;
-      // Direct DOM move — bypasses zone clamp (which would trap them in old zone)
-      el.classList.add('walking');
-      el.style.transition = `left ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), top ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), transform 0.32s cubic-bezier(0.34,1.4,0.64,1), filter 0.3s, box-shadow 0.3s`;
-      el.style.left = (cx * 100) + '%';
-      el.style.top  = (cy * 100) + '%';
-      CURRENT_POS[p.pid] = { x: cx, y: cy };
-      anyMoved = true;
-    }
-    // Now commit the rotation count so renderCourt puts them there permanently
-    SIDE_ROTATIONS[side] = nextRotations;
-    if (anyMoved) await sleep(walkMs + 100);
   }
 
   function showRotationBadge(side) {
@@ -1837,29 +2161,22 @@
   const PLAYER_ZONE_NAME = {};   // pid → 'setter' | 'opp' | 'middle' | 'outside' | 'leftBack' | 'libero'
 
   /** Clockwise cycle order: Z1 → Z6 → Z5 → Z4 → Z3 → Z2 → Z1
-   *  Real volleyball rotation direction (viewed from above). */
+   *  Used ONLY for the rotation-dance animation (brief visual shuffle between rallies).
+   *  Players ALWAYS end up back in their role zone — we don't permanently shift roles,
+   *  because the engine already handles the rotation via `rotationOffset` for spot logic.
+   *  Locking zones to role keeps setters at the setter zone, liberos at libero zone, etc. */
   const ZONE_CYCLE = ['setter', 'libero', 'leftBack', 'outside', 'middle', 'opp'];
 
-  /** Per-side rotation count. Increments each time that side wins a side-out. */
-  const SIDE_ROTATIONS = { home: 0, away: 0 };
+  /** Each player's assigned role zone (set once, never shifts). */
+  const PLAYER_ROLE_ZONE = {};
 
-  /** ORIGINAL role zone per player (based on their volleyball position). Never changes. */
-  const ORIGINAL_ZONE = {};
-
-  /** Given original zone + rotations, return CURRENT zone name. */
-  function shiftZoneClockwise(originalZoneName, rotations) {
-    const idx = ZONE_CYCLE.indexOf(originalZoneName);
-    if (idx < 0) return originalZoneName;
-    return ZONE_CYCLE[(idx + rotations) % ZONE_CYCLE.length];
-  }
-
-  /** Assign each player to their zone. Uses their ORIGINAL role zone shifted CLOCKWISE
-   *  by SIDE_ROTATIONS[side] steps — so after each rotation, everyone occupies the next
-   *  zone in the clockwise cycle. */
+  /** Assign each player to their zone based on their volleyball role.
+   *  Zones stay locked to role across the whole match — the engine tracks rotation
+   *  independently via rotationOffset. Between rallies, animateClockwiseRotation
+   *  plays a brief visual "shuffle" that ends back at role zones. */
   function assignZones(side) {
     const players = playersOnSide(side);
     const roleClaimed = new Set();
-    const rotations = SIDE_ROTATIONS[side] || 0;
 
     const roleForClassified = {
       setter: 'setter', opp: 'opp',
@@ -1868,22 +2185,21 @@
       libero: 'libero'
     };
 
-    // Pass 1: determine each player's ORIGINAL (pre-rotation) role zone.
-    // Only compute this on the first assignment or if not set (persists across rotations).
+    // Pass 1: assign each player their role zone (persists across rallies).
     for (const p of players) {
-      if (!ORIGINAL_ZONE[p.pid]) {
+      if (!PLAYER_ROLE_ZONE[p.pid]) {
         const cls = classifyRole(p.pid);
         const roleKey = roleForClassified[cls];
         if (roleKey && !roleClaimed.has(roleKey)) {
-          ORIGINAL_ZONE[p.pid] = roleKey;
+          PLAYER_ROLE_ZONE[p.pid] = roleKey;
           roleClaimed.add(roleKey);
         }
       } else {
-        roleClaimed.add(ORIGINAL_ZONE[p.pid]);
+        roleClaimed.add(PLAYER_ROLE_ZONE[p.pid]);
       }
     }
     // Pass 2: overflow players (duplicate roles) get closest free zone
-    const unassigned = players.filter(p => !ORIGINAL_ZONE[p.pid]);
+    const unassigned = players.filter(p => !PLAYER_ROLE_ZONE[p.pid]);
     const allRoles = Object.keys(ROLE_ZONES_HOME);
     for (const p of unassigned) {
       const free = allRoles.filter(r => !roleClaimed.has(r));
@@ -1896,17 +2212,16 @@
         const d = Math.hypot(p.home.x - cx, p.home.y - cy);
         if (d < bestD) { bestD = d; best = roleKey; }
       }
-      ORIGINAL_ZONE[p.pid] = best;
+      PLAYER_ROLE_ZONE[p.pid] = best;
       roleClaimed.add(best);
     }
 
-    // Pass 3: apply rotation shift — assign CURRENT zone based on original + rotations
+    // Pass 3: bind PLAYER_ZONE rect + name to the role (never rotated).
     for (const p of players) {
-      const orig = ORIGINAL_ZONE[p.pid];
-      if (!orig) continue;
-      const currentZoneName = shiftZoneClockwise(orig, rotations);
-      PLAYER_ZONE[p.pid] = roleZoneRect(currentZoneName, side);
-      PLAYER_ZONE_NAME[p.pid] = currentZoneName;
+      const role = PLAYER_ROLE_ZONE[p.pid];
+      if (!role) continue;
+      PLAYER_ZONE[p.pid] = roleZoneRect(role, side);
+      PLAYER_ZONE_NAME[p.pid] = role;
     }
   }
 
@@ -2234,6 +2549,22 @@
       wallEls.forEach(el => el.classList.add('jumping'));
     }
 
+    // V2: Signature move cinematic BEFORE burst so it stages the moment
+    if (ev.ability === 'signature' && actorEl) {
+      await playSignatureCinematic(ev, actorEl, ball);
+    }
+
+    // V2: Tier flash on player circle (BAD shake / PERFECT green glow)
+    if (actorEl && ev.tier) {
+      if (ev.tier === 'PERFECT') {
+        actorEl.classList.add('tier-perfect');
+        setTimeout(() => actorEl.classList.remove('tier-perfect'), 600);
+      } else if (ev.tier === 'BAD') {
+        actorEl.classList.add('tier-bad');
+        setTimeout(() => actorEl.classList.remove('tier-bad'), 500);
+      }
+    }
+
     // Fire the burst + sfx right at the moment of contact
     if (isTerminating) {
       showBurst(ev);
@@ -2241,6 +2572,16 @@
       if (ev.toSpot && ['kill','ace','attack-net','attack-out','attack-error'].includes(ev.type)) {
         setTimeout(() => showImpactRing(ev.toSpot), stepMs * 0.15);
       }
+    }
+
+    // V2: Crit damage number popup (à la Fly High "9014")
+    if (ev.crit && ev.damage && ev.actor && ev.actor.spot) {
+      showCritDamage(ev.damage, ev.actor.spot);
+    }
+
+    // V2: Update morale bars after each event that changed them
+    if (ev.moraleAfter) {
+      updateMoraleBars();
     }
 
     // --- PHASE 3: ball flies to the MEETUP POINT for the next event ---
@@ -2334,6 +2675,74 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+  // ═══════════════════════════════════════════════════════════════
+  // V2 MECHANICS RENDER HELPERS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Update the morale bar fills based on match.morale. */
+  function updateMoraleBars() {
+    if (!match || !match.morale) return;
+    for (const side of ['home','away']) {
+      const el = document.getElementById(`morale-fill-${side}`);
+      if (!el) continue;
+      const pct = Math.max(0, Math.min(100, match.morale[side] || 0));
+      el.style.width = pct + '%';
+      el.classList.toggle('full', pct >= 100);
+    }
+  }
+
+  /** Big crit damage popup à la Fly High. spotEngine in engine coords. */
+  function showCritDamage(damage, spotEngine) {
+    const court = document.getElementById('court');
+    const s = toScreen(spotEngine);
+    const el = document.createElement('div');
+    el.className = 'crit-damage';
+    el.textContent = damage.toLocaleString();
+    el.style.left = (s.x * 100) + '%';
+    el.style.top  = (s.y * 100) + '%';
+    const dur = Math.max(700, 1400 / speed);
+    el.style.animationDuration = dur + 'ms';
+    court.appendChild(el);
+    setTimeout(() => el.remove(), dur + 50);
+  }
+
+  /** The climax moment — freeze the court, spotlight the player, banner + streaks + flame ball.
+   *  Awaits so the ball animation pauses during the drama. */
+  async function playSignatureCinematic(ev, actorEl, ball) {
+    const court = document.getElementById('court');
+    // Freeze other players by making the court dim + spotlight the actor
+    court.classList.add('signature-active');
+    actorEl.classList.add('signature-star');
+
+    // Diagonal streaks overlay
+    const streak = document.createElement('div');
+    streak.className = 'signature-streak';
+    court.appendChild(streak);
+
+    // Signature name banner
+    const banner = document.createElement('div');
+    banner.className = 'signature-banner';
+    banner.textContent = ev.signature.name;
+    court.appendChild(banner);
+
+    // Flame trail on ball
+    if (ball) ball.classList.add('signature-flame');
+
+    // Sound
+    try { playPick(); } catch (e) {}
+
+    // Duration scaled to sim speed (min 900ms so the drama registers even at 4×)
+    const dur = Math.max(900, 1800 / speed);
+    await sleep(dur);
+
+    // Cleanup
+    court.classList.remove('signature-active');
+    actorEl.classList.remove('signature-star');
+    if (ball) ball.classList.remove('signature-flame');
+    streak.remove();
+    banner.remove();
+  }
+
   function classForEvent(ev) {
     if (ev.type === 'point') return 'point';
     if (ev.type === 'set-won') return 'setwon';
@@ -2344,29 +2753,39 @@
   function formatEvent(ev) {
     // Use real player names (not nicknames) — easier to follow the play-by-play
     const name = (a) => a && a.player ? (a.player.name || a.player.nickname || '?') : '?';
+    // V2: prefix touch tier + crit + signature so the play-by-play tells the full story
+    let prefix = '';
+    if (ev.ability === 'signature' && ev.signature) prefix += `🌟 ${ev.signature.name}! `;
+    else if (ev.crit)                                prefix += '💫 CRIT! ';
+    if (ev.tier === 'PERFECT')                       prefix += '✨ ';
+    else if (ev.tier === 'BAD' && !['serve-error','pass-error','attack-net','attack-out','attack-error'].includes(ev.type)) prefix += '⚠️ ';
+    if (ev.manualCall)                               prefix += '🎯 ';
+    let suffix = '';
+    if (ev.damage && ev.crit)                        suffix = ` [${ev.damage.toLocaleString()}]`;
+    const wrap = (s) => prefix + s + suffix;
     switch (ev.type) {
-      case 'serve': return `🎾 ${name(ev.actor)} serves…`;
-      case 'ace':   return `⚡ ACE! ${name(ev.actor)} — untouchable serve`;
-      case 'serve-error': return `❌ ${name(ev.actor)} serves into the net (NET!)`;
-      case 'pass':  return `  ↳ ${name(ev.actor)} receives`;
+      case 'serve': return wrap(`🎾 ${name(ev.actor)} serves…`);
+      case 'ace':   return wrap(`⚡ ACE! ${name(ev.actor)} — untouchable serve`);
+      case 'serve-error': return wrap(`❌ ${name(ev.actor)} serves into the net (NET!)`);
+      case 'pass':  return wrap(`  ↳ ${name(ev.actor)} receives`);
       case 'set': {
         const tag = ev.tactic === 'quick' ? ' (quick)'
                   : ev.tactic === 'slide' ? ' (slide)'
                   : ev.tactic === 'back-row' ? ' (back-row)'
                   : ev.tactic === 'fake' ? ' 🎭 (fake to ' + name({player: ev.decoy?.player}) + ')'
                   : '';
-        return `  ↳ ${name(ev.actor)} sets${tag}`;
+        return wrap(`  ↳ ${name(ev.actor)} sets${tag}`);
       }
-      case 'attack': return `  ↳ ${name(ev.actor)} swings…`;
-      case 'kill':  return `💥 KILL by ${name(ev.actor)}`;
-      case 'setter-dump': return `🎭 SETTER DUMP by ${name(ev.actor)}!`;
-      case 'tip':   return `🪶 TIP by ${name(ev.actor)}`;
-      case 'block': return `🧱 BLOCKED by ${name(ev.actor)}`;
-      case 'dig':   return `🛡 DUG by ${name(ev.actor)}`;
-      case 'attack-net':   return `🧱 ${name(ev.actor)} hits it INTO THE NET (NET!)`;
-      case 'attack-out':   return `❌ ${name(ev.actor)} hits it out of bounds (OUT!)`;
-      case 'pass-error':   return `😬 ${name(ev.actor)} missed the pass!`;
-      case 'attack-error': return `❌ ${name(ev.actor)} attack error`;   // legacy fallback
+      case 'attack': return wrap(`  ↳ ${name(ev.actor)} swings…`);
+      case 'kill':  return wrap(`💥 KILL by ${name(ev.actor)}`);
+      case 'setter-dump': return wrap(`🎭 SETTER DUMP by ${name(ev.actor)}!`);
+      case 'tip':   return wrap(`🪶 TIP by ${name(ev.actor)}`);
+      case 'block': return wrap(`🧱 BLOCKED by ${name(ev.actor)}`);
+      case 'dig':   return wrap(`🛡 DUG by ${name(ev.actor)}`);
+      case 'attack-net':   return wrap(`🧱 ${name(ev.actor)} hits it INTO THE NET (NET!)`);
+      case 'attack-out':   return wrap(`❌ ${name(ev.actor)} hits it out of bounds (OUT!)`);
+      case 'pass-error':   return wrap(`😬 ${name(ev.actor)} missed the pass!`);
+      case 'attack-error': return wrap(`❌ ${name(ev.actor)} attack error`);   // legacy fallback
       case 'point': {
         const teamName = ev.team === 'home' ? match.home.name : match.away.name;
         const flame = (ev.streak >= 5) ? ' 🔥🔥🔥 ON FIRE!' :

@@ -47,6 +47,64 @@
     </div>
   </div>
 
+  <!-- ATTENDANCE MODE: only draft people who showed up today -->
+  <div class="card" style="margin-top: 16px;">
+    <h3 style="margin-top:0;">Attendance mode <span style="color:#94a3b8; font-size:0.75rem; font-weight:normal;">(who's here today?)</span></h3>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      <label style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; padding:10px 14px; background:rgba(30,41,59,0.6); border-radius:8px; border:2px solid transparent; flex:1; min-width:220px;" class="attend-mode-label">
+        <input type="radio" name="attend-mode" value="off" checked>
+        <div>
+          <div style="font-weight:800;">👥 Full pool</div>
+          <div style="color:#94a3b8; font-size:0.75rem;">Use everyone above. Standard draft with fixed picks-per-captain.</div>
+        </div>
+      </label>
+      <label style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; padding:10px 14px; background:rgba(30,41,59,0.6); border-radius:8px; border:2px solid transparent; flex:1; min-width:220px;" class="attend-mode-label">
+        <input type="radio" name="attend-mode" value="on">
+        <div>
+          <div style="font-weight:800;">✅ Attendance list</div>
+          <div style="color:#94a3b8; font-size:0.75rem;">Only draft people who showed up. Auto-splits picks across captains — extras go to those picking later.</div>
+        </div>
+      </label>
+    </div>
+    <div id="attend-list" style="display:none; padding:12px; background:rgba(0,0,0,0.25); border-radius:8px;">
+      <p style="color:#94a3b8; font-size:0.85rem; margin:0 0 10px 0;">
+        Tap each player who's <b>here today</b>. Captains are always included.
+        <button class="secondary" style="margin-left:12px; padding:2px 10px; font-size:0.75rem;" onclick="toggleAllAttendance(true)">All in</button>
+        <button class="secondary" style="padding:2px 10px; font-size:0.75rem;" onclick="toggleAllAttendance(false)">Clear</button>
+      </p>
+      <div id="attend-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:6px;"></div>
+      <div id="attend-summary" style="margin-top:12px; padding:10px; background:rgba(251,191,36,0.1); border-left:3px solid #fbbf24; border-radius:4px; font-size:0.9rem;"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 16px;" id="depth-card">
+    <h3 style="margin-top:0;">Draft depth</h3>
+    <p style="color:#94a3b8; font-size:0.85rem; margin:0 0 12px 0;">
+      How many players does each captain draft (in addition to themselves)?
+    </p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <label style="display:inline-flex; align-items:flex-start; gap:8px; cursor:pointer; padding:12px 14px; background:rgba(30,41,59,0.6); border-radius:8px; border:2px solid transparent; flex:1; min-width:220px;" class="pick-mode-label">
+        <input type="radio" name="pick-mode" value="5" style="margin-top:2px;">
+        <div>
+          <div style="font-weight:800; font-size:0.95rem;">🎯 Classic (5 picks)</div>
+          <div style="color:#94a3b8; font-size:0.75rem; margin-top:2px;">
+            Captain + 5 = <b>6 total</b> · Just enough for one team on the court · Auto-fills bench
+          </div>
+        </div>
+      </label>
+      <label style="display:inline-flex; align-items:flex-start; gap:8px; cursor:pointer; padding:12px 14px; background:rgba(30,41,59,0.6); border-radius:8px; border:2px solid transparent; flex:1; min-width:220px;" class="pick-mode-label">
+        <input type="radio" name="pick-mode" value="10" checked style="margin-top:2px;">
+        <div>
+          <div style="font-weight:800; font-size:0.95rem;">🏆 Full squad (10 picks)</div>
+          <div style="color:#94a3b8; font-size:0.75rem; margin-top:2px;">
+            Captain + 10 = <b>11 total</b> · 7 starters + 4 bench · Mid-match subs & pinch servers
+          </div>
+        </div>
+      </label>
+    </div>
+    <p id="pick-mode-warning" style="color:#f59e0b; font-size:0.8rem; margin:10px 0 0 0; display:none;"></p>
+  </div>
+
   <div class="row-btns">
     <button class="secondary" onclick="resetDefaults()">↺ Reset to defaults</button>
     <button onclick="createRoom()">Create draft room →</button>
@@ -81,5 +139,153 @@
 
 <script type="module" src="./js/setup.js"></script>
 <script type="module" src="./js/back-button.js"></script>
+<script>
+  // ─── ATTENDANCE MODE ───
+  // Track which players are "here today". Rebuild the list any time the players
+  // grid changes (captains are always included).
+  window.__attendance = new Set();   // player ids that are here
+
+  window.toggleAllAttendance = (allIn) => {
+    const boxes = document.querySelectorAll('#attend-grid input[type=checkbox]');
+    boxes.forEach(b => { b.checked = allIn; b.dispatchEvent(new Event('change')); });
+  };
+
+  function getCaptainLinkedIds() {
+    // Read the currently selected captains from the DOM (setup.js builds these)
+    const ids = new Set();
+    document.querySelectorAll('#captains-grid [data-linked-player-id]').forEach(el => {
+      const id = el.dataset.linkedPlayerId;
+      if (id) ids.add(id);
+    });
+    return ids;
+  }
+
+  function getAllPlayersFromGrid() {
+    // Extract player list from setup.js's rendered grid. Each row has data-pid + name.
+    const rows = document.querySelectorAll('#players-grid .player-row[data-pid]');
+    return Array.from(rows).map(r => ({
+      id: r.dataset.pid,
+      name: r.querySelector('input[data-field="name"]')?.value || r.dataset.pid,
+    }));
+  }
+
+  function renderAttendanceGrid() {
+    const grid = document.getElementById('attend-grid');
+    if (!grid) return;
+    const captainIds = getCaptainLinkedIds();
+    const all = getAllPlayersFromGrid();
+    grid.innerHTML = all.map(p => {
+      const isCap = captainIds.has(p.id);
+      const checked = isCap || window.__attendance.has(p.id);
+      if (isCap) window.__attendance.add(p.id);
+      return `
+        <label style="display:flex; align-items:center; gap:6px; padding:5px 8px; background:rgba(15,23,42,0.6); border-radius:5px; font-size:0.85rem; cursor:${isCap ? 'default' : 'pointer'}; ${isCap ? 'opacity:0.7;' : ''}">
+          <input type="checkbox" data-pid="${p.id}" ${checked ? 'checked' : ''} ${isCap ? 'disabled' : ''}>
+          <span>${p.name} ${isCap ? '<span style="color:#fbbf24; font-size:0.7rem;">CAPTAIN</span>' : ''}</span>
+        </label>
+      `;
+    }).join('');
+    grid.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const pid = cb.dataset.pid;
+        if (cb.checked) window.__attendance.add(pid);
+        else window.__attendance.delete(pid);
+        updateAttendanceSummary();
+      });
+    });
+    updateAttendanceSummary();
+  }
+
+  function updateAttendanceSummary() {
+    const captainIds = getCaptainLinkedIds();
+    const attendees = Array.from(window.__attendance);
+    const nonCaptainAttendees = attendees.filter(id => !captainIds.has(id));
+    const capCount = document.querySelectorAll('#captains-grid .captain-card').length || 3;
+    const draftable = nonCaptainAttendees.length;
+    const base = Math.floor(draftable / capCount);
+    const extras = draftable - base * capCount;
+    const summary = document.getElementById('attend-summary');
+    if (!summary) return;
+    if (capCount === 0) { summary.textContent = 'No captains yet.'; return; }
+    const distText = extras === 0
+      ? `Everyone gets <b>${base} picks</b> (${base + 1} total on court incl. captain).`
+      : `${capCount - extras} captain${capCount - extras === 1 ? '' : 's'} draft ${base} · <b>${extras} captain${extras === 1 ? '' : 's'} draft ${base + 1}</b> (extras go to captains picking LATER in round 1).`;
+    summary.innerHTML = `
+      ✅ <b>${attendees.length}</b> people here today
+      · <b>${draftable}</b> draftable (${capCount} captains excluded)
+      <br>${distText}
+    `;
+  }
+
+  window.__renderAttendanceGrid = renderAttendanceGrid;
+
+  (function() {
+    // Attendance mode switch
+    const applyAttendMode = () => {
+      const active = document.querySelector('input[name="attend-mode"]:checked')?.value;
+      document.querySelectorAll('.attend-mode-label').forEach(el => {
+        const val = el.querySelector('input').value;
+        el.style.borderColor = (val === active) ? '#fbbf24' : 'transparent';
+        el.style.background = (val === active) ? 'rgba(251,191,36,0.12)' : 'rgba(30,41,59,0.6)';
+      });
+      const list = document.getElementById('attend-list');
+      const depthCard = document.getElementById('depth-card');
+      if (active === 'on') {
+        list.style.display = 'block';
+        if (depthCard) depthCard.style.opacity = '0.4';
+        if (depthCard) depthCard.title = 'In attendance mode, draft depth is auto-computed from attendance count.';
+        renderAttendanceGrid();
+      } else {
+        list.style.display = 'none';
+        if (depthCard) depthCard.style.opacity = '1';
+        if (depthCard) depthCard.title = '';
+      }
+    };
+    document.querySelectorAll('input[name="attend-mode"]').forEach(el => el.addEventListener('change', applyAttendMode));
+    setTimeout(applyAttendMode, 300);
+  })();
+
+  // Pick-mode selector: highlight selected + show pool-size warning if not enough players
+  (function() {
+    const updateSelection = () => {
+      const active = document.querySelector('input[name="pick-mode"]:checked')?.value;
+      document.querySelectorAll('.pick-mode-label').forEach(el => {
+        const val = el.querySelector('input').value;
+        el.style.borderColor = (val === active) ? '#fbbf24' : 'transparent';
+        el.style.background = (val === active) ? 'rgba(251,191,36,0.12)' : 'rgba(30,41,59,0.6)';
+      });
+      // Warn if not enough players in the pool
+      const picks = parseInt(active || '10', 10);
+      const captCount = document.querySelectorAll('#captains-grid .captain-card').length || 3;
+      const playerCount = document.querySelectorAll('#players-grid .player-row').length;
+      const needed = captCount * picks;
+      const warn = document.getElementById('pick-mode-warning');
+      if (warn) {
+        if (playerCount < needed + captCount) {
+          warn.style.display = 'block';
+          warn.textContent = `⚠️ Need at least ${needed} players (currently ${playerCount}) for ${captCount} captains × ${picks} picks. Add more players or pick a smaller draft.`;
+        } else {
+          warn.style.display = 'none';
+        }
+      }
+    };
+    document.querySelectorAll('input[name="pick-mode"]').forEach(el => el.addEventListener('change', updateSelection));
+    // Re-check when players/captains change
+    const obs = new MutationObserver(() => {
+      updateSelection();
+      // Also refresh attendance list if attendance mode is on
+      if (document.querySelector('input[name="attend-mode"]:checked')?.value === 'on'
+          && window.__renderAttendanceGrid) {
+        window.__renderAttendanceGrid();
+      }
+    });
+    const capGrid = document.getElementById('captains-grid');
+    const playGrid = document.getElementById('players-grid');
+    if (capGrid) obs.observe(capGrid, { childList: true, subtree: true });
+    if (playGrid) obs.observe(playGrid, { childList: true, subtree: true });
+    // Initial state (with slight delay so setup.js populates the grids first)
+    setTimeout(updateSelection, 300);
+  })();
+</script>
 </body>
 </html>

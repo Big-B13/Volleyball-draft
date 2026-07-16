@@ -14,7 +14,9 @@ export const LOGO_URLS = {
 
 // Bump this any time DEFAULT_PLAYERS changes — clients with a lower version
 // will auto-refresh their local cache to pick up the new list.
-export const PLAYER_DATA_VERSION = 9;
+// V3: captain + 10 picks = 11 total (7 starters + 4 bench). Was 5 (6 starters, no bench).
+export const PICKS_PER_TEAM = 10;
+export const PLAYER_DATA_VERSION = 11;
 
 // Photo path convention: ./assets/players/<id>.png (transparent PNG cutout preferred)
 // If a file doesn't exist, cards fall back to a silhouette + initials.
@@ -86,7 +88,6 @@ export function getInitials(name) {
 
 export const STAT_KEYS = ['attack', 'serve', 'defense', 'setting', 'athletic'];
 export const STAT_LABELS = { attack: 'Attack', serve: 'Serve', defense: 'Defense', setting: 'Setting', athletic: 'Athletic' };
-export const PICKS_PER_TEAM = 5;
 
 // ═══════════════════════════════════════════════════════════════════════
 // PERSONALITY TRAITS — six 0..1 sliders that shape player behavior
