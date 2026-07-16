@@ -602,20 +602,10 @@ export function simulateRallyPhase1(match) {
   const receivingTeam = match.serving === 'home' ? match.away : match.home;
   const servingSide = match.serving;
 
-  // 1) Serve — target a random x on the receiving side, then find nearest passer
-  // Pick server = player at spot 1 (P1 = right back). BUT skip MB and L — they never
-  // serve in this sim (user preference). Search clockwise for the next legal server.
-  const isLegalServer = (slot) => {
-    if (!slot || !slot.player) return false;
-    const pos = (slot.player.position || '').split('/');
-    return !pos.includes('MB') && !pos.includes('L') && !pos.includes('DS');
-  };
-  let server = null;
-  for (let offset = 0; offset < 6; offset++) {
-    const cand = playerAtSpot(servingTeam, offset);
-    if (isLegalServer(cand)) { server = cand; break; }
-  }
-  if (!server) server = playerAtSpot(servingTeam, 0);  // absolute fallback
+  // 1) Serve — target a random x on the receiving side, then find nearest passer.
+  // REAL VOLLEYBALL: whoever is at rotation position 1 (P1 = right back) serves.
+  // Everyone rotates through P1 eventually — MBs, liberos, everyone serves in turn.
+  const server = playerAtSpot(servingTeam, 0);
   const serveTargetX = 0.15 + Math.random() * 0.7;   // random x within the court
   const receiver = pickReceiver(receivingTeam, serveTargetX);
   events.push({

@@ -1193,6 +1193,7 @@
     // V3-lite: capture play mode
     playMode = document.querySelector('input[name="play-mode"]:checked')?.value || 'auto';
     controlSide = document.getElementById('control-side-2d')?.value || 'home';
+    console.log(`[match-sim] Match starting in ${playMode.toUpperCase()} mode, controlling '${controlSide}'`);
 
     document.getElementById('setup-card').classList.add('hidden');
     document.getElementById('match-view').classList.remove('hidden');
@@ -1614,24 +1615,12 @@
     shadow.className = 'ball-shadow h-low';
     // Find who's actually serving — MUST match the engine's logic exactly.
     // Engine uses playerAtSpot(team, 0) = lineup[(0 + rotationOffset) % 6].
+    // Real vball: whoever is at rotation position 1 (P1) serves. No skipping.
     const servingTeam = match[match.serving];
     let serverSlot = null;
     if (servingTeam && servingTeam.lineup) {
-      // Match engine's server pick exactly: spot 1 (P1), but skip MB/L/DS (they never serve).
-      const isLegalServer = (slot) => {
-        if (!slot || !slot.player) return false;
-        const pos = (slot.player.position || '').split('/');
-        return !pos.includes('MB') && !pos.includes('L') && !pos.includes('DS');
-      };
-      for (let offset = 0; offset < 6; offset++) {
-        const idx = (offset + servingTeam.rotationOffset) % 6;
-        const cand = servingTeam.lineup[idx];
-        if (isLegalServer(cand)) { serverSlot = cand; break; }
-      }
-      if (!serverSlot) {
-        const idx = (0 + servingTeam.rotationOffset) % 6;
-        serverSlot = servingTeam.lineup[idx];
-      }
+      const idx = (0 + servingTeam.rotationOffset) % 6;
+      serverSlot = servingTeam.lineup[idx];
     }
     // Move the server OUTSIDE the court immediately — INSTANT snap, no walk animation.
     // (Between rallies is a natural break, so teleport is fine and prevents the "ball at
@@ -1768,9 +1757,13 @@
     // Phase 1 didn't end the rally (i.e. good/scrappy pass landed) → maybe pause for user
     if (!phase1.rallyEnded) {
       const attackingSide = phase1.attackingSide;
-      if (playMode === 'manual' && attackingSide === controlSide) {
-        // PAUSE — show shot-call panel populated with the actual on-court hitters
+      const willPause = playMode === 'manual' && attackingSide === controlSide;
+      console.log(`[match-sim] Phase 1 done. Attacking: ${attackingSide}. Mode: ${playMode}, control: ${controlSide}. Pause?`, willPause);
+      if (willPause) {
         await promptShotCallLive(attackingSide);
+      } else if (playMode === 'manual') {
+        // Diagnostic banner: this rally the OPPONENT is attacking, so no pause
+        appendLog(`  (auto — ${attackingSide} attacking, you control ${controlSide})`, '');
       }
       // Now run Phase 2 (set + attack + rally continuation)
       const phase2 = simulateRallyPhase2(match, attackingSide, phase1.incomingQuality);
@@ -1797,15 +1790,15 @@
     ['active','jumping','diving','crouching','walking'].forEach(cls => {
       document.querySelectorAll('.player-circle.' + cls).forEach(el => el.classList.remove(cls));
     });
-    // Did a rotation happen this rally? Just flash the badge — NO player animation.
+    // Did a rotation happen this rally? Flash the badge + walk players clockwise one spot.
     // (The engine already tracks rotation via rotationOffset for gameplay logic.
-    //  Players stay locked to their role zone visually — no confusing shuffle that
-    //  puts Big-B in the opposite zone or anything like that.)
+    //  Players ALWAYS end back in their locked role zone — the walk is a visual only.)
     const rotationEvents = events.filter(e => e.type === 'rotation');
     for (const rotEv of rotationEvents) {
       showRotationBadge(rotEv.team);
+      await animateRotationWalk(rotEv.team);
     }
-    // At end of rally, refresh court (re-syncs engine spots + zone snap)
+    // At end of rally, refresh court (re-syncs engine spots + zone snap back to role)
     renderCourt();
     // Restart idle motion for between-rally moments (subtle)
     startIdleMotion();
@@ -1821,6 +1814,44 @@
     badge.style.left = side === 'home' ? '15%' : '85%';
     court.appendChild(badge);
     setTimeout(() => badge.remove(), 1400 / speed);
+  }
+
+  /** Real rotation walk: everyone shifts ONE zone clockwise, holds briefly, then
+   *  renderCourt snaps them back to their role zone at the end of the rally.
+   *  ZONE_CYCLE = ['setter','libero','leftBack','outside','middle','opp'] means
+   *  Setter → Libero spot, Libero → LeftBack, LeftBack → Outside, Outside → Middle,
+   *  Middle → Opp, Opp → Setter. Exactly like real volleyball rotation viewed from above. */
+  async function animateRotationWalk(side) {
+    const players = playersOnSide(side);
+    if (!players.length) return;
+    const walkMs = Math.max(500, 900 / speed);
+    // Compute each player's target position (one zone clockwise from their role)
+    const targets = [];
+    for (const p of players) {
+      const role = PLAYER_ROLE_ZONE[p.pid];
+      if (!role) continue;
+      const idx = ZONE_CYCLE.indexOf(role);
+      if (idx < 0) continue;
+      const nextRole = ZONE_CYCLE[(idx + 1) % ZONE_CYCLE.length];
+      const rect = roleZoneRect(nextRole, side);
+      if (!rect) continue;
+      const cx = (rect.xMin + rect.xMax) / 2;
+      const cy = (rect.yMin + rect.yMax) / 2;
+      targets.push({ pid: p.pid, x: cx, y: cy });
+    }
+    // Walk everyone to the next-role position simultaneously (bypass zone clamp)
+    for (const t of targets) {
+      const el = document.querySelector(`.player-circle[data-pid="${t.pid}"]`);
+      if (!el) continue;
+      el.classList.add('walking');
+      el.style.transition = `left ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), top ${walkMs/1000}s cubic-bezier(0.4,0.0,0.2,1), transform 0.32s cubic-bezier(0.34,1.4,0.64,1), filter 0.3s, box-shadow 0.3s`;
+      el.style.left = (t.x * 100) + '%';
+      el.style.top  = (t.y * 100) + '%';
+      CURRENT_POS[t.pid] = { x: t.x, y: t.y };
+    }
+    await sleep(walkMs + 100);
+    // renderCourt() runs right after this (in playRally) and snaps everyone back to their role zone.
+    // Result: user sees "rotation walk one spot clockwise, then reset for next rally."
   }
 
   // Height profile per event type: what height is the ball AT the moment of this touch,
