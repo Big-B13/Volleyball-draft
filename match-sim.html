@@ -2253,21 +2253,23 @@
   /** Clamp a target to a small radius around the player's ROTATION HOME.
    *  Real vball: players don't wander far from their rotation spot except for
    *  specific plays (setter releases to net, hitters approach). This keeps them
-   *  in their P1-P6 area unless a play explicitly moves them. */
+   *  in their P1-P6 area AND on their own side of the net. */
   function clampToZone(pid, targetX, targetY) {
     const home = HOME_POS[pid];
     if (!home) return { x: targetX, y: targetY };
     const RADIUS = 0.18;   // 18% of court — enough to shift for pass/dig/block
-    const clampedX = Math.max(home.x - RADIUS, Math.min(home.x + RADIUS, targetX));
-    const clampedY = Math.max(home.y - RADIUS, Math.min(home.y + RADIUS, targetY));
-    // Also keep them on their side of the net
+    let x = Math.max(home.x - RADIUS, Math.min(home.x + RADIUS, targetX));
+    let y = Math.max(home.y - RADIUS, Math.min(home.y + RADIUS, targetY));
+    // HARD RULE: never cross the net. Home team is on RIGHT half of screen (x > 0.5),
+    // away is on LEFT (x < 0.5). Net line at x = 0.5.
     const isHome = home.side === 'home';
-    const netMin = isHome ? 0.51 : 0.02;
-    const netMax = isHome ? 0.98 : 0.49;
-    return {
-      x: Math.max(0.02, Math.min(0.98, clampedX)),
-      y: Math.max(0.02, Math.min(0.98, clampedY))
-    };
+    if (isHome) {
+      x = Math.max(0.51, Math.min(0.98, x));   // stay right of net
+    } else {
+      x = Math.max(0.02, Math.min(0.49, x));   // stay left of net
+    }
+    y = Math.max(0.02, Math.min(0.98, y));
+    return { x, y };
   }
 
   /** Center of a player's ROTATION POSITION (P1-P6). Real vball — this is where
@@ -2300,11 +2302,18 @@
   }
 
   /** Position near the NET from this player's rotation spot.
-   *  Nudges them ~5% toward the net without changing their side-to-side y. */
+   *  Nudges them ~5% toward the net. HARD-CLAMPED to their own side of the net. */
   function netEdgeOfZone(pid, side) {
     const home = HOME_POS[pid];
     if (!home) return { x: 0.5, y: 0.5 };
-    const netX = side === 'home' ? Math.max(0.55, home.x - 0.05) : Math.min(0.45, home.x + 0.05);
+    let netX;
+    if (side === 'home') {
+      // Home is RIGHT half (x > 0.5). Nudge left toward net, but never past 0.53.
+      netX = Math.max(0.53, home.x - 0.05);
+    } else {
+      // Away is LEFT half (x < 0.5). Nudge right toward net, but never past 0.47.
+      netX = Math.min(0.47, home.x + 0.05);
+    }
     return { x: netX, y: home.y };
   }
 
@@ -2312,7 +2321,9 @@
   function backEdgeOfZone(pid, side) {
     const home = HOME_POS[pid];
     if (!home) return { x: 0.5, y: 0.5 };
-    const endX = side === 'home' ? Math.min(0.95, home.x + 0.05) : Math.max(0.05, home.x - 0.05);
+    const endX = side === 'home'
+      ? Math.min(0.97, home.x + 0.05)
+      : Math.max(0.03, home.x - 0.05);
     return { x: endX, y: home.y };
   }
   /** Zone-based formations. Each player moves within THEIR zone based on the play phase.
