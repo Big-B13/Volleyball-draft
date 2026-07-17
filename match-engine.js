@@ -582,25 +582,30 @@ function pickDiggers(defendingTeam, blockers, ballTarget, range = 0.35) {
 // Returns an array of events describing what happens in the rally.
 // Each event has: { type, from, to, ball, delay, sound, text? }
 export function simulateRally(match) {
+  // Convenience: run both phases back-to-back (auto mode).
+  const p1 = simulateRallyPhase1(match);
+  if (p1.rallyEnded) return p1.events;
+  const p2 = simulateRallyPhase2(match, p1.attackingSide, p1.incomingQuality);
+  return [...p1.events, ...p2];
+}
+
+/** V3: Phase-1 rally simulation — serve, ace check, serve error, pass reception.
+ *  Stops after the pass (or serve-terminating event). Returns:
+ *    { events, rallyEnded, attackingSide, incomingQuality }
+ *  If rallyEnded is true, the point is already decided. Otherwise call
+ *  simulateRallyPhase2 with the returned attackingSide + incomingQuality to
+ *  finish the rally. This lets the UI insert a "call the shot" prompt between
+ *  the pass and the set. */
+export function simulateRallyPhase1(match) {
   const events = [];
   const servingTeam = match.serving === 'home' ? match.home : match.away;
   const receivingTeam = match.serving === 'home' ? match.away : match.home;
   const servingSide = match.serving;
 
-  // 1) Serve — target a random x on the receiving side, then find nearest passer
-  // Pick server = player at spot 1 (P1 = right back). BUT skip MB and L — they never
-  // serve in this sim (user preference). Search clockwise for the next legal server.
-  const isLegalServer = (slot) => {
-    if (!slot || !slot.player) return false;
-    const pos = (slot.player.position || '').split('/');
-    return !pos.includes('MB') && !pos.includes('L') && !pos.includes('DS');
-  };
-  let server = null;
-  for (let offset = 0; offset < 6; offset++) {
-    const cand = playerAtSpot(servingTeam, offset);
-    if (isLegalServer(cand)) { server = cand; break; }
-  }
-  if (!server) server = playerAtSpot(servingTeam, 0);  // absolute fallback
+  // 1) Serve — target a random x on the receiving side, then find nearest passer.
+  // REAL VOLLEYBALL: whoever is at rotation position 1 (P1 = right back) serves.
+  // Everyone rotates through P1 eventually — MBs, liberos, everyone serves in turn.
+  const server = playerAtSpot(servingTeam, 0);
   const serveTargetX = 0.15 + Math.random() * 0.7;   // random x within the court
   const receiver = pickReceiver(receivingTeam, serveTargetX);
   events.push({
@@ -635,7 +640,8 @@ export function simulateRally(match) {
     });
     recordSuccess(match, server?.player?.id);   // ace = server hot
     recordFail(match, receiver?.player?.id);    // aced on = receiver cold
-    return finishPoint(match, events, servingSide);
+    finishPoint(match, events, servingSide);
+    return { events, rallyEnded: true };
   }
 
   // Serve error: aggressive servers miss more; low-confidence servers CHOKE in big moments
@@ -647,7 +653,8 @@ export function simulateRally(match) {
       toSpot: { x: 0.5, y: 0.5 }
     });
     recordFail(match, server?.player?.id);   // missed serve = cold
-    return finishPoint(match, events, servingSide === 'home' ? 'away' : 'home');
+    finishPoint(match, events, servingSide === 'home' ? 'away' : 'home');
+    return { events, rallyEnded: true };
   }
 
   // ══ PASS RECEPTION ══
@@ -677,11 +684,12 @@ export function simulateRally(match) {
     recordFail(match, receiver?.player?.id);
     // 60% chance the ball dies on the floor immediately (dropped pass)
     if (Math.random() < 0.6) {
-      return finishPoint(match, events, servingSide);
+      finishPoint(match, events, servingSide);
+      return { events, rallyEnded: true };
     }
     // 40% chance a scrappy setter still gets to it — rally continues with terrible incoming quality
     events.push({ type: 'pass', actor: receiver, team: receivingSide });
-    return continueRally(match, events, receivingSide, 0.25);
+    return { events, rallyEnded: false, attackingSide: receivingSide, incomingQuality: 0.25 };
   }
   // Good pass
   events.push({ type: 'pass', actor: receiver, team: receivingSide });
@@ -691,7 +699,35 @@ export function simulateRally(match) {
     Math.random() * 0.25 + 0.45 +
     (passerSkill - 5) * 0.06 +      // above-avg passer bumps up
     chemBonus + hustleBonus);
-  return continueRally(match, events, receivingSide, passQuality);
+  return { events, rallyEnded: false, attackingSide: receivingSide, incomingQuality: passQuality };
+}
+
+/** V3: Phase-2 — everything after the pass. Wraps continueRally.
+ *  Call this AFTER Phase 1 returns rallyEnded: false. */
+export function simulateRallyPhase2(match, attackingSide, incomingQuality) {
+  const events = [];
+  return continueRally(match, events, attackingSide, incomingQuality);
+}
+
+/** V3: Return the 5 available hitters on `attackingSide` (front-row + back-row spikers,
+ *  minus the setter). Used by the UI to build the shot-call panel with LIVE data
+ *  after the pass has landed. */
+export function availableHitters(match, attackingSide) {
+  const team = match[attackingSide];
+  if (!team || !team.lineup) return [];
+  const setterSlot = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'));
+  const setterId = setterSlot?.player?.id;
+  const out = [];
+  for (let i = 0; i < 6; i++) {
+    const slot = team.lineup[i];
+    if (!slot || !slot.player) continue;
+    if (slot.player.id === setterId) continue;
+    // Rotation-aware front/back check: rotIdx 1..3 = front row (P2/P3/P4)
+    const rotIdx = (6 + i - team.rotationOffset) % 6;
+    const isFront = rotIdx >= 1 && rotIdx <= 3;
+    out.push({ slot, player: slot.player, isFront });
+  }
+  return out;
 }
 
 /** Continue the rally on the side that's now attacking */
