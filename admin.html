@@ -109,6 +109,12 @@
   </div>
 
   <div class="card">
+    <h2>⏳ Membership Requests (<span id="pending-count">0</span>)</h2>
+    <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:14px;">Pending accounts can explore the league and use match simulations. Approve them here to unlock member access. Only commissioners can read their private request note.</p>
+    <div id="pending-list"></div>
+  </div>
+
+  <div class="card">
     <h2>Registered Users (<span id="user-count">0</span>)</h2>
     <div id="user-list"></div>
   </div>
@@ -171,7 +177,7 @@
 <script type="module">
   import {
     guardPage, renderAuthBadge, createInviteCode, listInviteCodes,
-    listUsers, deleteInviteCode, updateUserRole, resetUser
+    listUsers, deleteInviteCode, updateUserRole, resetUser, approveMember, declineMember
   } from "./js/auth.js";
   import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS } from "./js/data.js";
   import {
@@ -268,6 +274,22 @@ Then they can sign up fresh with the invite code above.`;
     }
   };
 
+  window.approveRequest = async (uid) => {
+    const select = document.getElementById('player-link-' + uid);
+    const linkedPlayerId = select ? select.value : null;
+    try { await approveMember(uid, { linkedPlayerId }); await refresh(); }
+    catch (e) { alert('Could not approve member: ' + e.message); }
+  };
+  window.declineRequest = async (uid) => {
+    if (!confirm('Decline this membership request? The person will keep their limited account.')) return;
+    try { await declineMember(uid); await refresh(); }
+    catch (e) { alert('Could not decline request: ' + e.message); }
+  };
+  function esc(text) { const d=document.createElement('div'); d.textContent=text || ''; return d.innerHTML; }
+  function playerOptions(selected) {
+    return '<option value="">— no player card link —</option>' + DEFAULT_PLAYERS.map(p => `<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)} · ${esc(p.nickname)}</option>`).join('');
+  }
+
   async function refresh() {
     const codes = await listInviteCodes();
     document.getElementById('code-count').textContent = codes.length;
@@ -288,6 +310,15 @@ Then they can sign up fresh with the invite code above.`;
     `).join('') || '<div style="color:#64748b;">No codes yet. Create one above or bulk-generate.</div>';
 
     const users = await listUsers();
+    const pending = users.filter(u => u.status === 'pending');
+    document.getElementById('pending-count').textContent = pending.length;
+    document.getElementById('pending-list').innerHTML = pending.map(u => `
+      <div class="card" style="margin-bottom:10px; padding:16px; border-left:4px solid #fbbf24;">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;"><div><strong>${esc(u.displayName || u.username)}</strong> <span style="color:#64748b">@${esc(u.username)}</span><div style="margin-top:5px; color:#cbd5e1">${u.favoriteClub ? 'Favourite club: <strong>'+esc(u.favoriteClub)+'</strong>' : 'No club selected yet'}</div></div><span class="status-pill waiting">pending</span></div>
+        <div style="margin:12px 0; padding:10px; background:rgba(15,23,42,.65); border-radius:7px; color:#cbd5e1; font-size:.88rem;"><strong style="color:#94a3b8">Private note:</strong><br>${esc(u.requestNote || 'No note supplied.')}</div>
+        <label>Optional: link this account to a real player card</label><select id="player-link-${u.uid}">${playerOptions(u.linkedPlayerId)}</select>
+        <div class="row-btns" style="justify-content:flex-start; margin-top:12px"><button onclick="approveRequest('${u.uid}')">✅ Approve member</button><button class="secondary" onclick="declineRequest('${u.uid}')">Decline</button></div>
+      </div>`).join('') || '<div style="color:#64748b">No membership requests waiting.</div>';
     document.getElementById('user-count').textContent = users.length;
     document.getElementById('user-list').innerHTML = users.map(u => {
       const safeName = (u.displayName || u.username || '').replace(/'/g, "\\'");
@@ -295,7 +326,7 @@ Then they can sign up fresh with the invite code above.`;
       <div class="invite-row" style="grid-template-columns: 1fr 130px 1fr 130px 80px;">
         <div><strong>${u.displayName || u.username}</strong> <span style="color:#64748b; font-size:0.8rem;">@${u.username}</span></div>
         <div><span class="role-badge ${u.role||'viewer'}">${u.role||'viewer'}</span></div>
-        <div style="color:#64748b; font-size:0.75rem;">${u.captainId ? 'linked: '+u.captainId : ''}</div>
+        <div style="color:#64748b; font-size:0.75rem;">${u.status || 'approved'}${u.linkedPlayerId ? ' · player: '+esc(u.linkedPlayerId) : ''}${u.captainId ? ' · captain: '+esc(u.captainId) : ''}</div>
         <select onchange="changeRole('${u.uid}', this.value)">
           <option value="viewer" ${u.role==='viewer'?'selected':''}>viewer</option>
           <option value="captain" ${u.role==='captain'?'selected':''}>captain</option>

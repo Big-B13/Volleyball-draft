@@ -1,3 +1,15 @@
+# 🏐 The Gomi Cup — Volleyball Draft & Match Sim
+
+## Membership onboarding (new)
+
+New visitors can create a **pending member account** without an invite code. They immediately receive a club introduction, choose Strigidae, Kòrsou Otters, or Shizuka for their profile, and can explore league content plus use both match simulators while they wait.
+
+A commissioner reviews requests in **Admin → Membership Requests**. The private request note helps identify actual players. On approval, the commissioner may optionally link the account to a real player card. Pending or declined accounts cannot enter a non-spectator draft, captain slot, or commissioner tools.
+
+> **Security:** the interface blocks restricted features, but public deployments also need Firebase Realtime Database Rules. Read `FIREBASE_RULES_MEMBERSHIP.md` before sharing the site publicly.
+
+## Existing game features
+
 # 🏐 The Blind Draft — Volleyball Online Edition
 
 A real-time multiplayer volleyball draft app for 3 captains competing over a shared pool of players. Built for the Strigidae 🦉 / Kòrsou Otters 🦦 / Shizuka ☁️ league.
