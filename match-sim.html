@@ -841,8 +841,8 @@
   import { db, ref, get } from "./js/firebase-init.js";
   import { listLeagues, ensureGomiCupSeeded, currentLeagueId, getLeague } from "./js/leagues.js";
   import { escapeHtml, shuffle } from "./js/util.js";
-  import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, playerAtSpot, setManualHitter } from "./js/match-engine.js";
-  import { augmentEvents, resetV2State, SIGNATURE_MOVES } from "./js/mechanics-v2.js";
+  import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, playerAtSpot, setManualHitter } from "./js/match-engine-v3.js";
+  import { augmentEvents, resetV3State, SIGNATURE_MOVES } from "./js/mechanics-v3.js";
   import { getAllPlayers } from "./js/players.js";
   import { photoPathFor, getInitials, traitsFor, PLAYER_TRAITS } from "./js/data.js";
   import { loadLeagueChemistry, buildChemistryMap, formatChemistry, chemistryScore } from "./js/chemistry.js";
@@ -1187,8 +1187,8 @@
     setScores = [];   // fresh set-score history for this match
     // Reset zone assignments for new match (fresh rosters get re-classified)
     for (const k of Object.keys(PLAYER_ROLE_ZONE)) delete PLAYER_ROLE_ZONE[k];
-    // Reset v2 mechanics state (morale, net crossings, ability cooldowns)
-    resetV2State(match);
+    // Reset shared v3 mechanics state (morale, stamina, substitutions, ability cooldowns)
+    resetV3State(match);
 
     // V3-lite: capture play mode
     playMode = document.querySelector('input[name="play-mode"]:checked')?.value || 'auto';

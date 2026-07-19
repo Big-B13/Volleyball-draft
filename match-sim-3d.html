@@ -335,13 +335,14 @@
 <script type="module">
   import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, specialtyCounters, setManualHitter, playerAtSpot } from "./js/match-engine-v3.js";
   import { augmentEvents, resetV3State } from "./js/mechanics-v3.js";
-  import { traitsFor } from "./js/data.js";
+  import { traitsFor, PLAYER_TRAITS } from "./js/data.js";
   import { GomiCupRenderer3D } from "./js/renderer-3d.js";
   import { db, ref, get } from "./js/firebase-init.js";
   import { getLeague, currentLeagueId, listLeagues, ensureGomiCupSeeded } from "./js/leagues.js";
   import { getAllPlayers } from "./js/players.js";
   import { escapeHtml, shuffle } from "./js/util.js";
-  import { buildChemistryMap } from "./js/chemistry.js";
+  import { buildChemistryMap, loadLeagueChemistry } from "./js/chemistry.js";
+  import { applySynergiesToRoster } from "./js/synergies.js";
 
   let match = null;
   let renderer = null;
@@ -522,13 +523,22 @@
     const home = getRoster(homeIdx, used);
     const away = getRoster(awayIdx, used);
 
-    const chemistryMap = await buildChemistryMap([
-      ...home.starters, ...home.bench, ...away.starters, ...away.bench,
-    ]);
+    // Shared game rules: apply the same synergy and persistent chemistry logic as 2D.
+    // This prevents the 3D view from silently producing a different match outcome.
+    const homeSyn = applySynergiesToRoster([...home.starters, ...home.bench]);
+    const awaySyn = applySynergiesToRoster([...away.starters, ...away.bench]);
+    const homeStarterIds = new Set(home.starters.map(p => p.id));
+    const awayStarterIds = new Set(away.starters.map(p => p.id));
+    const homeBoosted = homeSyn.boostedRoster;
+    const awayBoosted = awaySyn.boostedRoster;
+    const chemistryBlob = await loadLeagueChemistry(lgSel.value).catch(() => ({}));
+    const chemistryMap = buildChemistryMap(chemistryBlob, PLAYER_TRAITS);
 
     match = createMatch({
-      homeTeam: home.starters, awayTeam: away.starters,
-      homeBench: home.bench, awayBench: away.bench,
+      homeTeam: homeBoosted.filter(p => homeStarterIds.has(p.id)),
+      awayTeam: awayBoosted.filter(p => awayStarterIds.has(p.id)),
+      homeBench: homeBoosted.filter(p => !homeStarterIds.has(p.id)),
+      awayBench: awayBoosted.filter(p => !awayStarterIds.has(p.id)),
       homeName: leagueCaptains[homeIdx].team || leagueCaptains[homeIdx].name,
       awayName: leagueCaptains[awayIdx].team || leagueCaptains[awayIdx].name,
       homeColor: leagueCaptains[homeIdx].color || '#dc2626',
@@ -821,6 +831,8 @@
   function logSeed() {
     appendLog(`3D Match starting: ${match.home.name} vs ${match.away.name}`);
     appendLog(`Home specialty: ★${match.home.specialty.toUpperCase()}  |  Away specialty: ★${match.away.specialty.toUpperCase()}`);
+    // Synergies were applied before createMatch; expose them in the shared match log.
+    // (The roster stats already include the boosts.)
     if (specialtyCounters(match.home.specialty, match.away.specialty)) {
       appendLog(`⚔️ ${match.home.name} counters ${match.away.name}'s ${match.away.specialty} → +30% ${match.home.specialty} actions`);
     } else if (specialtyCounters(match.away.specialty, match.home.specialty)) {
