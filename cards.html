@@ -406,9 +406,10 @@
 
   <nav class="topnav">
     <a href="./index.html">🏠 Home</a>
-    <a href="./league.html">🏆 League</a>
-    <a href="./clubs.html">🛡️ Clubs</a>
     <a href="./cards.html" class="active">🃏 Cards</a>
+    <a href="./player-stats.html">🌟 Player Stats</a>
+    <a href="./chemistry.html">💚 Team Lab</a>
+    <a href="./match-sim.html">🎮 Play</a>
   </nav>
 
   <h1><span class="emoji">🃏</span> TRADING CARDS</h1>
@@ -712,8 +713,8 @@
       // Progressive unlock: silhouettes for anyone who hasn't been part of a completed draft yet
       const totalCount = players.length;
       const unlockedCount = players.filter(p => unlockedPlayerIds.has(p.id)).length;
-      info.innerHTML = `🎬 <strong>Full reveal cards</strong> — ${unlockedCount} / ${totalCount} unlocked so far. Click a card to view the full profile · use the green button below each to download PNG.`;
-      grid.innerHTML = '';
+      info.innerHTML = `🎬 <strong>Full reveal cards</strong> — preparing every card before the reveal…`;
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:72px 20px;color:#cbd5e1"><div style="font-size:3rem">🎬</div><h2 style="color:#fbbf24;margin-top:12px">Preparing the full reveal…</h2><p style="color:#94a3b8">Loading every player image first so mystery placeholders never appear beside finished cards.</p></div>';
       // Captain colors only apply to UNLOCKED captains (locked ones look neutral to avoid tipping off which slot they are)
       const captainColors = { 'big-b': '#dc2626', 'burla': '#16a34a', 'stratus': '#2563eb' };
       const captainOrder = ['big-b', 'burla', 'stratus'];
@@ -723,6 +724,11 @@
       const unlockedCaps    = captainOrder.map(id => unlockedPlayers.find(p => p.id === id)).filter(Boolean);
       const unlockedRest    = unlockedPlayers.filter(p => !captainColors[p.id]);
       const orderedPlayers  = [...unlockedCaps, ...unlockedRest, ...lockedPlayers];
+      // Do not paint a single reveal card until every photo lookup has settled.
+      // getPhotoUrl is cached, so the render below is then consistent and flicker-free.
+      await Promise.all(orderedPlayers.map(p => getPhotoUrl(p.id)));
+      info.innerHTML = `🎬 <strong>Full reveal cards</strong> — ${unlockedCount} / ${totalCount} unlocked so far. Click a card to view the full profile · use the green button below each to download PNG.`;
+      grid.innerHTML = '';
       for (const p of orderedPlayers) {
         const isUnlocked = unlockedPlayerIds.has(p.id);
         const teamColor  = isUnlocked ? captainColors[p.id] : undefined;
