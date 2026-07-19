@@ -212,12 +212,17 @@ function backRowWithLiberoSub(team) {
 function pickReceiver(team, ballX) {
   // Libero-sub aware back row: MB replaced by libero when they'd be receiving
   const backRow = backRowWithLiberoSub(team);
-  let eligible = backRow;
+  // REAL VOLLEYBALL: the setter almost never passes the serve. If we let them,
+  // they can't set the 2nd touch (no double touches). Exclude the designated setter
+  // from receive-candidates when the team has other options.
+  const setterPid = team.lineup.find(s => s && s.player && (s.player.position || '').split('/').includes('S'))?.player?.id;
+  const nonSetter = setterPid ? backRow.filter(p => p.player.id !== setterPid) : backRow;
+  const backRowPool = nonSetter.length ? nonSetter : backRow;
+  let eligible = backRowPool;
   if (typeof ballX === 'number') {
-    eligible = backRow.filter(p => Math.abs(p.spot.x - ballX) < 0.28);
-    if (!eligible.length) eligible = backRow;
+    eligible = backRowPool.filter(p => Math.abs(p.spot.x - ballX) < 0.28);
+    if (!eligible.length) eligible = backRowPool;
   }
-  // Weight by defense stat AND role priority (lower priority num = bigger weight)
   const weights = eligible.map(c => {
     const def = c.player.defense || 5;
     const prio = rolePriority(c);
@@ -233,15 +238,27 @@ function pickReceiver(team, ballX) {
   return eligible[0];
 }
 
-/** Pick the setter — team's designated setter (spot 2) or best `setting` stat */
-function pickSetter(team) {
-  // Prefer the actual designated setter (position includes 'S'). Falls back to spot 1.
-  // In real volleyball the setter always sets on the 2nd touch regardless of rotation
-  // (running plays are called around them). This keeps chemistry meaningful.
+/** Pick the setter — team's designated setter (spot 2) or best `setting` stat.
+ *  If `excludePid` is given, avoid returning that player (no double touches).
+ *  When the designated setter is excluded (e.g. they just dug), fall back to
+ *  the teammate with the highest `setting` stat. */
+function pickSetter(team, excludePid = null) {
+  // 1. Preferred: the actual designated setter, unless they're excluded
+  let designated = null;
   for (const slot of team.lineup) {
-    if (slot && (slot.player.position || '').split('/').includes('S')) return slot;
+    if (slot && (slot.player.position || '').split('/').includes('S')) {
+      designated = slot;
+      break;
+    }
   }
-  return playerAtSpot(team, 1) || team.lineup[0];
+  if (designated && designated.player.id !== excludePid) return designated;
+
+  // 2. Fallback: teammate with the highest setting stat (that isn't excluded)
+  const candidates = team.lineup
+    .filter(s => s && s.player && s.player.id !== excludePid);
+  if (!candidates.length) return designated || team.lineup[0];
+  candidates.sort((a, b) => (b.player.setting || 5) - (a.player.setting || 5));
+  return candidates[0];
 }
 
 /** Is a slot in the front row (rotation spots 2, 3, 4 = indices 1, 2, 3)? */
@@ -419,7 +436,7 @@ function canFakeSet(setter) {
   return (setter.player.setting || 5) >= 6.5;
 }
 
-function chooseAttackTactic(team, setter, incomingQuality, attackingSide) {
+function chooseAttackTactic(team, setter, incomingQuality, attackingSide, events) {
   const hasPos = (slot, code) => slot && (slot.player.position || '').split('/').includes(code);
   const frontRow = [1, 2, 3].map(i => playerAtSpot(team, i)).filter(Boolean);
   const backRow  = [0, 4, 5].map(i => playerAtSpot(team, i)).filter(Boolean);
@@ -451,27 +468,28 @@ function chooseAttackTactic(team, setter, incomingQuality, attackingSide) {
   const setterTr = t(setter);
   const flashMult = 0.5 + setterTr.showboat * 1.5;   // 0.5x - 2x tactic frequency
 
+  // No-double-touch: setter is about to touch (as setter), so hitter can't be them.
+  const setterPid = setter?.player?.id;
+  const banned = [setterPid];
+
   // ── QUICK ATTACK ── GATED: only middles with 6+ athletic AND 6+ attack AND reach 300cm+
-  const quickCapableMiddles = middles.filter(canRunQuick);
+  const quickCapableMiddles = excludeLastToucher(middles.filter(canRunQuick), events, banned);
   if (incomingQuality > 0.85 && quickCapableMiddles.length && Math.random() < 0.15 * flashMult) {
     const mb = pickWithChemistry(quickCapableMiddles, setter);
     return { hitter: mb, tactic: 'quick' };
   }
-  // ── SLIDE ── GATED: only middles with 7+ athletic can run the slide approach
-  const slideCapableMiddles = middles.filter(canRunSlide);
+  const slideCapableMiddles = excludeLastToucher(middles.filter(canRunSlide), events, banned);
   if (incomingQuality > 0.7 && slideCapableMiddles.length && Math.random() < 0.08 * flashMult) {
     const mb = slideCapableMiddles[slideCapableMiddles.length - 1];
     return { hitter: mb, tactic: 'slide' };
   }
-  // ── BACK-ROW ATTACK ── GATED: needs big vertical + attack (canBackRowAttack)
-  const backRowCapable = backHitters.filter(canBackRowAttack);
+  const backRowCapable = excludeLastToucher(backHitters.filter(canBackRowAttack), events, banned);
   if (incomingQuality > 0.75 && backRowCapable.length && Math.random() < 0.10 * flashMult) {
     const br = pickWithChemistry(backRowCapable, setter);
     return { hitter: br, tactic: 'back-row' };
   }
-  // ── FAKE SET ── GATED: setter needs 7+ setting skill to sell the fake
   if (canFakeSet(setter) && frontRow.length >= 2 && Math.random() < 0.08 * flashMult) {
-    const eligible = outsides.length ? outsides : frontRow;
+    const eligible = excludeLastToucher(outsides.length ? outsides : frontRow, events, banned);
     const real = pickWithChemistry(eligible, setter);
     const decoyPool = frontRow.filter(s => s.player.id !== real.player.id
                                           && (hasPos(s, 'MB') || hasPos(s, 'OP')));
@@ -480,10 +498,54 @@ function chooseAttackTactic(team, setter, incomingQuality, attackingSide) {
       return { hitter: real, tactic: 'fake', decoy };
     }
   }
-  // ── NORMAL ATTACK ── setter picks a hitter, biased by chemistry (friends)
-  const normalHitter = pickWithChemistry(outsides.length ? outsides : frontRow, setter)
-                       || pickHitter(team);
+  // Try preferred pool (outsides), fall back to full front row, then all 6 on-court.
+  // At each level, exclude the setter + last-toucher so we never end up with a double touch.
+  let normalPool = excludeLastToucher(outsides, events, banned);
+  if (!normalPool.length || normalPool.every(c => banned.includes(c.player.id))) {
+    normalPool = excludeLastToucher(frontRow, events, banned);
+  }
+  if (!normalPool.length || normalPool.every(c => banned.includes(c.player.id))) {
+    // Absolute fallback: any on-court non-setter, non-last-toucher (including back row)
+    const allOnCourt = [...frontRow, ...backRow];
+    normalPool = allOnCourt.filter(c =>
+      c && c.player && !banned.includes(c.player.id)
+      && c.player.id !== lastNonBlockToucherPid(events));
+  }
+  const normalHitter = pickWithChemistry(normalPool, setter)
+                       || (normalPool[0]);
   return { hitter: normalHitter, tactic: 'normal' };
+}
+
+/** REAL VOLLEYBALL RULE: a player cannot touch the ball twice in a row.
+ *  EXCEPTION: a block does NOT count as a touch (blocker may play the next ball).
+ *  Returns the pid of the last "real" touch, or null if no prior touch.
+ *  We only look at events from the current continueRally chain — passes to this
+ *  function should be the events[] accumulator. */
+function lastNonBlockToucherPid(events) {
+  if (!events || !events.length) return null;
+  // Walk backward, skipping block events + non-touch events (rotation, point, etc.)
+  const TOUCH_TYPES = new Set(['serve','ace','pass','set','attack','kill','tip','setter-dump','dig']);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (!e || !e.actor || !e.actor.player) continue;
+    if (e.type === 'block') continue;   // blocks don't count as a touch
+    if (!TOUCH_TYPES.has(e.type)) continue;
+    return e.actor.player.id;
+  }
+  return null;
+}
+
+/** Filter a candidate list to exclude the last-touch player (no double touches).
+ *  Also excludes any extra pids passed via `alsoExclude` (e.g. the current setter,
+ *  who will touch next). If filtering leaves the list empty, return the ORIGINAL
+ *  list (better to break the rule than have no one act — engine won't crash). */
+function excludeLastToucher(candidates, events, alsoExclude = []) {
+  const banned = new Set(alsoExclude.filter(Boolean));
+  const lastPid = lastNonBlockToucherPid(events);
+  if (lastPid) banned.add(lastPid);
+  if (!banned.size) return candidates;
+  const filtered = candidates.filter(c => c && c.player && !banned.has(c.player.id));
+  return filtered.length ? filtered : candidates;
 }
 
 /** Pick a hitter from `candidates`, weighted by attack stat AND chemistry with the setter.
@@ -602,20 +664,10 @@ export function simulateRallyPhase1(match) {
   const receivingTeam = match.serving === 'home' ? match.away : match.home;
   const servingSide = match.serving;
 
-  // 1) Serve — target a random x on the receiving side, then find nearest passer
-  // Pick server = player at spot 1 (P1 = right back). BUT skip MB and L — they never
-  // serve in this sim (user preference). Search clockwise for the next legal server.
-  const isLegalServer = (slot) => {
-    if (!slot || !slot.player) return false;
-    const pos = (slot.player.position || '').split('/');
-    return !pos.includes('MB') && !pos.includes('L') && !pos.includes('DS');
-  };
-  let server = null;
-  for (let offset = 0; offset < 6; offset++) {
-    const cand = playerAtSpot(servingTeam, offset);
-    if (isLegalServer(cand)) { server = cand; break; }
-  }
-  if (!server) server = playerAtSpot(servingTeam, 0);  // absolute fallback
+  // 1) Serve — target a random x on the receiving side, then find nearest passer.
+  // REAL VOLLEYBALL: whoever is at rotation position 1 (P1 = right back) serves.
+  // Everyone rotates through P1 eventually — MBs, liberos, everyone serves in turn.
+  const server = playerAtSpot(servingTeam, 0);
   const serveTargetX = 0.15 + Math.random() * 0.7;   // random x within the court
   const receiver = pickReceiver(receivingTeam, serveTargetX);
   events.push({
@@ -749,7 +801,11 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
   const attackingTeam = attackingSide === 'home' ? match.home : match.away;
   const defendingTeam = attackingSide === 'home' ? match.away : match.home;
 
-  const setter = pickSetter(attackingTeam);
+  // No-double-touch rule: setter can't be the player who just touched the ball.
+  // (blocks don't count as touches — a blocker CAN set next). This falls back to
+  // the best-setting teammate if the designated setter just dug.
+  const lastPid = lastNonBlockToucherPid(events);
+  const setter = pickSetter(attackingTeam, lastPid);
   if (!setter) {
     return finishPoint(match, events, attackingSide === 'home' ? 'away' : 'home');
   }
@@ -790,7 +846,7 @@ function continueRally(match, events, attackingSide, incomingQuality, maxTouches
 
   // ═══ TACTIC 2: HITTER SELECTION (with fakes) ═══
   // Pick a primary hitter, but also decide the attack STYLE based on set quality + who's available
-  const hitterChoice = chooseAttackTactic(attackingTeam, setter, incomingQuality, attackingSide);
+  const hitterChoice = chooseAttackTactic(attackingTeam, setter, incomingQuality, attackingSide, events);
   const hitter = hitterChoice.hitter;
   const tactic = hitterChoice.tactic;   // 'normal' | 'quick' | 'slide' | 'back-row' | 'fake'
   if (!hitter) {
