@@ -1827,7 +1827,7 @@
    *  renderCourt then re-snaps everyone to the NEW rotation positions for next rally. */
   async function animateRotationWalk(side) {
     const walkMs = Math.max(500, 900 / speed);
-    // Get the rotation-spot coord list for this side (P1..P6)
+    // Rotation-spot coord list for this side (index 0=P1, 1=P2, ..., 5=P6)
     const spots = side === 'home' ? [
       { x: 0.75, y: 0.85 },{ x: 0.75, y: 0.60 },{ x: 0.50, y: 0.60 },
       { x: 0.25, y: 0.60 },{ x: 0.25, y: 0.85 },{ x: 0.50, y: 0.85 }
@@ -1835,14 +1835,21 @@
       { x: 0.25, y: 0.15 },{ x: 0.25, y: 0.40 },{ x: 0.50, y: 0.40 },
       { x: 0.75, y: 0.40 },{ x: 0.75, y: 0.15 },{ x: 0.50, y: 0.15 }
     ];
-    // For each on-court player: find their CURRENT rotation-spot index in HOME_POS,
-    // then walk to the NEXT clockwise spot (P1→P2 means index 0→1).
+    // REAL VOLLEYBALL ROTATION (clockwise when viewed from above):
+    //   P2 → P1 (front-right to back-right / setter to server)
+    //   P1 → P6 (back-right to back-middle)
+    //   P6 → P5 (back-middle to back-left)
+    //   P5 → P4 (back-left to front-left)
+    //   P4 → P3 (front-left to front-middle)
+    //   P3 → P2 (front-middle to front-right)
+    // In array indices: 0→5, 5→4, 4→3, 3→2, 2→1, 1→0
+    // So each player at spotIndex `i` walks to spotIndex `(i + 5) % 6` (or equivalently `(i - 1 + 6) % 6`).
     const players = playersOnSide(side);
     for (const p of players) {
       const home = HOME_POS[p.pid];
       if (!home) continue;
-      const nextSpotIdx = ((home.spotIndex ?? 0) + 1) % 6;
-      const nextEngine = spots[nextSpotIdx];
+      const prevSpotIdx = ((home.spotIndex ?? 0) + 5) % 6;   // one clockwise step
+      const nextEngine = spots[prevSpotIdx];
       const nextScreen = toScreen(nextEngine);
       const el = document.querySelector(`.player-circle[data-pid="${p.pid}"]`);
       if (!el) continue;
@@ -1853,8 +1860,8 @@
       CURRENT_POS[p.pid] = { x: nextScreen.x, y: nextScreen.y };
     }
     await sleep(walkMs + 100);
-    // renderCourt() runs right after — will re-snap everyone to their NEW rotation spots
-    // based on the engine's updated rotationOffset. The walk you just saw is where they end up.
+    // renderCourt() runs right after — snaps everyone to their NEW rotation spots
+    // based on the engine's updated rotationOffset. The walk you just saw = the shift.
   }
 
   // Height profile per event type: what height is the ball AT the moment of this touch,
