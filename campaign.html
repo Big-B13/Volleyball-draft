@@ -26,6 +26,8 @@
   }
   .tabs button.active { background: #fbbf24; color: #0f172a; border-color: #f59e0b; }
   .tabs button:hover:not(.active) { border-color: rgba(251,191,36,0.4); }
+  .tabs .tab-count { display:inline-flex; min-width:20px; height:20px; margin-left:4px; padding:0 6px; align-items:center; justify-content:center; border-radius:999px; background:#f97316; color:#fff; font:900 .7rem/1 monospace; }
+  .tabs button.active .tab-count { background:#0f172a; color:#fbbf24; }
 
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
@@ -75,6 +77,7 @@
   .player-card .stars { color: #fbbf24; font-size: 0.9rem; margin-top: 2px; }
   .player-card .lvl { font-size: 0.72rem; color: #cbd5e1; margin-top: 2px; }
   .player-card .ovr { font-family: monospace; font-weight: 900; color: #22c55e; font-size: 1.1rem; margin-top: 4px; }
+  .player-card .ovr small { display:block; color:#94a3b8; font:700 .56rem/1.2 system-ui,sans-serif; letter-spacing:.7px; }
 
   /* ── CHAPTERS ── */
   .difficulty-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -132,6 +135,7 @@
     margin-bottom: 10px;
   }
   .shop-item .shop-label { color: #fff; font-weight: 700; }
+  .shop-item .shop-owned { display:inline-block; margin-top:5px; padding:2px 7px; border-radius:999px; color:#bae6fd; background:rgba(56,189,248,.14); font-size:.72rem; font-weight:800; }
   .shop-item .shop-cost { color: #fbbf24; font-family: monospace; font-weight: 900; }
   .shop-item button {
     padding: 6px 14px; background: #22c55e; color: #0f172a; border: none; border-radius: 6px;
@@ -216,6 +220,66 @@
     border: 1px solid rgba(255,255,255,0.15);
   }
   .back-link:hover { color: #fbbf24; }
+
+  /* ── CLEAR PACK ODDS ── */
+  .pack-card .pack-contents { color:#cbd5e1; font-size:0.78rem; margin-top:4px; }
+  .pack-card .pack-odds { border-top:1px solid rgba(255,255,255,0.1); padding-top:10px; }
+  .pack-odds-title { color:#e2e8f0; font:700 0.72rem/1.35 system-ui,sans-serif; margin-bottom:7px; }
+  .odds-list { display:grid; gap:5px; }
+  .odds-row { display:flex; justify-content:space-between; align-items:center; gap:8px; color:#cbd5e1; }
+  .odds-row .odds-rarity { display:flex; align-items:center; gap:6px; font-weight:700; }
+  .odds-row .odds-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 8px currentColor; }
+  .odds-row strong { color:#fff; white-space:nowrap; }
+  .shop-item { display:grid; grid-template-columns:minmax(160px,1fr) auto auto; gap:14px; }
+  .shop-item .shop-info { min-width:0; }
+  .shop-item .shop-odds { grid-column:1 / -1; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px; }
+
+  /* ── GUIDED CAMPAIGN START ── */
+  .guide-backdrop {
+    position:fixed; inset:0; z-index:130; display:none; align-items:center; justify-content:center;
+    padding:20px; background:rgba(2,6,23,0.9); backdrop-filter:blur(5px);
+  }
+  .guide-backdrop.active { display:flex; }
+  .guide-card {
+    width:min(680px,100%); max-height:calc(100vh - 40px); overflow:auto; padding:clamp(22px,5vw,38px);
+    border:2px solid #fbbf24; border-radius:18px; text-align:left;
+    background:linear-gradient(145deg,#1e293b,#0b1120 72%); box-shadow:0 24px 80px rgba(0,0,0,.65);
+    animation:modalPop .28s ease-out;
+  }
+  .guide-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; }
+  .guide-kicker { color:#fbbf24; font-size:.75rem; font-weight:900; letter-spacing:2px; }
+  .guide-progress { color:#94a3b8; font:700 .78rem monospace; white-space:nowrap; }
+  .guide-card h2 { color:#fff; margin:0 0 12px; font-size:clamp(1.45rem,4vw,2rem); }
+  .guide-card p { color:#cbd5e1; line-height:1.65; }
+  .guide-callout { padding:14px; margin:16px 0; color:#e2e8f0; background:rgba(251,191,36,.08); border:1px solid rgba(251,191,36,.35); border-radius:10px; line-height:1.55; }
+  .rarity-guide { display:grid; gap:7px; margin:18px 0; }
+  .rarity-guide-row { display:grid; grid-template-columns:110px 70px 1fr; gap:10px; align-items:center; padding:9px 11px; background:rgba(0,0,0,.25); border-left:4px solid var(--rarity); border-radius:6px; color:#cbd5e1; font-size:.84rem; }
+  .rarity-guide-row b { color:var(--rarity); }
+  .guide-actions { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:9px; margin-top:22px; }
+  .guide-actions button { padding:11px 18px; border:0; border-radius:8px; cursor:pointer; font-weight:800; }
+  .guide-actions .guide-primary { background:#f97316; color:#fff; }
+  .guide-actions .guide-secondary { color:#cbd5e1; background:#334155; }
+  .guide-actions .guide-skip { margin-right:auto; color:#94a3b8; background:transparent; border:1px solid #475569; }
+  .guide-action-note { color:#fbbf24; font-size:.82rem; font-weight:700; margin-top:9px; }
+  .tabs .guide-button { background:rgba(56,189,248,.16); color:#bae6fd; }
+  .campaign-toast {
+    position:fixed; left:50%; bottom:22px; z-index:180; transform:translate(-50%,18px);
+    max-width:min(520px,calc(100vw - 32px)); padding:12px 18px; border:1px solid #22c55e;
+    border-radius:10px; color:#dcfce7; background:rgba(5,46,22,.96); box-shadow:0 12px 35px rgba(0,0,0,.45);
+    font-weight:800; text-align:center; opacity:0; pointer-events:none; transition:opacity .2s,transform .2s;
+  }
+  .campaign-toast.active { opacity:1; transform:translate(-50%,0); }
+
+  @media (max-width:700px) {
+    .campaign-header { align-items:flex-start; gap:12px; }
+    .campaign-header .stats { flex-direction:column; gap:3px; text-align:right; }
+    .shop-item { grid-template-columns:1fr auto; }
+    .shop-item button { grid-column:1 / -1; width:100%; padding:10px; }
+    .rarity-guide-row { grid-template-columns:1fr auto; font-size:.78rem; }
+    .rarity-guide-row span:last-child { grid-column:1 / -1; }
+    .guide-actions button { flex:1 1 auto; }
+    .guide-actions .guide-skip { flex-basis:100%; order:3; }
+  }
 </style>
 </head>
 <body>
@@ -241,6 +305,7 @@
       <h1>🏐 CAMPAIGN</h1>
       <div class="stats">
         <span class="stat">💰 Coins: <b id="stat-coins">0</b></span>
+        <span class="stat">📦 Packs: <b id="stat-packs">0</b></span>
         <span class="stat">⚡ Power: <b id="stat-power">0</b></span>
         <span class="stat">🎯 Cleared: <b id="stat-cleared">0/27</b></span>
       </div>
@@ -250,9 +315,10 @@
       <button data-tab="dashboard" class="active">📊 DASHBOARD</button>
       <button data-tab="roster">👥 ROSTER</button>
       <button data-tab="chapters">🗺️ CHAPTERS</button>
-      <button data-tab="packs">📦 PACKS</button>
+      <button data-tab="packs">📦 PACKS <span class="tab-count" id="tab-pack-count">0</span></button>
       <button data-tab="collection">🃏 COLLECTION</button>
       <button data-tab="shop">🛒 SHOP</button>
+      <button class="guide-button" onclick="replayCampaignGuide()">❔ GUIDE</button>
       <button onclick="resetCampaign()" style="margin-left:auto; background:rgba(239,68,68,0.3); color:#fca5a5;">↺ Reset</button>
     </div>
 
@@ -328,9 +394,15 @@
   <div class="modal" id="modal-body"></div>
 </div>
 
+<!-- FIRST-RUN / REPLAYABLE CAMPAIGN GUIDE -->
+<div class="guide-backdrop" id="guide-backdrop" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+  <div class="guide-card" id="guide-card"></div>
+</div>
+<div class="campaign-toast" id="campaign-toast" role="status" aria-live="polite"></div>
+
 <script type="module">
   import {
-    loadCampaign, saveCampaign, clearCampaign, newCampaign,
+    loadCampaign, saveCampaign, clearCampaign, newCampaign, CAMPAIGN_SAVE_KEY,
     CHAPTERS, chapterPower, isChapterUnlocked, isChapterCleared,
     playChapter, openPack, PACK_ODDS, PACK_LABELS, RARITIES, RARITY_COLORS, RARITY_LABELS,
     teamPower, cardStats, cardOverall, moveToStarters, moveToBench, removeFromRoster, sellCard,
@@ -342,6 +414,13 @@
   let currentTab = 'dashboard';
   let currentDifficulty = 'easy';
   let currentModal = null;
+  let guideStep = 0;
+  let guidePackResult = null;
+  let guideIsReplay = false;
+  let guideBoughtPack = false;
+  let guideScheduled = false;
+  let guideRevealActive = false;
+  const GUIDE_TOTAL = 7;
 
   function init() {
     if (!state) {
@@ -353,27 +432,36 @@
     document.getElementById('campaign-view').style.display = 'block';
     wireTabs();
     render();
+    if (!state.tutorialComplete && !guideScheduled) {
+      guideScheduled = true;
+      setTimeout(() => startCampaignGuide(false), 120);
+    }
   }
 
   window.startNewCampaign = () => {
     state = newCampaign();
+    guideScheduled = false;
     init();
   };
   window.resetCampaign = () => {
     if (!confirm('Delete all campaign progress? This cannot be undone.')) return;
     clearCampaign();
     state = null;
+    guideScheduled = false;
+    closeCampaignGuide();
     init();
   };
 
+  function activateTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+    render();
+  }
+
   function wireTabs() {
     document.querySelectorAll('.tabs button[data-tab]').forEach(btn => {
-      btn.onclick = () => {
-        currentTab = btn.dataset.tab;
-        document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.classList.toggle('active', b === btn));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + currentTab));
-        render();
-      };
+      btn.onclick = () => activateTab(btn.dataset.tab);
     });
     document.querySelectorAll('.difficulty-tabs button').forEach(btn => {
       btn.onclick = () => {
@@ -384,19 +472,236 @@
     });
   }
 
+  // ─── GUIDED START ───
+  function guideRarityRows() {
+    const descriptions = {
+      common: 'Standard stat base', uncommon: '8% above the standard base', rare: '18% above the standard base',
+      epic: '30% above the standard base', legendary: '45% above the standard base',
+    };
+    return RARITIES.map(r => `
+      <div class="rarity-guide-row" style="--rarity:${RARITY_COLORS[r]}">
+        <b>${RARITY_LABELS[r]}</b><span>× ${r === 'common' ? '1.00' : r === 'uncommon' ? '1.08' : r === 'rare' ? '1.18' : r === 'epic' ? '1.30' : '1.45'}</span><span>${descriptions[r]}</span>
+      </div>`).join('');
+  }
+
+  function guideButton(label, action, cls = 'guide-primary') {
+    return `<button class="${cls}" onclick="${action}">${label}</button>`;
+  }
+
+  function guideFrame(title, body, actions) {
+    const skipLabel = guideIsReplay ? 'Close guide' : 'Skip tutorial';
+    document.getElementById('guide-card').innerHTML = `
+      <div class="guide-head">
+        <span class="guide-kicker">GOMI COACH · QUICK START</span>
+        <span class="guide-progress">${guideStep + 1} / ${GUIDE_TOTAL}</span>
+      </div>
+      <h2 id="guide-title">${title}</h2>
+      ${body}
+      <div class="guide-actions">
+        ${guideButton(skipLabel, 'skipCampaignGuide()', 'guide-skip')}
+        ${actions}
+      </div>`;
+    document.getElementById('guide-backdrop').classList.add('active');
+  }
+
+  function firstAvailablePack() {
+    const packs = state?.inventory?.packs || {};
+    if ((packs.starter || 0) > 0) return 'starter';
+    return Object.keys(PACK_ODDS).find(type => (packs[type] || 0) > 0) || null;
+  }
+
+  function startCampaignGuide(replay = false) {
+    if (!state) return;
+    guideIsReplay = replay;
+    guidePackResult = null;
+    guideBoughtPack = false;
+    guideStep = 0;
+    showGuideStep();
+  }
+
+  function showGuideStep() {
+    if (!state) return;
+    const next = n => guideButton('Next →', `campaignGuideStep(${n})`);
+
+    if (guideStep === 0) {
+      activateTab('dashboard');
+      guideFrame('Welcome, coach — here is the whole game', `
+        <p>Your goal is to make a stronger volleyball squad and clear <b>9 Easy, 9 Medium, and 9 Hard chapters</b>.</p>
+        <div class="guide-callout"><b>The loop is simple:</b><br>Open packs → collect players → set your starters and bench → upgrade cards → win chapters → earn more coins, packs, XP, and training materials.</div>
+        <p>You already have the <b>Underdog Six</b> as your starters. The Power number at the top estimates how strong that active squad is.</p>`, next(1));
+      return;
+    }
+
+    if (guideStep === 1) {
+      activateTab('collection');
+      guideFrame('Card colors show their rarity', `
+        <p>Every pack gives <b>one player card</b>. A rarer version of a player starts with a larger multiplier on all five stats, so it usually has a higher OVR and adds more team Power.</p>
+        <div class="rarity-guide">${guideRarityRows()}</div>
+        <p>The colored border and the letter in a card's top-right corner identify its rarity. Legendary cards can also use special artwork.</p>`, next(2));
+      return;
+    }
+
+    if (guideStep === 2) {
+      guideFrame('Three ways to upgrade a card', `
+        <p><b style="color:#22c55e">1. Levels:</b> starters automatically earn XP after a chapter victory. Each level adds <b>+0.05 to every stat</b>.</p>
+        <p><b style="color:#fbbf24">2. Duplicate stars:</b> pull the same player at the same rarity again to gain a star, up to 5. Each extra star adds <b>+0.15 to every stat</b>, and duplicates also award coins.</p>
+        <p><b style="color:#38bdf8">3. Training:</b> victories award ATK, DEF, SRV, SET, and ATH materials. Click a card and spend one material to add <b>+0.2 to that chosen stat</b>.</p>
+        <div class="guide-callout"><b>Reading the stats:</b> ATK is hitting, SRV is serving pressure, DEF is receiving and digging, SET is setting quality, and ATH is speed/jumping. OVR summarizes all five.</div>
+        <p>Rarity sets the card's foundation. Levels, stars, and training improve that individual campaign copy and its Campaign OVR. <b>They never change Player Stats or ratings elsewhere in the site.</b></p>`, next(3));
+      return;
+    }
+
+    if (guideStep === 3) {
+      activateTab('packs');
+      const type = firstAvailablePack();
+      if (type) {
+        const count = state.inventory.packs[type] || 0;
+        const replayContinue = guideIsReplay ? guideButton('Continue without opening', 'campaignGuideStep(4)', 'guide-secondary') : '';
+        guideFrame('Open your first pack', `
+          <p>You own <b>${count}× ${PACK_LABELS[type]}</b>. The list behind this guide shows the exact chance of pulling a player at each rarity.</p>
+          <div class="guide-callout"><b>Do this now:</b> open one pack and meet your new player. You cannot advance this first-time guide until you open it (or skip the guide).</div>`,
+          `${replayContinue}${guideButton(`Open ${PACK_LABELS[type]} →`, `openTutorialPack('${type}')`)}`);
+      } else {
+        guideFrame('Packs add players to your collection', `
+          <p>You do not have a pack to open right now. Win chapters for pack rewards, or use coins in the Shop.</p>
+          <p>Every pack clearly lists the chance of receiving a player at each rarity. After 10 unlucky packs without Epic or Legendary, the pity system guarantees Epic+.</p>`, next(4));
+      }
+      return;
+    }
+
+    if (guideStep === 4) {
+      activateTab('roster');
+      const result = guidePackResult;
+      if (result?.id && state.ownedCards[result.id]) {
+        const p = getBasePlayer(result.pid);
+        const benchFull = state.roster.bench.length >= 4;
+        guideFrame('New cards begin Unassigned', `
+          <p><b>${p?.name || 'Your new player'}</b> is in the Unassigned section behind this guide. Unassigned cards are owned, but do not add any team Power.</p>
+          <p>Your <b>Starting Six</b> do most of the work. Up to four <b>Bench</b> cards add a smaller Power bonus and are ready for future lineup changes.</p>
+          <div class="guide-callout">Normally, click any card to train it or move it. Let us put this new card on your bench now.</div>`,
+          benchFull ? next(5) : guideButton(`Put ${p?.name || 'player'} on Bench →`, `addTutorialCardToBench('${result.id}')`));
+      } else if (result?.isDuplicate) {
+        const p = getBasePlayer(result.pid);
+        guideFrame('That duplicate upgraded your card', `
+          <p>Your pull matched the same player and rarity you already owned, so <b>${p?.name || 'the card'}</b> gained ${result.starsGained ? 'a star' : 'duplicate coins at the 5-star maximum'}.</p>
+          <p>There is no new Unassigned copy: duplicates strengthen the existing card instead. Click cards behind this guide later to inspect stars, train stats, or change roster position.</p>`, next(5));
+      } else {
+        guideFrame('Build the active roster', `
+          <p>Use <b>six starters</b> for full match strength. Up to four Bench cards give a smaller Power bonus. Cards in Unassigned remain in your collection but add no Power.</p>
+          <p>Click a card to move it, train it, inspect stats, or sell it.</p>`, next(5));
+      }
+      return;
+    }
+
+    if (guideStep === 5) {
+      activateTab('shop');
+      const starter = SHOP_ITEMS.find(item => item.id === 'starter');
+      const canBuy = starter && state.inventory.coins >= starter.cost && !guideBoughtPack;
+      const buyButton = canBuy ? guideButton(`Buy Starter Pack · ${starter.cost} coins`, `buyTutorialStarterPack()`) : '';
+      const boughtNote = guideBoughtPack ? '<div class="guide-callout">✅ Pack bought! It is waiting in the Packs tab whenever you want to open it.</div>' : '';
+      guideFrame('Coins buy more chances', `
+        <p>The Shop sells pack types with different rarity chances. Better packs cost more because they have better odds. The exact chance of getting a player of every available rarity is shown under each item.</p>
+        ${boughtNote}
+        <p>Buying here is optional: you can save coins for a better pack. Chapters are your main source of coins and free reward packs.</p>`,
+        `${buyButton}${guideButton(guideBoughtPack ? 'Continue →' : 'Save my coins →', 'campaignGuideStep(6)', buyButton ? 'guide-secondary' : 'guide-primary')}`);
+      return;
+    }
+
+    activateTab('chapters');
+    guideFrame('You are ready for Chapter 1', `
+      <p>Open <b>Chapters</b>, compare your Power with Enemy Power, and press Challenge. Winning unlocks the next chapter and rewards your team.</p>
+      <div class="guide-callout"><b>After a win:</b> starters gain XP; you receive coins, a pack, and training materials. Then open the pack, improve the roster, and take on the next opponent.</div>
+      <p>Easy unlocks Medium; Medium unlocks Hard. You can replay this guide anytime with <b>❔ Guide</b>.</p>`,
+      guideButton('Finish guide & view Chapter 1 →', 'finishCampaignGuide()'));
+  }
+
+  window.campaignGuideStep = step => {
+    guideStep = step;
+    showGuideStep();
+  };
+
+  window.openTutorialPack = type => {
+    try {
+      guidePackResult = openPack(state, type);
+      guideRevealActive = true;
+      document.getElementById('guide-backdrop').classList.remove('active');
+      render();
+      showPackReveal(guidePackResult, true);
+    } catch (e) { alert(e.message); }
+  };
+
+  window.continueCampaignGuideAfterPack = () => {
+    guideRevealActive = false;
+    closeModal();
+    guideStep = 4;
+    showGuideStep();
+  };
+
+  window.addTutorialCardToBench = cardId => {
+    try {
+      moveToBench(state, cardId);
+      render();
+    } catch (e) { alert(e.message); }
+    guideStep = 5;
+    showGuideStep();
+  };
+
+  window.buyTutorialStarterPack = () => {
+    try {
+      buyPack(state, 'starter');
+      guideBoughtPack = true;
+      render();
+      showGuideStep();
+    } catch (e) { alert(e.message); }
+  };
+
+  function closeCampaignGuide() {
+    document.getElementById('guide-backdrop').classList.remove('active');
+  }
+
+  window.skipCampaignGuide = () => {
+    if (state && !guideIsReplay) {
+      state.tutorialComplete = true;
+      saveCampaign(state);
+    }
+    closeCampaignGuide();
+  };
+
+  window.finishCampaignGuide = () => {
+    if (!state) return;
+    if (!state.tutorialComplete) {
+      state.tutorialComplete = true;
+      state.log = [...(state.log || []), '✅ Quick-start tutorial complete. Chapter 1 is ready.'].slice(-30);
+      saveCampaign(state);
+    }
+    closeCampaignGuide();
+    activateTab('chapters');
+  };
+
+  window.replayCampaignGuide = () => startCampaignGuide(true);
+
   function render() {
     if (!state) return;
+    const totalPacks = Object.entries(state.inventory.packs || {})
+      .filter(([type]) => type in PACK_ODDS)
+      .reduce((sum, [, count]) => sum + (+count || 0), 0);
     document.getElementById('stat-coins').textContent = state.inventory.coins;
+    document.getElementById('stat-packs').textContent = totalPacks;
+    document.getElementById('tab-pack-count').textContent = totalPacks;
     document.getElementById('stat-power').textContent = teamPower(state);
     const totalCleared = state.progression.easyCleared.length + state.progression.mediumCleared.length + state.progression.hardCleared.length;
     document.getElementById('stat-cleared').textContent = `${totalCleared}/27`;
 
+    // These two inventory surfaces stay rendered even while hidden. Buying or opening
+    // a pack therefore updates the Shop, Packs tab, counters, odds and affordability
+    // together in the same frame rather than waiting for a tab change or refresh.
+    renderPacks();
+    renderShop();
+
     if (currentTab === 'dashboard') renderDashboard();
     else if (currentTab === 'roster') renderRoster();
     else if (currentTab === 'chapters') renderChapters();
-    else if (currentTab === 'packs') renderPacks();
     else if (currentTab === 'collection') renderCollection();
-    else if (currentTab === 'shop') renderShop();
   }
 
   // ─── DASHBOARD ───
@@ -488,6 +793,7 @@
       return;
     }
     const result = playChapter(state, n, diff);
+    render();
     showChapterResult(result, n, diff);
   };
 
@@ -522,21 +828,31 @@
   }
 
   // ─── PACKS ───
+  function packOddsHTML(type) {
+    const odds = PACK_ODDS[type] || {};
+    return `
+      <div class="pack-odds-title">Chance of getting a player of each rarity:</div>
+      <div class="odds-list">
+        ${RARITIES.map(r => `
+          <div class="odds-row" style="opacity:${(odds[r] || 0) === 0 ? '.48' : '1'}">
+            <span class="odds-rarity"><i class="odds-dot" style="background:${RARITY_COLORS[r]};color:${RARITY_COLORS[r]}"></i>${RARITY_LABELS[r]} player</span>
+            <strong>${odds[r] || 0}% chance</strong>
+          </div>`).join('')}
+      </div>`;
+  }
+
   function renderPacks() {
     const grid = document.getElementById('pack-grid');
-    const packEntries = Object.entries(state.inventory.packs).filter(([k, n]) => k in PACK_ODDS);
+    const packEntries = Object.entries(state.inventory.packs).filter(([k]) => k in PACK_ODDS);
     grid.innerHTML = packEntries.map(([type, count]) => {
-      const odds = PACK_ODDS[type];
-      const oddsHtml = Object.entries(odds).filter(([, w]) => w > 0).map(([r, w]) =>
-        `<span style="background:${RARITY_COLORS[r]}">${r[0].toUpperCase()}${w}%</span>`
-      ).join('');
       return `
         <div class="pack-card">
           <div class="pack-emoji">${PACK_LABELS[type].split(' ')[0]}</div>
           <div class="pack-name">${PACK_LABELS[type].split(' ').slice(1).join(' ')}</div>
-          <div class="pack-count">${count}</div>
-          <button class="pack-btn" onclick="doOpenPack('${type}')" ${count === 0 ? 'disabled' : ''}>OPEN</button>
-          <div class="pack-odds">${oddsHtml}</div>
+          <div class="pack-contents">1 player card per pack</div>
+          <div class="pack-count">${count} owned</div>
+          <button class="pack-btn" onclick="doOpenPack('${type}')" ${count === 0 ? 'disabled' : ''}>${count === 0 ? 'NONE OWNED' : 'OPEN PACK'}</button>
+          <div class="pack-odds">${packOddsHTML(type)}</div>
         </div>`;
     }).join('');
     document.getElementById('pity-counter').textContent = state.pity.packsSinceEpic;
@@ -545,13 +861,14 @@
   window.doOpenPack = (type) => {
     try {
       const result = openPack(state, type);
+      render();
       showPackReveal(result);
     } catch (e) {
       alert(e.message);
     }
   };
 
-  function showPackReveal(result) {
+  function showPackReveal(result, fromGuide = false) {
     const p = getBasePlayer(result.pid);
     const frame = RARITY_FRAME[result.rarity];
     const glow = RARITY_GLOW[result.rarity];
@@ -559,6 +876,7 @@
     const dupHtml = result.isDuplicate
       ? `<div class="reveal-detail">
            💫 <b>DUPLICATE</b>! ${result.starsGained ? `+1 star (now ★${result.card.stars})` : 'Max stars reached.'}
+           ${result.starsGained ? `<br>Campaign OVR <b style="color:#22c55e">${result.previousOverall.toFixed(2)} → ${result.newOverall.toFixed(2)}</b>` : ''}
            <br>+${result.coinsGained} coins
          </div>`
       : `<div class="reveal-detail">🎉 NEW CARD added to your collection!</div>`;
@@ -573,7 +891,7 @@
       <div class="reveal-name">${p?.name || '?'}</div>
       <div class="reveal-nickname">"${p?.nickname || ''}"</div>
       ${dupHtml}
-      <button class="close-btn" onclick="closeModal(); render();">CLOSE</button>
+      <button class="close-btn" onclick="${fromGuide ? 'continueCampaignGuideAfterPack()' : 'closeModal(); render();'}">${fromGuide ? 'CONTINUE GUIDE →' : 'CLOSE'}</button>
     `;
     openModal();
   }
@@ -600,19 +918,27 @@
     const list = document.getElementById('shop-list');
     list.innerHTML = SHOP_ITEMS.map(item => {
       const canAfford = state.inventory.coins >= item.cost;
+      const owned = state.inventory.packs[item.pack] || 0;
       return `
-        <div class="shop-item">
-          <span class="shop-label">${item.label}</span>
+        <div class="shop-item" data-shop-pack="${item.pack}">
+          <div class="shop-info">
+            <div class="shop-label">${item.label}</div>
+            <div style="color:#94a3b8;font-size:.76rem;margin-top:3px">Contains 1 player card</div>
+            <span class="shop-owned">${owned} owned</span>
+          </div>
           <span class="shop-cost">💰 ${item.cost}</span>
-          <button onclick="doBuyPack('${item.id}')" ${canAfford ? '' : 'disabled'}>BUY</button>
+          <button onclick="doBuyPack('${item.id}')" ${canAfford ? '' : 'disabled'}>${canAfford ? 'BUY PACK' : 'NEED COINS'}</button>
+          <div class="shop-odds">${packOddsHTML(item.pack)}</div>
         </div>`;
     }).join('');
   }
 
   window.doBuyPack = (id) => {
     try {
+      const item = SHOP_ITEMS.find(entry => entry.id === id);
       buyPack(state, id);
       render();
+      showCampaignToast(`✅ ${item?.label || 'Pack'} bought · ${state.inventory.packs[item?.pack] || 0} now owned`);
     } catch (e) { alert(e.message); }
   };
 
@@ -631,7 +957,7 @@
         <div class="nickname">${p?.nickname || ''}</div>
         <div class="stars">${stars}</div>
         <div class="lvl">Lv ${card.level} · ${card.xp} XP</div>
-        <div class="ovr">${cardOverall(card).toFixed(1)}</div>
+        <div class="ovr"><small>CAMPAIGN OVR</small>${cardOverall(card).toFixed(2)}</div>
       </div>`;
   }
 
@@ -649,8 +975,14 @@
     const glow = RARITY_GLOW[card.rarity];
     const art = cardArt(card.pid, card.rarity);
     const stats = cardStats(card);
+    const campaignOverall = cardOverall(card);
+    const baseOverall = p
+      ? +((p.attack + p.serve + p.defense + p.setting + p.athletic) / 5).toFixed(2)
+      : campaignOverall;
     const inStarters = state.roster.starters.includes(cardId);
     const inBench = state.roster.bench.includes(cardId);
+    const rosterLocation = inStarters ? 'STARTING SIX' : inBench ? 'BENCH' : 'UNASSIGNED';
+    const rosterLocationColor = inStarters ? '#22c55e' : inBench ? '#38bdf8' : '#94a3b8';
     const startersFull = state.roster.starters.length >= 6 && !inStarters;
     const benchFull = state.roster.bench.length >= 4 && !inBench;
 
@@ -660,9 +992,18 @@
       return `<div class="stat-row"><span class="stat-name">${k.toUpperCase()}${boost}</span><span class="stat-val">${stats[k].toFixed(2)}</span></div>`;
     }).join('');
 
+    const materialStats = { atk:'attack', def:'defense', srv:'serve', set:'setting', ath:'athletic' };
     const trainButtons = ['atk','def','srv','set','ath'].map(mat => {
       const count = state.inventory.materials[mat] || 0;
-      return `<button onclick="doTrain('${cardId}','${mat}')" ${count === 0 ? 'disabled' : ''}>+ ${mat.toUpperCase()} (${count})</button>`;
+      const statKey = materialStats[mat];
+      const isMax = stats[statKey] >= 11;
+      const previewCard = {
+        ...card,
+        statBoosts: { ...(card.statBoosts || {}), [statKey]: +(((card.statBoosts || {})[statKey] || 0) + 0.2).toFixed(2) },
+      };
+      const projectedGain = +(cardOverall(previewCard) - campaignOverall).toFixed(2);
+      const label = isMax ? `${mat.toUpperCase()} MAX` : `+ ${mat.toUpperCase()} (${count}) · OVR +${projectedGain.toFixed(2)}`;
+      return `<button onclick="doTrain('${cardId}','${mat}')" ${count === 0 || isMax ? 'disabled' : ''}>${label}</button>`;
     }).join('');
 
     document.getElementById('modal-body').style.setProperty('--frame', frame);
@@ -675,10 +1016,13 @@
       <div class="reveal-name">${p?.name}</div>
       <div class="reveal-nickname">"${p?.nickname}" · ${'★'.repeat(card.stars)} · Lv ${card.level}</div>
       <div class="card-detail-stats">${statsHtml}</div>
-      <div style="color:#94a3b8; font-size:0.85rem;">OVR: <b style="color:#22c55e;">${cardOverall(card).toFixed(2)}</b></div>
-      <div style="margin-top:16px; text-align:left; color:#fbbf24; font-size:0.8rem; letter-spacing:1px;">TRAIN (+0.2 per material)</div>
+      <div style="padding:10px;border-radius:8px;background:rgba(34,197,94,.08);color:#cbd5e1;font-size:0.85rem;">
+        CAMPAIGN OVR: <b style="color:#22c55e;font-size:1.05rem;">${campaignOverall.toFixed(2)}</b>
+        <br><span style="color:#94a3b8;">Base player ${baseOverall.toFixed(2)} · Campaign upgrades ${campaignOverall >= baseOverall ? '+' : ''}${(campaignOverall - baseOverall).toFixed(2)} · does not change ratings elsewhere</span>
+      </div>
+      <div style="margin-top:16px; text-align:left; color:#fbbf24; font-size:0.8rem; letter-spacing:1px;">TRAIN (+0.2 stat per material)</div>
       <div class="card-detail-actions">${trainButtons}</div>
-      <div style="margin-top:16px; text-align:left; color:#fbbf24; font-size:0.8rem; letter-spacing:1px;">ROSTER</div>
+      <div style="margin-top:16px; text-align:left; color:#fbbf24; font-size:0.8rem; letter-spacing:1px;">ROSTER · <span style="color:${rosterLocationColor}">${rosterLocation}</span></div>
       <div class="card-detail-actions">
         <button onclick="doMoveStarter('${cardId}')" ${inStarters || startersFull ? 'disabled' : ''}>→ Starters</button>
         <button onclick="doMoveBench('${cardId}')" ${inBench || benchFull ? 'disabled' : ''}>→ Bench</button>
@@ -690,12 +1034,28 @@
     openModal();
   }
 
+  function refreshCardAndPage(cardId) {
+    render();
+    openCardDetail(cardId);
+  }
+
+  function showRosterMoveImmediately() {
+    // Close the detail and repaint the roster now, so a moved card visibly leaves
+    // Unassigned and appears on the Bench/Starting Six without a page refresh.
+    closeModal();
+    render();
+  }
+
   window.doTrain = (cardId, mat) => {
-    try { trainCard(state, cardId, mat); openCardDetail(cardId); } catch (e) { alert(e.message); }
+    try {
+      const upgrade = trainCard(state, cardId, mat);
+      refreshCardAndPage(cardId);
+      showCampaignToast(`⬆ ${upgrade.statKey.toUpperCase()} ${upgrade.previousStat.toFixed(2)} → ${upgrade.newStat.toFixed(2)} · Campaign OVR ${upgrade.previousOverall.toFixed(2)} → ${upgrade.newOverall.toFixed(2)}`);
+    } catch (e) { alert(e.message); }
   };
-  window.doMoveStarter = (cardId) => { try { moveToStarters(state, cardId); openCardDetail(cardId); } catch (e) { alert(e.message); } };
-  window.doMoveBench = (cardId) => { try { moveToBench(state, cardId); openCardDetail(cardId); } catch (e) { alert(e.message); } };
-  window.doRemoveRoster = (cardId) => { removeFromRoster(state, cardId); openCardDetail(cardId); };
+  window.doMoveStarter = (cardId) => { try { moveToStarters(state, cardId); showRosterMoveImmediately(); } catch (e) { alert(e.message); } };
+  window.doMoveBench = (cardId) => { try { moveToBench(state, cardId); showRosterMoveImmediately(); } catch (e) { alert(e.message); } };
+  window.doRemoveRoster = (cardId) => { removeFromRoster(state, cardId); showRosterMoveImmediately(); };
   window.doSellCard = (cardId) => {
     if (!confirm('Sell this card for coins? Cannot be undone.')) return;
     const v = sellCard(state, cardId);
@@ -704,16 +1064,38 @@
     if (v) setTimeout(() => alert(`Sold for ${v} coins.`), 100);
   };
 
+  function showCampaignToast(message) {
+    const toast = document.getElementById('campaign-toast');
+    toast.textContent = message;
+    toast.classList.add('active');
+    clearTimeout(showCampaignToast.timer);
+    showCampaignToast.timer = setTimeout(() => toast.classList.remove('active'), 2800);
+  }
+
   // ─── MODAL HELPERS ───
   function openModal() { document.getElementById('modal-backdrop').classList.add('active'); }
-  window.closeModal = () => document.getElementById('modal-backdrop').classList.remove('active');
+  function closeModal() { document.getElementById('modal-backdrop').classList.remove('active'); }
+  window.closeModal = closeModal;
   document.getElementById('modal-backdrop').addEventListener('click', (e) => {
-    if (e.target.id === 'modal-backdrop') { closeModal(); render(); }
+    if (e.target.id === 'modal-backdrop' && !guideRevealActive) { closeModal(); render(); }
   });
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
+
+  // localStorage fires this event in other open Campaign tabs/windows. Re-load the
+  // shared campaign save so purchases, opened packs, coins and upgrades stay in sync.
+  window.addEventListener('storage', event => {
+    if (event.key !== CAMPAIGN_SAVE_KEY) return;
+    state = loadCampaign();
+    guideRevealActive = false;
+    guideScheduled = false;
+    closeModal();
+    closeCampaignGuide();
+    init();
+    if (state) showCampaignToast('🔄 Campaign inventory updated from another tab');
+  });
 
   init();
 </script>
