@@ -981,21 +981,21 @@
       });
     }
 
-    // Fill up to 6 with random players not yet used, skipping other captains' linked players
-    if (roster.length < 6) {
+    // Fill starters + bench (up to 10) so 2D consumes the same v3 roster model as 3D.
+    if (roster.length < 10) {
       const linkedByOtherCaps = new Set(
         leagueCaptains.filter((_, i) => i !== captainIdx).map(c => c.linkedPlayerId).filter(Boolean)
       );
       const pool = shuffle(ALL_PLAYERS.filter(p => !usedIds.has(p.id) && !linkedByOtherCaps.has(p.id)));
       let n = roster.length;
-      while (roster.length < 6 && pool.length) {
+      while (roster.length < 10 && pool.length) {
         const p = pool.shift();
         roster.push({ ...p, jerseyNum: n });
         usedIds.add(p.id);
         n++;
       }
     }
-    return roster.slice(0, 6);
+    return roster.slice(0, 10);
   }
 
   // ============ SIM RUNTIME ============
@@ -1177,7 +1177,8 @@
     }
 
     match = createMatch({
-      homeTeam: homeRoster, awayTeam: awayRoster,
+      homeTeam: homeRoster.slice(0, 6), awayTeam: awayRoster.slice(0, 6),
+      homeBench: homeRoster.slice(6), awayBench: awayRoster.slice(6),
       homeName: leagueCaptains[homeIdx].team,
       awayName: leagueCaptains[awayIdx].team,
       homeColor: leagueCaptains[homeIdx].color,
@@ -1756,6 +1757,7 @@
       if (ev.type === 'point') updateMomentumVisuals(ev);
       console.log(`[match-sim] Playing phase1 event ${i}/${phase1.events.length}: ${ev.type} by ${ev.actor?.player?.name || '?'}`);
       appendLog(formatEvent(ev), classForEvent(ev));
+      if (ev.type === 'substitution') { renderCourt(); continue; }
       await animateEvent(ev, prev, next, ball, shadow);
     }
 

@@ -333,7 +333,7 @@
 
 <script type="module" src="./js/back-button.js"></script>
 <script type="module">
-  import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, specialtyCounters, setManualHitter, playerAtSpot } from "./js/match-engine-v3.js";
+  import { createMatch, simulateRally, simulateRallyPhase1, simulateRallyPhase2, availableHitters, specialtyCounters, setManualHitter, playerAtSpot, substitute } from "./js/match-engine-v3.js";
   import { augmentEvents, resetV3State } from "./js/mechanics-v3.js";
   import { traitsFor, PLAYER_TRAITS } from "./js/data.js";
   import { GomiCupRenderer3D } from "./js/renderer-3d.js";
@@ -353,6 +353,8 @@
   let playMode = 'auto';       // 'auto' | 'manual'
   let controlSide = 'home';    // which side the user controls in manual mode
   let awaitingShotCall = null; // resolver for the shot-call promise
+  let rallyInProgress = false;
+  const subChoice = { home: { out: null, in: null }, away: { out: null, in: null } };
 
   await ensureGomiCupSeeded();
 
@@ -635,6 +637,7 @@
 
   async function playRally() {
     if (!match) return;
+    rallyInProgress = true;
 
     // ─── V3: Split rally so the manual choice fires between pass and set ───
     const phase1 = simulateRallyPhase1(match);
@@ -654,6 +657,7 @@
     }
 
     renderer.syncPositions(match);
+    rallyInProgress = false;
     renderRosterPanel();
   }
 
@@ -678,36 +682,36 @@
     }
   }
 
-  /** V3: render the on-court + bench roster with stamina bars. */
+  /** Tactical substitution panel. Select a starter and a bench player, then confirm between rallies. */
+  window.pickSub3D = (side, type, idx) => {
+    if (rallyInProgress) return alert('Wait for the current rally to finish before making a substitution.');
+    subChoice[side][type] = idx;
+    renderRosterPanel();
+  };
+  window.confirmSub3D = (side) => {
+    if (rallyInProgress) return alert('Wait for the current rally to finish before making a substitution.');
+    const pick = subChoice[side];
+    if (pick.out == null || pick.in == null) return alert('Select one on-court player and one bench player.');
+    const team = match[side]; const outgoing = team.lineup[pick.out]?.player; const incoming = team.bench[pick.in];
+    if (!outgoing || !incoming || !substitute(team, pick.out, pick.in)) return alert('That substitution is no longer available.');
+    const ev = { type:'substitution', team:side, outPid:outgoing.id, inPid:incoming.id, outName:outgoing.name, inName:incoming.name };
+    match.subHistory.push({ ...ev, manual:true, atRally:match.rallyNumber });
+    subChoice[side] = { out:null, in:null };
+    renderer.attachMatch(match); renderer.syncPositions(match); renderRosterPanel(ev);
+    appendLog(`🔄 MANUAL SUB (${team.name}): ${incoming.name} in for ${outgoing.name}`, 'substitution');
+  };
   function renderRosterPanel(subEv = null) {
     if (!match) return;
-    const panel = document.getElementById('roster-panel');
-    if (!panel) return;
-    const sides = ['home','away'];
-    panel.innerHTML = sides.map(side => {
-      const team = match[side];
-      const starters = team.lineup.map(s => s && s.player).filter(Boolean);
-      const bench = (team.bench || []).slice();
-      const rowFor = (p, isBench) => {
-        const sta = match.stamina?.[p.id] ?? 100;
-        const cls = sta <= 15 ? 'critical' : sta <= 40 ? 'low' : '';
-        const exhausted = sta <= 15 ? 'exhausted' : '';
-        const flashed = subEv && (subEv.outPid === p.id || subEv.inPid === p.id) ? 'subbed' : '';
-        return `
-          <div class="roster-row ${isBench ? 'bench' : ''} ${exhausted} ${flashed}">
-            <span class="num">${p.jerseyNum ?? '?'}</span>
-            <span class="name">${p.name} <span class="pos">[${p.position || '?'}]</span></span>
-            <div class="stamina-bar"><div class="stamina-fill ${cls}" style="width:${sta}%"></div></div>
-            <span class="stamina-val">${Math.round(sta)}</span>
-          </div>`;
+    const panel = document.getElementById('roster-panel'); if (!panel) return;
+    panel.innerHTML = ['home','away'].map(side => {
+      const team = match[side], pick = subChoice[side];
+      const rowFor = (p, isBench, idx) => {
+        const sta = match.stamina?.[p.id] ?? 100, cls = sta <= 15 ? 'critical' : sta <= 40 ? 'low' : '';
+        const selected = (!isBench && pick.out===idx) || (isBench && pick.in===idx) ? ' style="outline:2px solid #fbbf24;background:rgba(251,191,36,.16)"' : '';
+        const flashed = subEv && (subEv.outPid===p.id || subEv.inPid===p.id) ? 'subbed' : '';
+        return `<button class="roster-row ${isBench?'bench':''} ${sta<=15?'exhausted':''} ${flashed}" ${selected} onclick="pickSub3D('${side}','${isBench?'in':'out'}',${idx})" title="${isBench?'Choose as player in':'Choose as player out'}"><span class="num">${p.jerseyNum??'?'}</span><span class="name">${p.name} <span class="pos">[${p.position||'?'}]</span></span><div class="stamina-bar"><div class="stamina-fill ${cls}" style="width:${sta}%"></div></div><span class="stamina-val">${Math.round(sta)}</span></button>`;
       };
-      return `
-        <div class="roster-side">
-          <h4 style="color:${team.color}">${team.name} — ON COURT</h4>
-          ${starters.map(p => rowFor(p, false)).join('')}
-          ${bench.length ? `<h4 style="margin-top:8px">BENCH (${bench.length})</h4>` : ''}
-          ${bench.map(p => rowFor(p, true)).join('')}
-        </div>`;
+      return `<div class="roster-side"><h4 style="color:${team.color}">${team.name} — TACTICAL SUBSTITUTION</h4>${team.lineup.map((s,i)=>s?.player?rowFor(s.player,false,i):'').join('')}<h4 style="margin-top:8px">BENCH (${team.bench?.length||0})</h4>${(team.bench||[]).map((p,i)=>p?rowFor(p,true,i):'').join('')}<button class="secondary" style="margin-top:8px;padding:7px" onclick="confirmSub3D('${side}')">🔄 Confirm substitution</button><small style="color:#94a3b8;margin-top:5px">Select one court player + one bench player between rallies.</small></div>`;
     }).join('');
   }
 
@@ -845,3 +849,7 @@
 
 </body>
 </html>
+<style>
+/* Buttons inside the roster panel are selectors, not the global orange action style. */
+.roster-row{border:1px solid transparent;width:100%;background:rgba(0,0,0,.16);color:#e2e8f0;text-align:left;cursor:pointer}.roster-row:hover{border-color:#fbbf24;transform:none;box-shadow:none}
+</style>
