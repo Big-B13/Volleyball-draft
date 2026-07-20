@@ -261,7 +261,9 @@ export function endOfRallyRest(match) {
 
 export function createMatch({ homeTeam, awayTeam, homeBench = [], awayBench = [],
                               homeName, awayName, homeColor, awayColor,
-                              homeSpecialty, awaySpecialty, chemistryMap }) {
+                              homeSpecialty, awaySpecialty, chemistryMap,
+                              setsToWin = 3, setTarget = 25, finalSetTarget = 15,
+                              winByTwo = true }) {
   // Store chemistry map for use by t() throughout this match
   MATCH_CHEMISTRY = chemistryMap || {};
   const home = {
@@ -299,8 +301,10 @@ export function createMatch({ homeTeam, awayTeam, homeBench = [], awayBench = []
     serving: 'home',
     rallyNumber: 0,
     setNumber: 1,
-    setTarget: 25,
-    finalSetTarget: 15,
+    setTarget,
+    finalSetTarget,
+    setsToWin,
+    winByTwo,
     matchOver: false,
     winner: null,
     log: [],
@@ -1236,7 +1240,8 @@ function finishPoint(match, events, winningSide) {
   // Check set win
   const target = match.setNumber === 5 ? match.finalSetTarget : match.setTarget;
   const [a, b] = [match.pointsHome, match.pointsAway];
-  if ((a >= target && a - b >= 2) || (b >= target && b - a >= 2)) {
+  const requiredLead = match.winByTwo === false ? 1 : 2;
+  if ((a >= target && a - b >= requiredLead) || (b >= target && b - a >= requiredLead)) {
     const winner = a > b ? 'home' : 'away';
     if (winner === 'home') match.setsHome++;
     else match.setsAway++;
@@ -1247,8 +1252,9 @@ function finishPoint(match, events, winningSide) {
       // Final set score BEFORE reset (so the visual layer can display "25-23" etc.)
       finalHome: a, finalAway: b
     });
-    // Match over?
-    if (match.setsHome === 3 || match.setsAway === 3) {
+    // Match over? Standard matches use 3 sets; campaign sprints can use 1.
+    const setsNeeded = match.setsToWin || 3;
+    if (match.setsHome === setsNeeded || match.setsAway === setsNeeded) {
       match.matchOver = true;
       match.winner = match.setsHome > match.setsAway ? 'home' : 'away';
       events.push({ type: 'match-won', team: match.winner });

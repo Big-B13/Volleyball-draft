@@ -19,13 +19,14 @@ campaign.html                                  ← campaign hub (dashboard, rost
 campaign-match.html                            ← dedicated first-to-5 2D campaign court
 js/campaign-store.js                           ← state, packs, chapter rivals, matches, saves
 js/campaign-art.js                             ← artwork resolver
+js/match-engine-v3.js                          ← REPLACES existing file (adds setsToWin/setTarget/winByTwo options — fully backwards-compatible; 3-set 25/15 matches still play identically)
 assets/campaign/cards/<pid>/legendary.png      ← 13 legendary alt-art portraits
 ```
 
 ## Install steps (GitHub web upload)
 
 1. **Drag `campaign.html` and `campaign-match.html`** into the repo root of the `Development` branch.
-2. **Drag `js/campaign-store.js` and `js/campaign-art.js`** into the `js/` folder.
+2. **Drag `js/campaign-store.js`, `js/campaign-art.js`, and `js/match-engine-v3.js`** into the `js/` folder (replace the existing `match-engine-v3.js` — the change adds `setsToWin`/`setTarget`/`winByTwo` options so first-to-5 sprints stop at 5. Standard 3-set 25/15 matches still play identically).
 3. **Upload the `assets/campaign/` folder** into `assets/` (13 legendary portraits).
 4. **Replace `index.html` at the repo root** with the one in this ZIP (only change: adds the Campaign card to the Play tab).
 5. Commit + push, wait for Pages to build, then hard-refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`).
