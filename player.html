@@ -146,7 +146,10 @@
     const { escapeHtml } = await import("./js/util.js");
     log('✓ util.js loaded');
     const { STAT_FIELDS, computeMvpScore } = await import("./js/player-stats.js");
-    log('✓ player-stats.js loaded');
+    const { getPlayerMatchHistory } = await import("./js/progression.js");
+    const { SYNERGIES } = await import("./js/synergies.js");
+    const { watchAuth } = await import("./js/auth.js");
+    log('✓ player profile modules loaded');
 
     const params = new URLSearchParams(location.search);
     const pid = params.get('id');
@@ -230,6 +233,10 @@
         }
       }
       log(`✓ Aggregated ${totals.games} games of stats`);
+      const savedMatches = await getPlayerMatchHistory(pid).catch(() => []);
+      const potentialSynergies = SYNERGIES.filter(s => s.players.includes(pid));
+      const profileSession = await new Promise(resolve => { let done=false; watchAuth(x => { if(!done){done=true;resolve(x);} }); });
+      const isMyCard = !!(profileSession?.profile?.linkedPlayerId === pid);
 
       log('Rendering profile…');
       document.getElementById('loading').classList.add('hidden');
@@ -292,6 +299,7 @@
           </div>
         </div>
 
+        ${isMyCard ? `<div class="success-box" style="font-size:1rem">⭐ <strong>This is your player card.</strong> Your account is linked to ${escapeHtml(p.name)}.</div>` : ''}
         ${isUnlocked && p.bio ? `
           <div class="section">
             <h2>Scouting Report</h2>
@@ -335,6 +343,9 @@
           </div>
         ` : ''}
 
+        ${isUnlocked && potentialSynergies.length ? `<div class="section"><h2>⚡ Potential Team-Ups</h2><p style="color:#94a3b8;font-size:.85rem;margin-bottom:10px">Build a squad with these friends to unlock power-ups.</p>${potentialSynergies.map(s=>`<div style="padding:9px;margin:7px 0;border-left:3px solid #fbbf24;background:rgba(251,191,36,.08)">${s.icon} <strong>${escapeHtml(s.name)}</strong> · needs ${s.players.length} players</div>`).join('')}</div>` : ''}
+        ${isUnlocked && savedMatches.length ? `<div class="section"><h2>🕹️ Recent Simulator Matches</h2>${savedMatches.map(m=>{const home=(m.home.players||[]).includes(pid);const own=home?m.home:m.away;const won=m.winner===(home?'home':'away');return `<div class="career-item" style="border-left:4px solid ${won?'#22c55e':'#ef4444'}"><div class="season">${new Date(m.createdAt).toLocaleDateString()}<br>${m.mode?.toUpperCase()||'SIM'} SIM</div><div><div class="team-line">${escapeHtml(own.name)}</div><div style="font-size:.75rem;color:#94a3b8">${won?'✅ Win':'❌ Loss'} · ${m.setsHome}-${m.setsAway}</div></div><div class="pick-num">${won?'W':'L'}</div></div>`}).join('')}</div>` : ''}
+
         ${p.youtubeUrl && isUnlocked ? `
           <div class="section">
             <h2>🎥 Highlights</h2>
@@ -364,10 +375,13 @@
           </div>
         ` : ''}
 
+        ${isMyCard ? `<div class="section"><h2>📝 Request a profile correction</h2><textarea id="correction-message" rows="3" placeholder="Example: My nickname/photo/position needs updating."></textarea><button id="send-correction" style="margin-top:8px">Send to commissioner</button></div>` : ''}
         <div style="text-align:center; margin: 20px 0;">
           <a href="./cards.html" style="color:#fbbf24; text-decoration:none;">← Back to all cards</a>
         </div>
       `;
+      const correctionBtn = document.getElementById('send-correction');
+      if (correctionBtn) correctionBtn.onclick = async () => { const msg=document.getElementById('correction-message').value.trim(); if(!msg) return alert('Write a short correction request first.'); const { submitProfileCorrection }=await import('./js/auth.js'); await submitProfileCorrection(profileSession.user.uid,{message:msg,playerId:pid}); correctionBtn.textContent='✅ Sent to commissioner'; correctionBtn.disabled=true; };
       log('✓ Done rendering');
     }
 

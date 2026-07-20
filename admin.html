@@ -115,6 +115,11 @@
   </div>
 
   <div class="card">
+    <h2>📝 Profile Correction Requests (<span id="correction-count">0</span>)</h2>
+    <div id="correction-list" style="color:#94a3b8">Loading…</div>
+  </div>
+
+  <div class="card">
     <h2>Registered Users (<span id="user-count">0</span>)</h2>
     <div id="user-list"></div>
   </div>
@@ -177,7 +182,7 @@
 <script type="module">
   import {
     guardPage, renderAuthBadge, createInviteCode, listInviteCodes,
-    listUsers, deleteInviteCode, updateUserRole, resetUser, approveMember, declineMember
+    listUsers, deleteInviteCode, updateUserRole, resetUser, approveMember, declineMember, listProfileCorrections, resolveProfileCorrection
   } from "./js/auth.js";
   import { DEFAULT_PLAYERS, DEFAULT_CAPTAINS } from "./js/data.js";
   import {
@@ -290,7 +295,12 @@ Then they can sign up fresh with the invite code above.`;
     return '<option value="">— no player card link —</option>' + DEFAULT_PLAYERS.map(p => `<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)} · ${esc(p.nickname)}</option>`).join('');
   }
 
+  window.resolveCorrection = async (id) => { await resolveProfileCorrection(id); await refresh(); };
   async function refresh() {
+    const corrections = await listProfileCorrections();
+    const open = corrections.filter(x => x.status === 'open');
+    document.getElementById('correction-count').textContent = open.length;
+    document.getElementById('correction-list').innerHTML = open.length ? open.map(x => `<div style="padding:10px;margin:8px 0;background:rgba(15,23,42,.6);border-radius:8px"><strong>${esc(x.playerId || 'Account correction')}</strong><br><span style="color:#cbd5e1">${esc(x.message)}</span><br><button class="secondary" style="margin-top:8px;padding:5px 9px;font-size:.75rem" onclick="resolveCorrection('${x.id}')">Mark resolved</button></div>`).join('') : 'No open correction requests.';
     const codes = await listInviteCodes();
     document.getElementById('code-count').textContent = codes.length;
     codes.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));

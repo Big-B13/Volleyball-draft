@@ -849,6 +849,7 @@
   import { applySynergiesToRoster, synergyChemistryFloor } from "./js/synergies.js";
   import { PHOTO_CONFIG } from "./js/photo-config.js";
   import { playPick, playYourTurn, playReveal } from "./js/sounds.js";
+  import { saveCompletedMatch } from "./js/progression.js";
 
   // Transform engine coords (vertical, home on bottom) → screen coords (horizontal, home on left)
   // screen.x = 1 - engine.y   (engine's y=0.85 near home endline → screen x=0.15 = far left)
@@ -1006,7 +1007,8 @@
   let controlSide = 'home';
   let currentChemistryBlob = {};  // raw Firebase chemistry blob for the loaded league
   let currentSynergies = { home: [], away: [] };  // active squad bonuses this match
-  let setScores = [];   // [{setNum, home, away, winner}] appended when each set finishes
+  let setScores = [];
+  let matchSaved = false;   // [{setNum, home, away, winner}] appended when each set finishes
 
   /** Repaint hot-streak (fire) and cold-streak visuals on every player circle.
    *  Team momentum drives fire tier (0/1/2/3), player cold streak adds .cold desaturation. */
@@ -1185,7 +1187,7 @@
       awayColor: leagueCaptains[awayIdx].color,
       chemistryMap
     });
-    setScores = [];   // fresh set-score history for this match
+    setScores = []; matchSaved = false;   // fresh set-score history for this match
     // Reset zone assignments for new match (fresh rosters get re-classified)
     for (const k of Object.keys(PLAYER_ROLE_ZONE)) delete PLAYER_ROLE_ZONE[k];
     // Reset shared v3 mechanics state (morale, stamina, substitutions, ability cooldowns)
@@ -1673,6 +1675,7 @@
       if (!match.matchOver && !paused) scheduleNextRally();
       else if (match.matchOver) {
         appendLog(`\n🏆 ${match.winner === 'home' ? match.home.name : match.away.name} WINS THE MATCH ${match.setsHome}-${match.setsAway}!`, 'matchwon');
+        if (!matchSaved) { matchSaved=true; saveCompletedMatch({match,leagueId:lgSel.value,mode:'2d'}).then(()=>appendLog('💾 Result saved · team chemistry updated','setwon')).catch(e=>console.warn(e)); }
         try { playReveal(); } catch (e) {}
       }
     }, delay);

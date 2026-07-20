@@ -341,6 +341,7 @@
   import { getLeague, currentLeagueId, listLeagues, ensureGomiCupSeeded } from "./js/leagues.js";
   import { getAllPlayers } from "./js/players.js";
   import { escapeHtml, shuffle } from "./js/util.js";
+  import { saveCompletedMatch } from "./js/progression.js";
   import { buildChemistryMap, loadLeagueChemistry } from "./js/chemistry.js";
   import { applySynergiesToRoster } from "./js/synergies.js";
 
@@ -349,6 +350,7 @@
   let speed = 1;
   let paused = false;
   let setScores = [];
+  let matchSaved = false;
   // V3: manual play mode
   let playMode = 'auto';       // 'auto' | 'manual'
   let controlSide = 'home';    // which side the user controls in manual mode
@@ -547,7 +549,7 @@
       awayColor: leagueCaptains[awayIdx].color || '#2563eb',
       chemistryMap,
     });
-    setScores = [];
+    setScores = []; matchSaved = false;
     resetV3State(match);
 
     // V3: read play-mode selection
@@ -592,6 +594,7 @@
       if (!match.matchOver && !paused) scheduleNextRally();
       else if (match.matchOver) {
         appendLog(`🏆 ${match.winner === 'home' ? match.home.name : match.away.name} WINS THE MATCH ${match.setsHome}-${match.setsAway}!`, 'matchwon');
+        if (!matchSaved) { matchSaved=true; saveCompletedMatch({match, leagueId:lgSel.value, mode:'3d'}).then(()=>appendLog('💾 Result saved · team chemistry updated','setwon')).catch(e=>console.warn('Could not save match',e)); }
       }
     }, 400 / speed);
   }

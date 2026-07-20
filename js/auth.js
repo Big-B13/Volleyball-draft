@@ -49,3 +49,12 @@ export function guardPage({ requireRole='viewer', requireApproved=false, redirec
  return new Promise(resolve=>watchAuth(async session=>{ if(!session){location.replace(target);return;} const {user,profile}=session; if(!profile){await logout();location.replace(target);return;} if(requireApproved && (profile.status === 'pending' || profile.status === 'declined')){ overlay.innerHTML='<div style="text-align:center;padding:24px"><div style="font-size:2rem">⏳</div><p>Your membership is still pending approval.</p><a href="./index.html" style="color:#fbbf24">Back to dashboard</a></div>';return;} if((ROLE_LEVELS[profile.role]||1)<(ROLE_LEVELS[requireRole]||1)){overlay.innerHTML='<div style="text-align:center;padding:24px">🚫 You do not have access to this page.<br><br><a href="./index.html" style="color:#fbbf24">Back to dashboard</a></div>';return;} overlay.remove();resolve({user,profile}); }));
 }
 export function renderAuthBadge(el, profile) { if(!el)return; const pending=profile.status==='pending'; const club=profile.favoriteClub ? ` · ${profile.favoriteClub}` : ''; el.innerHTML=`<div style="display:inline-flex;gap:10px;align-items:center;padding:6px 12px;background:rgba(30,41,59,.7);border-radius:20px;font-size:.85rem;color:#e2e8f0"><span>${pending?'⏳':'👤'}</span><span><strong>${profile.displayName||profile.username}</strong> · ${pending?'pending approval':profile.role}${club}</span><button onclick="window.__logout()" style="background:transparent;border:1px solid #475569;color:#94a3b8;padding:3px 10px;border-radius:12px;cursor:pointer;font-size:.75rem">Log out</button></div>`; window.__logout=async()=>{await logout();location.href='./index.html';}; }
+
+/** Member-facing correction request. Commissioners review these in Admin. */
+export async function submitProfileCorrection(uid, { message, playerId = null }) {
+  const id = `request-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+  await set(ref(db, `profileCorrections/${id}`), { uid, playerId, message: String(message||'').trim().slice(0,500), status:'open', createdAt:Date.now() });
+  return id;
+}
+export async function listProfileCorrections() { const v=(await get(ref(db,'profileCorrections'))).val()||{}; return Object.entries(v).map(([id,x])=>({id,...x})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)); }
+export async function resolveProfileCorrection(id) { return update(ref(db,`profileCorrections/${id}`),{status:'resolved',resolvedAt:Date.now()}); }
