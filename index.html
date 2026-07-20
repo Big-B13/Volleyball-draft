@@ -1,10 +1,267 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Gomi Cup</title><link rel="stylesheet" href="./css/style.css"></head><body><main class="container" id="app"><div style="text-align:center;padding:80px;color:#94a3b8">Loading The Gomi Cup…</div></main><script type="module">
-import {watchAuth,renderAuthBadge} from './js/auth.js';
-const app=document.getElementById('app');const club={strigidae:{name:'Strigidae',emoji:'🦉',logo:'./assets/strigidae.png'},otters:{name:'Kòrsou Otters',emoji:'🦦',logo:'./assets/otters.png'},shizuka:{name:'Shizuka',emoji:'☁️',logo:'./assets/shizuka.png'}};
-const link=(url,icon,title,text)=>`<a class="hub-link" href="${url}"><div style="font-size:1.5rem">${icon}</div><b>${title}</b><span>${text}</span></a>`;let profile=null,activeTab=null;
-function cardsFor(tab){const pending=profile.status==='pending';const groups={play:[link('./campaign.html','🏐','Campaign','Collect and upgrade cards across 9 chapters, each with 10 first-to-5 matches.'),link('./team-builder.html','✨','Dream Team','Build and save your perfect team.'),link('./match-sim.html','🎮','2D Match Sim','Play through a match in the tactical court view.'),link('./match-sim-3d.html','🕹️','3D Match Sim','Watch your match in the arena.'),...(pending?[]:[link('./draft.html','🎯','Live Draft','Join an active draft room.')])],players:[link('./cards.html','🃏','Player Cards','Trading cards, reveals, and rosters.'),link('./player-stats.html','🌟','Player Stats','Compare ratings, positions, and performance.')],lab:[link('./chemistry.html','💚','Chemistry','See which players build bonds together.'),link('./synergies.html','⚡','Synergies','Discover named team-ups and power-ups.')],league:[link('./standings.html','📊','Standings','League table and results.'),link('./clubs.html','🛡️','Club Hub','Meet the three clubs.'),link('./league.html','📖','League History','The story behind the Gomi Cup.')],extras:[link('./photos.html','📸','Photos','League gallery.'),link('./onboarding.html?replay=1','❔','How to Play','Replay the introduction.'),...(profile.role==='commissioner'?[link('./admin.html','👑','Commissioner Panel','Approve members and manage the league.')]:[])]};return groups[tab]||[]}
-function showTab(tab){activeTab=tab;const names={play:['🎮 Play','Build a squad, then take it onto the court.'],players:['👥 Players','Meet the people behind the Gomi Cup.'],lab:['🧪 Team Lab','Find combinations that make teams dangerous.'],league:['🏆 League','Follow the competition and its clubs.'],extras:['📸 Extras','More Gomi Cup content.']};const [title,desc]=names[tab];document.getElementById('hub-content').innerHTML=`<section class="hub-section"><div class="hub-section-head"><h2>${title}</h2><p>${desc}</p></div><div class="hub-grid">${cardsFor(tab).join('')}</div></section>`;document.querySelectorAll('.hub-nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab))}
-function dashboard(p){profile=p;document.body.style.padding='20px';const c=club[p.favoriteClub]||{name:'The Gomi Cup',emoji:'🏐',logo:'./assets/volleyball.png'};const pending=p.status==='pending';app.className=`container club-theme-${p.favoriteClub||''}`;app.innerHTML=`<div id="auth-strip" style="text-align:right;margin-bottom:8px"></div><header style="text-align:center;padding:12px 0 18px"><img src="${c.logo}" alt="" style="height:62px;width:62px;object-fit:contain"><h1>${c.emoji} ${pending?'WELCOME TO':'MY'} ${c.name.toUpperCase()}</h1><p class="tagline">Choose an area to begin your Gomi Cup journey.</p></header><nav class="hub-nav"><button data-tab="play">🎮 Play</button><button data-tab="players">👥 Players</button><button data-tab="lab">🧪 Team Lab</button><button data-tab="league">🏆 League</button><button data-tab="extras">📸 Extras</button></nav>${pending?'<div class="pending-banner"><strong>⏳ Membership pending</strong><br>Each time you log in, you will get the quick guide until a commissioner approves your account.</div>':''}<div id="hub-content"><div class="hub-empty"><div class="hub-empty-icon">🏐</div><h2>Where do you want to go?</h2><p>Choose a category above to open its Gomi Cup tools.</p></div></div>`;renderAuthBadge(document.getElementById('auth-strip'),p);document.querySelectorAll('.hub-nav button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab))}
-function landing(){document.body.style.padding='0';app.className='retro-start';app.innerHTML=`<div class="retro-corner">The Gomi Cup · 2026</div><img class="retro-start-art" src="./assets/onboarding/gomi-roster.png" alt="Gomi Cup players"><button class="retro-start-button" onclick="location.href='./login.html'">▶ Press to start your adventure</button>`}
-watchAuth(s=>{if(!s){landing();return}if(!s.profile.onboardingComplete || (s.profile.status==='pending' && sessionStorage.getItem('gomiPendingIntroSeen')!=='1')){location.replace('./onboarding.html');return}dashboard(s.profile)});
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>The Gomi Cup</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <style>
+    /* ===== Guided dashboard tour ===== */
+    @keyframes dashboardGuidePop { from { opacity:0; transform: translateY(16px) scale(.97); } to { opacity:1; transform:none; } }
+    .dashboard-guide-backdrop {
+      position: fixed; inset: 0; z-index: 120;
+      display: none; align-items: center; justify-content: center;
+      padding: 20px; background: rgba(2,6,23,.9); backdrop-filter: blur(5px);
+    }
+    .dashboard-guide-backdrop.active { display: flex; }
+    .dashboard-guide-card {
+      width: min(650px, 100%); max-height: calc(100vh - 40px); overflow: auto;
+      padding: clamp(24px, 5vw, 38px);
+      border: 2px solid var(--club, #fbbf24); border-radius: 18px;
+      background: linear-gradient(145deg, #1e293b, #0b1120 72%);
+      box-shadow: 0 25px 80px rgba(0,0,0,.65);
+      animation: dashboardGuidePop .28s ease-out;
+    }
+    .dashboard-guide-head { display: flex; justify-content: space-between; gap: 15px; color: var(--club, #fbbf24); font-size: .75rem; font-weight: 900; letter-spacing: 1.7px; }
+    .dashboard-guide-head b { color: #94a3b8; font-family: monospace; white-space: nowrap; }
+    .dashboard-guide-icon { font-size: 3rem; margin: 24px 0 8px; }
+    .dashboard-guide-card h2 { margin: 0 0 12px; color: #fff; font-size: clamp(1.5rem, 4vw, 2.2rem); }
+    .dashboard-guide-card p { color: #cbd5e1; line-height: 1.7; }
+    .dashboard-guide-callout { margin: 18px 0; padding: 14px; border: 1px solid var(--club, #fbbf24); border-radius: 10px; background: var(--club-soft, rgba(251,191,36,.09)); color: #e2e8f0; line-height: 1.55; }
+    .dashboard-guide-actions { display: flex; justify-content: flex-end; gap: 9px; flex-wrap: wrap; margin-top: 24px; }
+    .dashboard-guide-actions button { padding: 11px 18px; border: 0; border-radius: 8px; background: var(--club, #f97316); color: #fff; font-weight: 850; cursor: pointer; }
+    .dashboard-guide-actions .secondary { background: #334155; }
+    .dashboard-guide-actions .guide-skip { margin-right: auto; background: transparent; color: #94a3b8; border: 1px solid #475569; }
+    @media (max-width: 600px) {
+      .dashboard-guide-actions button { flex: 1; }
+      .dashboard-guide-actions .guide-skip { flex-basis: 100%; order: 3; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container" id="app">
+    <div style="text-align:center;padding:80px;color:#94a3b8">Loading The Gomi Cup…</div>
+  </main>
+  <div class="dashboard-guide-backdrop" id="dashboard-guide" role="dialog" aria-modal="true" aria-labelledby="dashboard-guide-title">
+    <section class="dashboard-guide-card" id="dashboard-guide-card"></section>
+  </div>
+<script type="module">
+import { watchAuth, renderAuthBadge } from './js/auth.js';
+const app = document.getElementById('app');
+const DASHBOARD_GUIDE_KEY = 'gomi-dashboard-guide-v1';
+const forceDashboardGuide = new URLSearchParams(location.search).has('dashboardGuide');
+
+const clubs = {
+  strigidae: { name: 'Strigidae',       emoji: '🦉', logo: './assets/strigidae.png' },
+  otters:    { name: 'Kòrsou Otters',   emoji: '🦦', logo: './assets/otters.png' },
+  shizuka:   { name: 'Shizuka',         emoji: '☁️', logo: './assets/shizuka.png' },
+};
+
+const link = (url, icon, title, text) => `
+  <a class="hub-link" href="${url}">
+    <div style="font-size:1.5rem">${icon}</div><b>${title}</b><span>${text}</span>
+  </a>`;
+
+let profile = null;
+let activeTab = null;
+let dashboardGuideStep = 0;
+let dashboardGuideScheduled = false;
+
+function cardsFor(tab) {
+  const pending = profile.status === 'pending';
+  const groups = {
+    play: [
+      link('./campaign.html',     '🏐', 'Campaign',     'Collect and upgrade cards across 9 chapters, each with 10 first-to-5 matches.'),
+      link('./team-builder.html', '✨', 'Dream Team',   'Build and save your perfect team.'),
+      link('./match-sim.html',    '🎮', '2D Match Sim', 'Play through a match in the tactical court view.'),
+      link('./match-sim-3d.html', '🕹️', '3D Match Sim', 'Watch your match in the arena.'),
+      ...(pending ? [] : [link('./draft.html', '🎯', 'Live Draft', 'Join an active draft room.')]),
+    ],
+    players: [
+      link('./cards.html',        '🃏', 'Player Cards', 'Trading cards, reveals, and rosters.'),
+      link('./player-stats.html', '🌟', 'Player Stats', 'Compare ratings, positions, and performance.'),
+    ],
+    lab: [
+      link('./chemistry.html', '💚', 'Chemistry', 'See which players build bonds together.'),
+      link('./synergies.html', '⚡', 'Synergies', 'Discover named team-ups and power-ups.'),
+    ],
+    league: [
+      link('./standings.html', '📊', 'Standings',       'League table and results.'),
+      link('./clubs.html',     '🛡️', 'Club Hub',        'Meet the three clubs.'),
+      link('./league.html',    '📖', 'League History', 'The story behind the Gomi Cup.'),
+    ],
+    extras: [
+      link('./photos.html',                  '📸', 'Photos',         'League gallery.'),
+      link('./onboarding.html?replay=1',     '❔', 'How to Play',    'Replay the full Gomi Cup introduction.'),
+      link('./index.html?dashboardGuide=1',  '🧭', 'Dashboard Tour', 'Replay this guided dashboard tour.'),
+      ...(profile.role === 'commissioner' ? [link('./admin.html', '👑', 'Commissioner Panel', 'Approve members and manage the league.')] : []),
+    ],
+  };
+  return groups[tab] || [];
+}
+
+function showTab(tab) {
+  activeTab = tab;
+  const names = {
+    play:    ['🎮 Play',     'Build a squad, then take it onto the court.'],
+    players: ['👥 Players',  'Meet the people behind the Gomi Cup.'],
+    lab:     ['🧪 Team Lab', 'Find combinations that make teams dangerous.'],
+    league:  ['🏆 League',   'Follow the competition and its clubs.'],
+    extras:  ['📸 Extras',   'Guides, photos, and more Gomi Cup content.'],
+  };
+  const [title, desc] = names[tab];
+  document.getElementById('hub-content').innerHTML = `
+    <section class="hub-section">
+      <div class="hub-section-head"><h2>${title}</h2><p>${desc}</p></div>
+      <div class="hub-grid">${cardsFor(tab).join('')}</div>
+    </section>`;
+  document.querySelectorAll('.hub-nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+}
+
+const dashboardLessons = [
+  {
+    tab: null,
+    icon: '🧭',
+    title: 'This dashboard is your map',
+    text: 'Everything in The Gomi Cup lives in one of five areas. This quick tour opens each area and tells you what to use first.',
+    callout: '<b>New here?</b> Start in Play with Campaign. It teaches cards, upgrades, rosters, and real first-to-5 matches one step at a time.',
+  },
+  {
+    tab: 'play',
+    icon: '🎮',
+    title: 'Play is where the action starts',
+    text: '<b>Campaign</b> is the guided solo journey. <b>Dream Team</b> lets you experiment freely. The 2D and 3D simulators run full exhibition matches, while Live Draft is for league draft rooms.',
+    callout: 'Recommended first click: <b>Campaign</b>. Your campaign collection and upgrades are separate from normal Player Stats.',
+  },
+  {
+    tab: 'players',
+    icon: '👥',
+    title: 'Players explains who everyone is',
+    text: '<b>Player Cards</b> contains reveals and downloadable cards. <b>Player Stats</b> compares attack, serve, defense, setting, athleticism, position, and overall strength.',
+    callout: 'Campaign upgrades never change the ratings shown here. They only strengthen that card inside Campaign.',
+  },
+  {
+    tab: 'lab',
+    icon: '🧪',
+    title: 'Team Lab finds combinations',
+    text: '<b>Chemistry</b> shows relationships between players. <b>Synergies</b> shows named combinations that activate bonuses when the right players share a squad.',
+    callout: 'A group with good chemistry can outperform a collection of individually stronger players.',
+  },
+  {
+    tab: 'league',
+    icon: '🏆',
+    title: 'League tracks the competition',
+    text: 'Use <b>Standings</b> for results and rankings, <b>Club Hub</b> to learn the three teams, and <b>League History</b> for the story of the Gomi Cup.',
+    callout: 'Your chosen club changes your dashboard theme; it does not lock your campaign cards or Dream Team choices.',
+  },
+  {
+    tab: 'extras',
+    icon: '📸',
+    title: 'You always have a way back',
+    text: 'Extras contains photos and both replayable guides. Use <b>How to Play</b> for the full league introduction or <b>Dashboard Tour</b> to replay this exact walkthrough.',
+    callout: 'That is the map. Open Play and begin wherever sounds fun — Campaign is the easiest guided start.',
+  },
+];
+
+function renderDashboardGuide() {
+  const lesson = dashboardLessons[dashboardGuideStep];
+  if (lesson.tab) showTab(lesson.tab);
+  const isLast = dashboardGuideStep === dashboardLessons.length - 1;
+  document.getElementById('dashboard-guide-card').innerHTML = `
+    <div class="dashboard-guide-head">
+      <span>GOMI GUIDE · DASHBOARD TOUR</span>
+      <b>${dashboardGuideStep + 1} / ${dashboardLessons.length}</b>
+    </div>
+    <div class="dashboard-guide-icon">${lesson.icon}</div>
+    <h2 id="dashboard-guide-title">${lesson.title}</h2>
+    <p>${lesson.text}</p>
+    <div class="dashboard-guide-callout">${lesson.callout}</div>
+    <div class="dashboard-guide-actions">
+      <button class="guide-skip" onclick="skipDashboardGuide()">Skip tour</button>
+      ${dashboardGuideStep ? '<button class="secondary" onclick="dashboardGuidePrevious()">← Previous</button>' : ''}
+      <button onclick="${isLast ? 'finishDashboardGuide()' : 'dashboardGuideNext()'}">${isLast ? 'Finish & open Play →' : 'Next →'}</button>
+    </div>`;
+  document.getElementById('dashboard-guide').classList.add('active');
+}
+
+function startDashboardGuide() {
+  dashboardGuideStep = 0;
+  renderDashboardGuide();
+}
+
+window.dashboardGuideNext     = () => { dashboardGuideStep = Math.min(dashboardLessons.length - 1, dashboardGuideStep + 1); renderDashboardGuide(); };
+window.dashboardGuidePrevious = () => { dashboardGuideStep = Math.max(0, dashboardGuideStep - 1); renderDashboardGuide(); };
+
+function closeDashboardGuide() {
+  document.getElementById('dashboard-guide').classList.remove('active');
+  if (forceDashboardGuide) window.history.replaceState(null, '', location.pathname);
+}
+
+window.skipDashboardGuide = () => {
+  localStorage.setItem(DASHBOARD_GUIDE_KEY, '1');
+  closeDashboardGuide();
+};
+
+window.finishDashboardGuide = () => {
+  localStorage.setItem(DASHBOARD_GUIDE_KEY, '1');
+  closeDashboardGuide();
+  showTab('play');
+};
+
+function dashboard(p) {
+  profile = p;
+  document.body.style.padding = '20px';
+  const selectedClub = clubs[p.favoriteClub] || { name: 'The Gomi Cup', emoji: '🏐', logo: './assets/volleyball.png' };
+  const pending = p.status === 'pending';
+  app.className = `container club-theme-${p.favoriteClub || ''}`;
+  app.innerHTML = `
+    <div id="auth-strip" style="text-align:right;margin-bottom:8px"></div>
+    <header style="text-align:center;padding:12px 0 18px">
+      <img src="${selectedClub.logo}" alt="" style="height:62px;width:62px;object-fit:contain">
+      <h1>${selectedClub.emoji} ${pending ? 'WELCOME TO' : 'MY'} ${selectedClub.name.toUpperCase()}</h1>
+      <p class="tagline">Choose an area to begin your Gomi Cup journey.</p>
+    </header>
+    <nav class="hub-nav">
+      <button data-tab="play">🎮 Play</button>
+      <button data-tab="players">👥 Players</button>
+      <button data-tab="lab">🧪 Team Lab</button>
+      <button data-tab="league">🏆 League</button>
+      <button data-tab="extras">📸 Extras</button>
+    </nav>
+    ${pending ? '<div class="pending-banner"><strong>⏳ Membership pending</strong><br>Each time you log in, you will get the quick guide until a commissioner approves your account.</div>' : ''}
+    <div id="hub-content">
+      <div class="hub-empty">
+        <div class="hub-empty-icon">🏐</div>
+        <h2>Where do you want to go?</h2>
+        <p>Choose a category above to open its Gomi Cup tools.</p>
+      </div>
+    </div>`;
+  renderAuthBadge(document.getElementById('auth-strip'), p);
+  document.querySelectorAll('.hub-nav button').forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
+
+  if (!dashboardGuideScheduled && (forceDashboardGuide || localStorage.getItem(DASHBOARD_GUIDE_KEY) !== '1')) {
+    dashboardGuideScheduled = true;
+    setTimeout(startDashboardGuide, 160);
+  }
+}
+
+function landing() {
+  document.body.style.padding = '0';
+  app.className = 'retro-start';
+  app.innerHTML = `
+    <div class="retro-corner">The Gomi Cup · 2026</div>
+    <img class="retro-start-art" src="./assets/onboarding/gomi-roster.png" alt="Gomi Cup players">
+    <button class="retro-start-button" onclick="location.href='./login.html'">▶ Press to start your adventure</button>`;
+}
+
+watchAuth(session => {
+  if (!session) { landing(); return; }
+  if (!session.profile.onboardingComplete || (session.profile.status === 'pending' && sessionStorage.getItem('gomiPendingIntroSeen') !== '1')) {
+    location.replace('./onboarding.html');
+    return;
+  }
+  dashboard(session.profile);
+});
+</script>
+</body>
+</html>

@@ -6,6 +6,7 @@ Adds full offline Campaign Mode with:
 - **Real first-to-5 court battles** on a dedicated 2D court using the existing v3 engine
 - **Pack opening, rarities, duplicates → stars, training, leveling**
 - **Guided quick-start tutorial** that forces the player to open a pack and try the shop
+- **Guided dashboard tour** on the main hub that walks new users through every section (Play → Players → Team Lab → League → Extras) and can be replayed from Extras → Dashboard Tour
 - **Every pack lists the exact chance of pulling a player at each rarity**
 - **Roster moves refresh instantly** (no page reload needed to see a card leave Unassigned)
 - **Campaign link on the main dashboard's Play tab**
@@ -14,7 +15,7 @@ Adds full offline Campaign Mode with:
 
 ```
 INSTALL.md                                     ← this file
-index.html                                     ← updated to add Campaign to the Play tab
+index.html                                     ← updated: adds Campaign to Play tab + 6-step guided dashboard tour
 campaign.html                                  ← campaign hub (dashboard, roster, chapters, packs, collection, shop, guide)
 campaign-match.html                            ← dedicated first-to-5 2D campaign court
 js/campaign-store.js                           ← state, packs, chapter rivals, matches, saves

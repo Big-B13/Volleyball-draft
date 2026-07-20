@@ -36,8 +36,8 @@
   .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 12px; }
   .player-card { padding: 12px; border: 2px solid var(--frame,#334155); border-radius: 12px; background: rgba(30,41,59,.9); text-align: center; cursor: pointer; transition: .2s; box-shadow: var(--glow, none); }
   .player-card:hover { transform: translateY(-4px); }
-  .player-card .art-wrap { width: 100%; aspect-ratio: 1; border-radius: 50%; overflow: hidden; margin-bottom: 8px; border: 2px solid var(--frame,#334155); background: #0f172a; position: relative; }
-  .player-card .art-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .player-card .art-wrap { width: 100%; aspect-ratio: 3 / 4; border-radius: 10px; overflow: hidden; margin-bottom: 8px; border: 2px solid var(--frame,#334155); background: #0f172a; position: relative; }
+  .player-card .art-wrap img { width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
   .player-card .rarity-badge { position: absolute; top: 4px; right: 4px; padding: 2px 7px; border-radius: 999px; background: var(--frame,#334155); color: #0f172a; font: 900 .55rem monospace; letter-spacing: 1px; }
   .player-card .name { color: #fff; font-weight: 800; font-size: .92rem; }
   .player-card .nickname { color: #94a3b8; font-size: .7rem; font-style: italic; }
@@ -119,12 +119,22 @@
   .shop-item button:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
   .shop-item .shop-odds { grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,.1); padding-top: 10px; }
 
+  /* Secret-code redeem box */
+  .secret-code-box { margin-top: 22px; padding: 14px 16px; border: 1px dashed #475569; border-radius: 10px; background: rgba(15,23,42,.55); color: #94a3b8; }
+  .secret-code-title { font-size: .72rem; letter-spacing: 2px; font-weight: 900; color: #64748b; margin-bottom: 8px; }
+  .secret-code-row { display: flex; gap: 8px; }
+  .secret-code-row input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: #0b1120; color: #e2e8f0; font-family: monospace; font-size: .95rem; letter-spacing: 1.2px; }
+  .secret-code-row input:focus { outline: none; border-color: #64748b; }
+  .secret-code-row button { padding: 10px 16px; border: 0; border-radius: 8px; background: #334155; color: #cbd5e1; font-weight: 800; cursor: pointer; }
+  .secret-code-row button:hover { background: #475569; }
+  .secret-code-hint { margin-top: 6px; font-size: .7rem; color: #475569; }
+
   /* ── MODAL ── */
   .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(2,6,23,.9); }
   .modal-backdrop.active { display: flex; }
   .modal { width: min(520px, 100%); max-height: calc(100vh - 40px); overflow: auto; padding: 26px; border: 3px solid var(--frame,#fbbf24); border-radius: 16px; background: linear-gradient(160deg,#1e293b,#0f172a); text-align: center; box-shadow: var(--glow, 0 0 40px rgba(0,0,0,.6)); }
-  .reveal-art { width: 200px; height: 200px; border-radius: 50%; margin: 0 auto 14px; overflow: hidden; border: 4px solid var(--frame,#fbbf24); background: #0f172a; }
-  .reveal-art img { width: 100%; height: 100%; object-fit: cover; }
+  .reveal-art { width: 220px; aspect-ratio: 3 / 4; margin: 0 auto 14px; overflow: hidden; border-radius: 14px; border: 4px solid var(--frame,#fbbf24); background: #0f172a; }
+  .reveal-art img { width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
   .reveal-rarity { display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--frame,#fbbf24); color: #0f172a; font: 900 .75rem/1 monospace; letter-spacing: 2px; margin-bottom: 8px; }
   .reveal-name { color: #fff; font-size: 1.6rem; font-weight: 900; }
   .reveal-nickname { color: #94a3b8; font-size: .9rem; font-style: italic; margin-bottom: 12px; }
@@ -270,6 +280,16 @@
     <!-- SHOP -->
     <div id="tab-shop" class="tab-panel">
       <div class="shop-list" id="shop-list"></div>
+
+      <!-- Secret code box (not documented in-app; ignore unless you have a code). -->
+      <div class="secret-code-box">
+        <div class="secret-code-title">Enter code</div>
+        <div class="secret-code-row">
+          <input id="secret-code-input" type="text" autocomplete="off" spellcheck="false" placeholder="Code">
+          <button id="secret-code-btn" onclick="doApplySecretCode()">Redeem</button>
+        </div>
+        <div class="secret-code-hint">Codes are case-insensitive. Wrong codes are rejected silently.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -292,7 +312,7 @@ import {
   clearedCampaignMatches, campaignProgressCount, campaignMatchInfo,
   openPack, PACK_ODDS, PACK_LABELS, RARITIES, RARITY_COLORS, RARITY_LABELS,
   teamPower, cardStats, cardOverall, moveToStarters, moveToBench, removeFromRoster, sellCard,
-  trainCard, SHOP_ITEMS, buyPack, getBasePlayer,
+  trainCard, SHOP_ITEMS, buyPack, getBasePlayer, applySecretCode,
 } from './js/campaign-store.js';
 import { cardArt, RARITY_FRAME, RARITY_GLOW } from './js/campaign-art.js';
 
@@ -812,6 +832,27 @@ window.doBuyPack = id => {
     showCampaignToast(`✅ ${item?.label || 'Pack'} bought · ${state.inventory.packs[item?.pack] || 0} now owned`);
   } catch (e) { alert(e.message); }
 };
+
+window.doApplySecretCode = () => {
+  const input = document.getElementById('secret-code-input');
+  const raw = input.value;
+  if (!raw.trim()) return;
+  try {
+    const entry = applySecretCode(state, raw);
+    input.value = '';
+    render();
+    showCampaignToast(entry.label);
+  } catch (e) {
+    // Wrong codes fail silently on purpose — keep the box unassuming.
+    input.value = '';
+    input.placeholder = 'Invalid code';
+    setTimeout(() => { input.placeholder = 'Code'; }, 1400);
+  }
+};
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (document.activeElement?.id === 'secret-code-input') window.doApplySecretCode();
+});
 
 // ─── CARDS ───
 function cardHtml(cardId, card) {

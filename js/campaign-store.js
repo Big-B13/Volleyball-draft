@@ -481,3 +481,77 @@ export function buyPack(state, itemId) {
   state.inventory.packs[item.pack] = (state.inventory.packs[item.pack] || 0) + 1;
   saveCampaign(state);
 }
+
+// ──────────── SECRET CODES (BRIAN ONLY) ────────────
+// Type these into the shop's "Enter code" box. Not shown in UI.
+export const SECRET_CODES = {
+  // Grants every non-captain player at EVERY rarity (common → legendary).
+  // Great for previewing artwork and stats without grinding packs.
+  'BIGB13GOD':        { action: 'grantAll',      label: '👑 Full collection unlocked — every player at every rarity' },
+  // Just the alt-art rarities (epic + legendary) for artwork preview.
+  'SHOWALLART':       { action: 'grantAltArt',   label: '🎨 Every player granted at Epic and Legendary for art preview' },
+  // Money & materials top-up.
+  'GOMIRICH':         { action: 'grantCoins',    label: '💰 +100 000 coins, +50 of every training material, +5 of every pack' },
+  // Instantly clear every match on Easy + Medium + Hard (progression only, no rewards).
+  'SKIPCAMPAIGN':     { action: 'clearAllMatches', label: '🏁 All 270 matches marked cleared (no rewards granted)' },
+  // Wipe all cards except your starters (helps test empty collection flow).
+  'CLEARCOLLECTION':  { action: 'clearCollection', label: '🧹 Collection cleared (starters preserved)' },
+};
+
+export function applySecretCode(state, rawCode) {
+  const code = String(rawCode || '').trim().toUpperCase();
+  const entry = SECRET_CODES[code];
+  if (!entry) throw new Error('Unknown code');
+  switch (entry.action) {
+    case 'grantAll':        grantAllCards(state, RARITIES); break;
+    case 'grantAltArt':     grantAllCards(state, ['epic', 'legendary']); break;
+    case 'grantCoins':      grantResources(state); break;
+    case 'clearAllMatches': clearAllMatches(state); break;
+    case 'clearCollection': clearCollection(state); break;
+  }
+  saveCampaign(state);
+  return entry;
+}
+
+function grantAllCards(state, rarities) {
+  const players = DEFAULT_PLAYERS.filter(p => !p.isCaptain);
+  let added = 0;
+  for (const player of players) {
+    for (const rarity of rarities) {
+      const existing = Object.values(state.ownedCards).find(c => c.pid === player.id && c.rarity === rarity);
+      if (existing) continue;
+      const id = `card-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${added}`;
+      state.ownedCards[id] = { pid: player.id, rarity, stars: 1, level: 1, xp: 0, statBoosts: {}, obtainedAt: Date.now() };
+      added++;
+    }
+  }
+  state.log = [...(state.log || []), `👑 Secret code granted ${added} new cards.`].slice(-30);
+}
+
+function grantResources(state) {
+  state.inventory.coins += 100000;
+  for (const m of ['atk','def','srv','set','ath']) state.inventory.materials[m] = (state.inventory.materials[m] || 0) + 50;
+  for (const p of Object.keys(PACK_ODDS))          state.inventory.packs[p]     = (state.inventory.packs[p]     || 0) + 5;
+  state.log = [...(state.log || []), '💰 Secret code topped up coins, packs, and materials.'].slice(-30);
+}
+
+function clearAllMatches(state) {
+  for (const diff of ['easy','medium','hard']) {
+    state.progression.matches[diff] = state.progression.matches[diff] || {};
+    for (const ch of CHAPTERS) {
+      state.progression.matches[diff][ch.n] = Array.from({ length: CAMPAIGN_MATCH_COUNT }, (_, i) => i + 1);
+      if (!state.progression[`${diff}Cleared`].includes(ch.n)) state.progression[`${diff}Cleared`].push(ch.n);
+    }
+    state.progression[`${diff}Cleared`].sort((a,b) => a - b);
+  }
+  state.log = [...(state.log || []), '🏁 Secret code cleared all 270 matches.'].slice(-30);
+}
+
+function clearCollection(state) {
+  const keep = new Set(state.roster.starters);
+  state.roster.bench = state.roster.bench.filter(id => keep.has(id));
+  for (const id of Object.keys(state.ownedCards)) {
+    if (!keep.has(id)) delete state.ownedCards[id];
+  }
+  state.log = [...(state.log || []), '🧹 Secret code cleared collection (starters kept).'].slice(-30);
+}
