@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gomi Cup — Campaign</title>
+<link rel="stylesheet" href="./style.css">
+<style>
+  body { background: linear-gradient(180deg, #0a0f1a 0%, #1a0a1a 100%); min-height: 100vh; }
+  .campaign-container { max-width: 1300px; margin: 0 auto; padding: 16px; }
+  .campaign-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 20px; background: rgba(15,23,42,0.85); border-radius: 12px; margin-bottom: 20px;
+    border: 1px solid rgba(251,191,36,0.3);
+  }
+  .campaign-header h1 { margin: 0; color: #fbbf24; font-size: 1.4rem; letter-spacing: 3px; }
+  .campaign-header .stats { display: flex; gap: 18px; font-size: 0.9rem; }
+  .campaign-header .stat { color: #cbd5e1; }
+  .campaign-header .stat b { color: #fbbf24; margin-left: 4px; }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tabs button {
+    padding: 10px 20px; background: rgba(30,41,59,0.7); color: #cbd5e1;
+    border: 2px solid transparent; border-radius: 8px; cursor: pointer;
+    font-weight: 700; font-size: 0.9rem; letter-spacing: 1px;
+  }
+  .tabs button.active { background: #fbbf24; color: #0f172a; border-color: #f59e0b; }
+  .tabs button:hover:not(.active) { border-color: rgba(251,191,36,0.4); }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── DASHBOARD ── */
+  .dashboard-hero {
+    background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(236,72,153,0.15));
+    border: 2px solid rgba(251,191,36,0.4); border-radius: 14px;
+    padding: 24px; text-align: center; margin-bottom: 20px;
+  }
+  .dashboard-hero h2 { color: #fbbf24; margin: 0 0 10px; font-size: 1.6rem; letter-spacing: 4px; }
+  .dashboard-hero p { color: #e2e8f0; margin: 0; }
+  .power-badge { display: inline-block; padding: 8px 24px; background: #f97316; color: #fff; border-radius: 8px; font-weight: 900; font-size: 1.4rem; margin-top: 10px; }
+  .log-panel {
+    background: rgba(0,0,0,0.4); border-radius: 8px; padding: 12px 16px;
+    font-family: monospace; font-size: 0.8rem; color: #94a3b8;
+    max-height: 240px; overflow-y: auto; margin-top: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .log-panel .line { padding: 2px 0; }
+  .log-panel .line.win { color: #22c55e; }
+  .log-panel .line.loss { color: #f87171; }
+
+  /* ── CARDS ── */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .roster-section {
+    background: rgba(15,23,42,0.5); border-radius: 12px; padding: 14px; margin-bottom: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .roster-section h3 { margin: 0 0 12px; color: #fbbf24; font-size: 1rem; letter-spacing: 2px; }
+  .player-card {
+    background: rgba(30,41,59,0.9); border: 3px solid var(--frame, #94a3b8);
+    border-radius: 10px; padding: 8px; text-align: center; cursor: pointer;
+    transition: all 0.2s; box-shadow: var(--glow, none);
+    position: relative; overflow: hidden;
+  }
+  .player-card:hover { transform: translateY(-3px); }
+  .player-card.selected { transform: scale(1.05); box-shadow: 0 0 0 3px #fbbf24, var(--glow, none); }
+  .player-card .rarity-tag {
+    position: absolute; top: 4px; right: 4px; font-size: 0.6rem; font-weight: 900;
+    letter-spacing: 1px; padding: 2px 6px; border-radius: 3px;
+    background: var(--frame); color: #fff;
+  }
+  .player-card img { width: 90px; height: 90px; object-fit: cover; border-radius: 50%; margin: 4px 0; background: #1e293b; }
+  .player-card .name { font-weight: 800; font-size: 0.9rem; color: #fff; margin: 4px 0 2px; }
+  .player-card .nickname { font-size: 0.7rem; color: #94a3b8; font-style: italic; }
+  .player-card .stars { color: #fbbf24; font-size: 0.9rem; margin-top: 2px; }
+  .player-card .lvl { font-size: 0.72rem; color: #cbd5e1; margin-top: 2px; }
+  .player-card .ovr { font-family: monospace; font-weight: 900; color: #22c55e; font-size: 1.1rem; margin-top: 4px; }
+
+  /* ── CHAPTERS ── */
+  .difficulty-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .difficulty-tabs button {
+    padding: 8px 18px; border: 2px solid rgba(255,255,255,0.15); background: rgba(30,41,59,0.7);
+    color: #cbd5e1; border-radius: 8px; cursor: pointer; font-weight: 700; letter-spacing: 1px;
+  }
+  .difficulty-tabs button.active { background: #22c55e; color: #0f172a; border-color: #16a34a; }
+  .difficulty-tabs button.medium.active { background: #f59e0b; border-color: #d97706; }
+  .difficulty-tabs button.hard.active { background: #ef4444; border-color: #dc2626; }
+  .difficulty-tabs button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .chapter-card {
+    background: rgba(15,23,42,0.7); border: 2px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s;
+  }
+  .chapter-card:hover { border-color: #fbbf24; transform: translateY(-2px); }
+  .chapter-card.cleared { border-color: #22c55e; background: rgba(34,197,94,0.1); }
+  .chapter-card.locked { opacity: 0.4; cursor: not-allowed; }
+  .chapter-card .ch-num { font-family: monospace; color: #fbbf24; font-size: 0.8rem; letter-spacing: 2px; }
+  .chapter-card .ch-name { font-size: 1.1rem; font-weight: 800; color: #fff; margin: 4px 0; }
+  .chapter-card .ch-opponent { color: #94a3b8; font-size: 0.85rem; }
+  .chapter-card .ch-power { margin-top: 8px; font-size: 0.85rem; }
+  .chapter-card .ch-power .power-vs { color: #fbbf24; font-family: monospace; }
+  .chapter-card .ch-btn {
+    display: block; width: 100%; margin-top: 10px; padding: 8px;
+    background: #fbbf24; color: #0f172a; border: none; border-radius: 6px;
+    font-weight: 800; cursor: pointer; letter-spacing: 1px;
+  }
+  .chapter-card .ch-btn:hover { background: #f59e0b; }
+  .chapter-card .ch-btn.cleared { background: #22c55e; color: #0f172a; }
+
+  /* ── PACKS ── */
+  .pack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .pack-card {
+    background: rgba(15,23,42,0.7); border: 2px solid rgba(255,255,255,0.12);
+    border-radius: 12px; padding: 20px; text-align: center;
+  }
+  .pack-card .pack-emoji { font-size: 3rem; }
+  .pack-card .pack-name { font-weight: 800; margin: 8px 0; color: #fff; letter-spacing: 1px; }
+  .pack-card .pack-count { color: #fbbf24; font-family: monospace; font-size: 1.4rem; font-weight: 900; }
+  .pack-card .pack-btn {
+    display: block; width: 100%; margin-top: 12px; padding: 10px;
+    background: #f97316; color: #fff; border: none; border-radius: 6px;
+    font-weight: 800; cursor: pointer; letter-spacing: 1px;
+  }
+  .pack-card .pack-btn:disabled { background: #475569; cursor: not-allowed; }
+  .pack-card .pack-odds { margin-top: 10px; font-size: 0.7rem; color: #94a3b8; font-family: monospace; text-align: left; }
+  .pack-card .pack-odds span { display: inline-block; margin-right: 6px; padding: 1px 4px; border-radius: 3px; color: #fff; font-weight: 700; }
+
+  .shop-item {
+    background: rgba(15,23,42,0.7); border: 2px solid rgba(255,255,255,0.12);
+    border-radius: 12px; padding: 14px; display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .shop-item .shop-label { color: #fff; font-weight: 700; }
+  .shop-item .shop-cost { color: #fbbf24; font-family: monospace; font-weight: 900; }
+  .shop-item button {
+    padding: 6px 14px; background: #22c55e; color: #0f172a; border: none; border-radius: 6px;
+    font-weight: 800; cursor: pointer;
+  }
+  .shop-item button:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
+
+  /* ── MODAL (pack reveal, chapter result, card detail) ── */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100;
+    display: none; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal {
+    background: linear-gradient(180deg, #1e293b, #0f172a);
+    border: 3px solid #fbbf24; border-radius: 16px; padding: 30px;
+    max-width: 500px; width: 100%; text-align: center; position: relative;
+    animation: modalPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes modalPop {
+    0% { transform: scale(0.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .modal h2 { color: #fbbf24; margin: 0 0 16px; letter-spacing: 3px; }
+  .modal .reveal-card {
+    display: inline-block; padding: 12px; border-radius: 12px; margin: 10px 0;
+    background: rgba(0,0,0,0.4);
+  }
+  .modal .reveal-card img { width: 200px; height: 200px; object-fit: cover; border-radius: 50%; border: 4px solid var(--frame); box-shadow: var(--glow); }
+  .modal .reveal-rarity { font-size: 1.5rem; font-weight: 900; letter-spacing: 5px; margin-top: 12px; }
+  .modal .reveal-name { font-size: 1.4rem; font-weight: 800; color: #fff; margin: 8px 0 4px; }
+  .modal .reveal-nickname { font-style: italic; color: #94a3b8; margin-bottom: 12px; }
+  .modal .reveal-detail { color: #cbd5e1; margin-top: 8px; font-size: 0.9rem; }
+  .modal .close-btn {
+    margin-top: 20px; padding: 10px 30px; background: #fbbf24; color: #0f172a;
+    border: none; border-radius: 8px; font-weight: 800; cursor: pointer; letter-spacing: 2px;
+  }
+
+  /* ── CARD DETAIL MODAL ── */
+  .card-detail-stats {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 16px 0;
+    text-align: left;
+  }
+  .card-detail-stats .stat-row {
+    display: flex; justify-content: space-between; padding: 4px 8px;
+    background: rgba(0,0,0,0.3); border-radius: 4px;
+  }
+  .card-detail-stats .stat-row .stat-name { color: #94a3b8; font-size: 0.8rem; }
+  .card-detail-stats .stat-row .stat-val { color: #22c55e; font-family: monospace; font-weight: 800; }
+  .card-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 16px; }
+  .card-detail-actions button {
+    padding: 8px 14px; background: rgba(30,41,59,0.9); color: #fff;
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;
+    cursor: pointer; font-weight: 700;
+  }
+  .card-detail-actions button:hover { border-color: #fbbf24; }
+  .card-detail-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .card-detail-actions button.sell { background: #ef4444; color: #fff; }
+
+  .empty-state { text-align: center; padding: 40px; color: #94a3b8; font-style: italic; }
+
+  /* ── INTRO / START ── */
+  .campaign-intro {
+    max-width: 700px; margin: 60px auto; text-align: center; padding: 40px 30px;
+    background: linear-gradient(135deg, rgba(251,191,36,0.1), rgba(236,72,153,0.1));
+    border: 2px solid rgba(251,191,36,0.4); border-radius: 16px;
+  }
+  .campaign-intro h1 { color: #fbbf24; font-size: 2rem; letter-spacing: 5px; margin: 0 0 12px; }
+  .campaign-intro p { color: #cbd5e1; line-height: 1.6; margin: 12px 0; }
+  .campaign-intro .big-btn {
+    display: block; margin: 20px auto; padding: 18px 50px; background: #f97316; color: #fff;
+    border: none; border-radius: 10px; font-size: 1.2rem; font-weight: 900; letter-spacing: 3px;
+    cursor: pointer; box-shadow: 0 4px 20px rgba(249,115,22,0.4);
+  }
+  .campaign-intro .big-btn:hover { background: #ea580c; transform: translateY(-2px); }
+  .campaign-intro .secondary { display: inline-block; margin: 10px; padding: 8px 20px; color: #94a3b8; background: transparent; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; cursor: pointer; }
+  .campaign-intro .secondary:hover { color: #fff; border-color: #fff; }
+
+  .back-link {
+    display: inline-block; padding: 6px 14px; background: rgba(30,41,59,0.8);
+    color: #cbd5e1; text-decoration: none; border-radius: 6px; margin-bottom: 12px;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .back-link:hover { color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<div class="campaign-container">
+  <a href="./index.html" class="back-link">← Back to Gomi Cup</a>
+
+  <!-- INTRO (only shown when no campaign exists yet) -->
+  <div id="intro-view" class="campaign-intro" style="display:none;">
+    <h1>🏐 CAMPAIGN MODE</h1>
+    <p><strong>Start with the Underdog Six.</strong> The six lowest-rated players in the Gomi Cup pool.</p>
+    <p>Beat 9 chapters on Easy, then Medium, then Hard. Open packs, collect rare cards, train your squad, unlock <span style="color:#f97316;font-weight:900">Legendary</span> versions of your friends.</p>
+    <button class="big-btn" onclick="startNewCampaign()">▶ START CAMPAIGN</button>
+    <div style="margin-top:20px; opacity:0.6;">
+      <p style="font-size:0.85rem;">Difficulty tiers:</p>
+      <p style="font-size:0.8rem; color:#22c55e;">EASY → MEDIUM → HARD</p>
+    </div>
+  </div>
+
+  <!-- MAIN CAMPAIGN VIEW -->
+  <div id="campaign-view" style="display:none;">
+    <div class="campaign-header">
+      <h1>🏐 CAMPAIGN</h1>
+      <div class="stats">
+        <span class="stat">💰 Coins: <b id="stat-coins">0</b></span>
+        <span class="stat">⚡ Power: <b id="stat-power">0</b></span>
+        <span class="stat">🎯 Cleared: <b id="stat-cleared">0/27</b></span>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button data-tab="dashboard" class="active">📊 DASHBOARD</button>
+      <button data-tab="roster">👥 ROSTER</button>
+      <button data-tab="chapters">🗺️ CHAPTERS</button>
+      <button data-tab="packs">📦 PACKS</button>
+      <button data-tab="collection">🃏 COLLECTION</button>
+      <button data-tab="shop">🛒 SHOP</button>
+      <button onclick="resetCampaign()" style="margin-left:auto; background:rgba(239,68,68,0.3); color:#fca5a5;">↺ Reset</button>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="tab-dashboard" class="tab-panel active">
+      <div class="dashboard-hero">
+        <h2 id="dash-difficulty">EASY CAMPAIGN</h2>
+        <p id="dash-summary">Your team is ready. Choose a chapter to begin.</p>
+        <div class="power-badge" id="dash-power">POWER 0</div>
+      </div>
+      <div class="roster-section">
+        <h3>⚡ STARTING SIX</h3>
+        <div class="card-grid" id="dash-starters"></div>
+      </div>
+      <div class="roster-section">
+        <h3>📜 RECENT ACTIVITY</h3>
+        <div class="log-panel" id="dash-log"></div>
+      </div>
+    </div>
+
+    <!-- ROSTER -->
+    <div id="tab-roster" class="tab-panel">
+      <div class="roster-section">
+        <h3>⚡ STARTING SIX (max 6)</h3>
+        <div class="card-grid" id="roster-starters"></div>
+      </div>
+      <div class="roster-section">
+        <h3>🪑 BENCH (max 4)</h3>
+        <div class="card-grid" id="roster-bench"></div>
+      </div>
+      <div class="roster-section">
+        <h3>💤 UNASSIGNED</h3>
+        <p style="font-size:0.8rem; color:#94a3b8;">Click a card to add it to your bench, starters, or sell it.</p>
+        <div class="card-grid" id="roster-unassigned"></div>
+      </div>
+    </div>
+
+    <!-- CHAPTERS -->
+    <div id="tab-chapters" class="tab-panel">
+      <div class="difficulty-tabs">
+        <button data-diff="easy" class="active">EASY</button>
+        <button data-diff="medium" class="medium">MEDIUM</button>
+        <button data-diff="hard" class="hard">HARD</button>
+      </div>
+      <div class="chapter-grid" id="chapter-grid"></div>
+    </div>
+
+    <!-- PACKS -->
+    <div id="tab-packs" class="tab-panel">
+      <h3 style="color:#fbbf24;">Your Packs</h3>
+      <div class="pack-grid" id="pack-grid"></div>
+      <p style="margin-top:20px; font-size:0.85rem; color:#94a3b8;">
+        Pity: <b id="pity-counter">0</b>/10 packs since last Epic+. Guarantees Epic+ on 10th unlucky pack.
+      </p>
+    </div>
+
+    <!-- COLLECTION -->
+    <div id="tab-collection" class="tab-panel">
+      <h3 style="color:#fbbf24;">All Owned Cards</h3>
+      <div class="card-grid" id="collection-grid"></div>
+    </div>
+
+    <!-- SHOP -->
+    <div id="tab-shop" class="tab-panel">
+      <h3 style="color:#fbbf24;">Buy Packs with Coins</h3>
+      <div id="shop-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" id="modal-body"></div>
+</div>
+
+<script type="module">
+  import {
+    loadCampaign, saveCampaign, clearCampaign, newCampaign,
+    CHAPTERS, chapterPower, isChapterUnlocked, isChapterCleared,
+    playChapter, openPack, PACK_ODDS, PACK_LABELS, RARITIES, RARITY_COLORS, RARITY_LABELS,
+    teamPower, cardStats, cardOverall, moveToStarters, moveToBench, removeFromRoster, sellCard,
+    trainCard, SHOP_ITEMS, buyPack, getBasePlayer,
+  } from './js/campaign-store.js';
+  import { cardArt, RARITY_FRAME, RARITY_GLOW } from './js/campaign-art.js';
+
+  let state = loadCampaign();
+  let currentTab = 'dashboard';
+  let currentDifficulty = 'easy';
+  let currentModal = null;
+
+  function init() {
+    if (!state) {
+      document.getElementById('intro-view').style.display = 'block';
+      document.getElementById('campaign-view').style.display = 'none';
+      return;
+    }
+    document.getElementById('intro-view').style.display = 'none';
+    document.getElementById('campaign-view').style.display = 'block';
+    wireTabs();
+    render();
+  }
+
+  window.startNewCampaign = () => {
+    state = newCampaign();
+    init();
+  };
+  window.resetCampaign = () => {
+    if (!confirm('Delete all campaign progress? This cannot be undone.')) return;
+    clearCampaign();
+    state = null;
+    init();
+  };
+
+  function wireTabs() {
+    document.querySelectorAll('.tabs button[data-tab]').forEach(btn => {
+      btn.onclick = () => {
+        currentTab = btn.dataset.tab;
+        document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.classList.toggle('active', b === btn));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + currentTab));
+        render();
+      };
+    });
+    document.querySelectorAll('.difficulty-tabs button').forEach(btn => {
+      btn.onclick = () => {
+        currentDifficulty = btn.dataset.diff;
+        document.querySelectorAll('.difficulty-tabs button').forEach(b => b.classList.toggle('active', b === btn));
+        renderChapters();
+      };
+    });
+  }
+
+  function render() {
+    if (!state) return;
+    document.getElementById('stat-coins').textContent = state.inventory.coins;
+    document.getElementById('stat-power').textContent = teamPower(state);
+    const totalCleared = state.progression.easyCleared.length + state.progression.mediumCleared.length + state.progression.hardCleared.length;
+    document.getElementById('stat-cleared').textContent = `${totalCleared}/27`;
+
+    if (currentTab === 'dashboard') renderDashboard();
+    else if (currentTab === 'roster') renderRoster();
+    else if (currentTab === 'chapters') renderChapters();
+    else if (currentTab === 'packs') renderPacks();
+    else if (currentTab === 'collection') renderCollection();
+    else if (currentTab === 'shop') renderShop();
+  }
+
+  // ─── DASHBOARD ───
+  function renderDashboard() {
+    // Determine current difficulty
+    let diffLabel = 'EASY CAMPAIGN';
+    if (state.progression.hardCleared.length > 0) diffLabel = 'HARD CAMPAIGN';
+    else if (state.progression.mediumCleared.length > 0 || state.progression.easyCleared.length >= 9) diffLabel = 'MEDIUM CAMPAIGN';
+    document.getElementById('dash-difficulty').textContent = diffLabel;
+    document.getElementById('dash-power').textContent = `⚡ POWER ${teamPower(state)}`;
+
+    const clearedTotal = state.progression.easyCleared.length + state.progression.mediumCleared.length + state.progression.hardCleared.length;
+    document.getElementById('dash-summary').textContent = clearedTotal === 27
+      ? '🏆 Legendary run! You have cleared all 27 chapters.'
+      : `Chapters cleared: ${clearedTotal} / 27 · Owned cards: ${Object.keys(state.ownedCards).length}`;
+
+    // Starters
+    const startersEl = document.getElementById('dash-starters');
+    startersEl.innerHTML = state.roster.starters.length
+      ? state.roster.starters.map(id => renderCardHTML(id, state.ownedCards[id])).join('')
+      : '<p class="empty-state">No starters selected. Go to ROSTER to build your team.</p>';
+    wireCardClicks(startersEl);
+
+    // Log
+    const logEl = document.getElementById('dash-log');
+    logEl.innerHTML = (state.log || []).slice().reverse().map(line => {
+      const cls = /VICTORY|✅/i.test(line) ? 'win' : /DEFEAT|❌/i.test(line) ? 'loss' : '';
+      return `<div class="line ${cls}">${escapeHtml(line)}</div>`;
+    }).join('');
+  }
+
+  // ─── ROSTER ───
+  function renderRoster() {
+    const starterIds = state.roster.starters;
+    const benchIds = state.roster.bench;
+    const rosterSet = new Set([...starterIds, ...benchIds]);
+    const unassignedIds = Object.keys(state.ownedCards).filter(id => !rosterSet.has(id));
+
+    const startersEl = document.getElementById('roster-starters');
+    startersEl.innerHTML = starterIds.length
+      ? starterIds.map(id => renderCardHTML(id, state.ownedCards[id])).join('')
+      : `<p class="empty-state">No starters. Click cards below to add.</p>`;
+    wireCardClicks(startersEl);
+
+    const benchEl = document.getElementById('roster-bench');
+    benchEl.innerHTML = benchIds.length
+      ? benchIds.map(id => renderCardHTML(id, state.ownedCards[id])).join('')
+      : `<p class="empty-state">Empty bench.</p>`;
+    wireCardClicks(benchEl);
+
+    const unassignedEl = document.getElementById('roster-unassigned');
+    unassignedEl.innerHTML = unassignedIds.length
+      ? unassignedIds.map(id => renderCardHTML(id, state.ownedCards[id])).join('')
+      : `<p class="empty-state">All cards assigned.</p>`;
+    wireCardClicks(unassignedEl);
+  }
+
+  // ─── CHAPTERS ───
+  function renderChapters() {
+    const grid = document.getElementById('chapter-grid');
+    grid.innerHTML = CHAPTERS.map(ch => {
+      const unlocked = isChapterUnlocked(state, ch.n, currentDifficulty);
+      const cleared = isChapterCleared(state, ch.n, currentDifficulty);
+      const power = chapterPower(ch.n, currentDifficulty);
+      const yourPower = teamPower(state);
+      const classes = ['chapter-card'];
+      if (cleared) classes.push('cleared');
+      if (!unlocked) classes.push('locked');
+      const btn = unlocked
+        ? `<button class="ch-btn ${cleared ? 'cleared' : ''}" onclick="challenge(${ch.n}, '${currentDifficulty}')">${cleared ? '↻ REPLAY' : '▶ CHALLENGE'}</button>`
+        : `<button class="ch-btn" disabled>🔒 LOCKED</button>`;
+      return `
+        <div class="${classes.join(' ')}">
+          <div class="ch-num">CHAPTER ${ch.n}${cleared ? ' ✓' : ''}</div>
+          <div class="ch-name">${ch.name}</div>
+          <div class="ch-opponent">vs ${ch.opponent}</div>
+          <div class="ch-power">
+            <span class="power-vs">Enemy Power: ${power}</span>
+            · Your Power: <b style="color:${yourPower >= power ? '#22c55e' : '#f87171'}">${yourPower}</b>
+          </div>
+          ${btn}
+        </div>`;
+    }).join('');
+  }
+
+  window.challenge = (n, diff) => {
+    if (state.roster.starters.length === 0) {
+      alert('Add at least one starter to your roster first.');
+      return;
+    }
+    const result = playChapter(state, n, diff);
+    showChapterResult(result, n, diff);
+  };
+
+  function showChapterResult(result, n, diff) {
+    const bodyEl = document.getElementById('modal-body');
+    const rewardsHtml = result.won ? `
+      <div class="reveal-detail">
+        <b>+${result.rewards.coins} coins</b> · <b>+${result.rewards.xp} XP</b> per starter
+        ${Object.keys(result.rewards.packs).length ? '<br>📦 ' + Object.entries(result.rewards.packs).map(([k,n]) => `${n}× ${PACK_LABELS[k]}`).join(', ') : ''}
+        ${Object.keys(result.rewards.materials).length ? '<br>🎯 ' + Object.entries(result.rewards.materials).map(([k,n]) => `+${n} ${k.toUpperCase()}`).join(', ') : ''}
+      </div>
+    ` : `
+      <div class="reveal-detail">
+        Try again — train your team or open packs to get stronger.
+        <br>+${result.rewards.coins} coins (consolation)
+      </div>
+    `;
+    bodyEl.innerHTML = `
+      <h2>${result.won ? '🏆 VICTORY' : '💀 DEFEAT'}</h2>
+      <div style="font-size:1.4rem; color:${result.won ? '#22c55e' : '#f87171'}; font-weight:900;">
+        Chapter ${n} — ${CHAPTERS[n-1].name}
+      </div>
+      <div style="color:#cbd5e1; margin:8px 0;">${diff.toUpperCase()} DIFFICULTY</div>
+      ${result.won ? `<div style="margin:12px 0; color:#fbbf24;">⭐ MVP: <b>${result.mvp}</b></div>` : ''}
+      <div style="color:#94a3b8; font-family:monospace; font-size:0.85rem;">
+        Your Power: ${result.yourPower} · Enemy: ${result.enemyPower} · Win chance: ${Math.round(result.winChance*100)}%
+      </div>
+      ${rewardsHtml}
+      <button class="close-btn" onclick="closeModal(); render();">CONTINUE</button>
+    `;
+    openModal();
+  }
+
+  // ─── PACKS ───
+  function renderPacks() {
+    const grid = document.getElementById('pack-grid');
+    const packEntries = Object.entries(state.inventory.packs).filter(([k, n]) => k in PACK_ODDS);
+    grid.innerHTML = packEntries.map(([type, count]) => {
+      const odds = PACK_ODDS[type];
+      const oddsHtml = Object.entries(odds).filter(([, w]) => w > 0).map(([r, w]) =>
+        `<span style="background:${RARITY_COLORS[r]}">${r[0].toUpperCase()}${w}%</span>`
+      ).join('');
+      return `
+        <div class="pack-card">
+          <div class="pack-emoji">${PACK_LABELS[type].split(' ')[0]}</div>
+          <div class="pack-name">${PACK_LABELS[type].split(' ').slice(1).join(' ')}</div>
+          <div class="pack-count">${count}</div>
+          <button class="pack-btn" onclick="doOpenPack('${type}')" ${count === 0 ? 'disabled' : ''}>OPEN</button>
+          <div class="pack-odds">${oddsHtml}</div>
+        </div>`;
+    }).join('');
+    document.getElementById('pity-counter').textContent = state.pity.packsSinceEpic;
+  }
+
+  window.doOpenPack = (type) => {
+    try {
+      const result = openPack(state, type);
+      showPackReveal(result);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  function showPackReveal(result) {
+    const p = getBasePlayer(result.pid);
+    const frame = RARITY_FRAME[result.rarity];
+    const glow = RARITY_GLOW[result.rarity];
+    const art = cardArt(result.pid, result.rarity);
+    const dupHtml = result.isDuplicate
+      ? `<div class="reveal-detail">
+           💫 <b>DUPLICATE</b>! ${result.starsGained ? `+1 star (now ★${result.card.stars})` : 'Max stars reached.'}
+           <br>+${result.coinsGained} coins
+         </div>`
+      : `<div class="reveal-detail">🎉 NEW CARD added to your collection!</div>`;
+    document.getElementById('modal-body').style.setProperty('--frame', frame);
+    document.getElementById('modal-body').style.setProperty('--glow', glow);
+    document.getElementById('modal-body').innerHTML = `
+      <h2>PACK OPENED</h2>
+      <div class="reveal-card" style="--frame:${frame}; --glow:${glow};">
+        <img src="${art}" alt="${p?.name}" onerror="this.src='./assets/players/${result.pid}.png'">
+      </div>
+      <div class="reveal-rarity" style="color:${frame};">${RARITY_LABELS[result.rarity]}</div>
+      <div class="reveal-name">${p?.name || '?'}</div>
+      <div class="reveal-nickname">"${p?.nickname || ''}"</div>
+      ${dupHtml}
+      <button class="close-btn" onclick="closeModal(); render();">CLOSE</button>
+    `;
+    openModal();
+  }
+
+  // ─── COLLECTION ───
+  function renderCollection() {
+    const grid = document.getElementById('collection-grid');
+    const ids = Object.keys(state.ownedCards);
+    if (!ids.length) { grid.innerHTML = '<p class="empty-state">No cards yet. Open packs!</p>'; return; }
+    // Sort by rarity (highest first), then overall
+    const rarityOrder = { legendary: 4, epic: 3, rare: 2, uncommon: 1, common: 0 };
+    ids.sort((a, b) => {
+      const ca = state.ownedCards[a], cb = state.ownedCards[b];
+      const r = rarityOrder[cb.rarity] - rarityOrder[ca.rarity];
+      if (r) return r;
+      return cardOverall(cb) - cardOverall(ca);
+    });
+    grid.innerHTML = ids.map(id => renderCardHTML(id, state.ownedCards[id])).join('');
+    wireCardClicks(grid);
+  }
+
+  // ─── SHOP ───
+  function renderShop() {
+    const list = document.getElementById('shop-list');
+    list.innerHTML = SHOP_ITEMS.map(item => {
+      const canAfford = state.inventory.coins >= item.cost;
+      return `
+        <div class="shop-item">
+          <span class="shop-label">${item.label}</span>
+          <span class="shop-cost">💰 ${item.cost}</span>
+          <button onclick="doBuyPack('${item.id}')" ${canAfford ? '' : 'disabled'}>BUY</button>
+        </div>`;
+    }).join('');
+  }
+
+  window.doBuyPack = (id) => {
+    try {
+      buyPack(state, id);
+      render();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ─── CARD RENDERING ───
+  function renderCardHTML(cardId, card) {
+    const p = getBasePlayer(card.pid);
+    const frame = RARITY_FRAME[card.rarity];
+    const glow = RARITY_GLOW[card.rarity];
+    const art = cardArt(card.pid, card.rarity);
+    const stars = '★'.repeat(card.stars);
+    return `
+      <div class="player-card" data-cardid="${cardId}" style="--frame:${frame}; --glow:${glow};">
+        <span class="rarity-tag" style="background:${frame};">${RARITY_LABELS[card.rarity][0]}</span>
+        <img src="${art}" alt="${p?.name}" onerror="this.src='./assets/players/${card.pid}.png'; this.onerror=null;">
+        <div class="name">${p?.name || '?'}</div>
+        <div class="nickname">${p?.nickname || ''}</div>
+        <div class="stars">${stars}</div>
+        <div class="lvl">Lv ${card.level} · ${card.xp} XP</div>
+        <div class="ovr">${cardOverall(card).toFixed(1)}</div>
+      </div>`;
+  }
+
+  function wireCardClicks(container) {
+    container.querySelectorAll('.player-card').forEach(el => {
+      el.onclick = () => openCardDetail(el.dataset.cardid);
+    });
+  }
+
+  function openCardDetail(cardId) {
+    const card = state.ownedCards[cardId];
+    if (!card) return;
+    const p = getBasePlayer(card.pid);
+    const frame = RARITY_FRAME[card.rarity];
+    const glow = RARITY_GLOW[card.rarity];
+    const art = cardArt(card.pid, card.rarity);
+    const stats = cardStats(card);
+    const inStarters = state.roster.starters.includes(cardId);
+    const inBench = state.roster.bench.includes(cardId);
+    const startersFull = state.roster.starters.length >= 6 && !inStarters;
+    const benchFull = state.roster.bench.length >= 4 && !inBench;
+
+    const statBoosts = card.statBoosts || {};
+    const statsHtml = ['attack','serve','defense','setting','athletic'].map(k => {
+      const boost = statBoosts[k] ? ` <span style="color:#fbbf24;">+${statBoosts[k].toFixed(1)}</span>` : '';
+      return `<div class="stat-row"><span class="stat-name">${k.toUpperCase()}${boost}</span><span class="stat-val">${stats[k].toFixed(2)}</span></div>`;
+    }).join('');
+
+    const trainButtons = ['atk','def','srv','set','ath'].map(mat => {
+      const count = state.inventory.materials[mat] || 0;
+      return `<button onclick="doTrain('${cardId}','${mat}')" ${count === 0 ? 'disabled' : ''}>+ ${mat.toUpperCase()} (${count})</button>`;
+    }).join('');
+
+    document.getElementById('modal-body').style.setProperty('--frame', frame);
+    document.getElementById('modal-body').style.setProperty('--glow', glow);
+    document.getElementById('modal-body').innerHTML = `
+      <h2 style="color:${frame};">${RARITY_LABELS[card.rarity]}</h2>
+      <div class="reveal-card" style="--frame:${frame}; --glow:${glow};">
+        <img src="${art}" alt="${p?.name}" onerror="this.src='./assets/players/${card.pid}.png'; this.onerror=null;">
+      </div>
+      <div class="reveal-name">${p?.name}</div>
+      <div class="reveal-nickname">"${p?.nickname}" · ${'★'.repeat(card.stars)} · Lv ${card.level}</div>
+      <div class="card-detail-stats">${statsHtml}</div>
+      <div style="color:#94a3b8; font-size:0.85rem;">OVR: <b style="color:#22c55e;">${cardOverall(card).toFixed(2)}</b></div>
+      <div style="margin-top:16px; text-align:left; color:#fbbf24; font-size:0.8rem; letter-spacing:1px;">TRAIN (+0.2 per material)</div>
+      <div class="card-detail-actions">${trainButtons}</div>
+      <div style="margin-top:16px; text-align:left; color:#fbbf24; font-size:0.8rem; letter-spacing:1px;">ROSTER</div>
+      <div class="card-detail-actions">
+        <button onclick="doMoveStarter('${cardId}')" ${inStarters || startersFull ? 'disabled' : ''}>→ Starters</button>
+        <button onclick="doMoveBench('${cardId}')" ${inBench || benchFull ? 'disabled' : ''}>→ Bench</button>
+        <button onclick="doRemoveRoster('${cardId}')" ${!inStarters && !inBench ? 'disabled' : ''}>Remove</button>
+        <button class="sell" onclick="doSellCard('${cardId}')">💰 Sell</button>
+      </div>
+      <button class="close-btn" onclick="closeModal(); render();">CLOSE</button>
+    `;
+    openModal();
+  }
+
+  window.doTrain = (cardId, mat) => {
+    try { trainCard(state, cardId, mat); openCardDetail(cardId); } catch (e) { alert(e.message); }
+  };
+  window.doMoveStarter = (cardId) => { try { moveToStarters(state, cardId); openCardDetail(cardId); } catch (e) { alert(e.message); } };
+  window.doMoveBench = (cardId) => { try { moveToBench(state, cardId); openCardDetail(cardId); } catch (e) { alert(e.message); } };
+  window.doRemoveRoster = (cardId) => { removeFromRoster(state, cardId); openCardDetail(cardId); };
+  window.doSellCard = (cardId) => {
+    if (!confirm('Sell this card for coins? Cannot be undone.')) return;
+    const v = sellCard(state, cardId);
+    closeModal();
+    render();
+    if (v) setTimeout(() => alert(`Sold for ${v} coins.`), 100);
+  };
+
+  // ─── MODAL HELPERS ───
+  function openModal() { document.getElementById('modal-backdrop').classList.add('active'); }
+  window.closeModal = () => document.getElementById('modal-backdrop').classList.remove('active');
+  document.getElementById('modal-backdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'modal-backdrop') { closeModal(); render(); }
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  init();
+</script>
+</body>
+</html>
