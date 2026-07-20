@@ -14,7 +14,8 @@
 
 import { DEFAULT_PLAYERS } from './data.js';
 
-const SAVE_KEY = 'gomi-campaign-v1';
+export const CAMPAIGN_SAVE_KEY = 'gomi-campaign-v1';
+const SAVE_KEY = CAMPAIGN_SAVE_KEY;
 
 // ──────────── RARITIES ────────────
 export const RARITIES = ['common','uncommon','rare','epic','legendary'];
@@ -101,6 +102,7 @@ function freshState() {
       currentDifficulty: 'easy',
     },
     pity: { packsSinceEpic: 0 },
+    tutorialComplete: false,
     history: [],
     log: ['🏐 Campaign started. The Underdog Six begin their journey.'],
   };
@@ -111,7 +113,10 @@ export function loadCampaign() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const state = JSON.parse(raw);
+    // Campaign saves created before the guided start existed should receive it once.
+    if (typeof state.tutorialComplete !== 'boolean') state.tutorialComplete = false;
+    return state;
   } catch (e) { return null; }
 }
 export function saveCampaign(state) {
@@ -313,14 +318,28 @@ export function openPack(state, packType) {
   // Do we already own this player at this rarity?
   const existing = Object.entries(state.ownedCards).find(([, c]) => c.pid === picked.id && c.rarity === rarity);
   if (existing) {
-    // Duplicate → +1 star (max 5), plus some coins
+    // Duplicate → +1 star (max 5), plus some coins. The resulting OVR change is
+    // calculated from the campaign card only; the shared base player is untouched.
     const [, dupCard] = existing;
+    const previousOverall = cardOverall(dupCard);
     const gainedStars = dupCard.stars < 5 ? 1 : 0;
     if (gainedStars) dupCard.stars++;
+    const newOverall = cardOverall(dupCard);
     const coins = 25 + (['common','uncommon','rare','epic','legendary'].indexOf(rarity) * 20);
     state.inventory.coins += coins;
     saveCampaign(state);
-    return { card: dupCard, pid: picked.id, rarity, isDuplicate: true, starsGained: gainedStars, coinsGained: coins, playerName: picked.name };
+    return {
+      card: dupCard,
+      pid: picked.id,
+      rarity,
+      isDuplicate: true,
+      starsGained: gainedStars,
+      coinsGained: coins,
+      playerName: picked.name,
+      previousOverall,
+      newOverall,
+      overallGain: +(newOverall - previousOverall).toFixed(2),
+    };
   }
 
   // New card
@@ -346,13 +365,31 @@ const MAT_TO_STAT = { atk: 'attack', def: 'defense', srv: 'serve', set: 'setting
 export function trainCard(state, cardId, materialKey) {
   const card = state.ownedCards[cardId];
   if (!card) throw new Error('Card not found');
-  if ((state.inventory.materials[materialKey] || 0) < 1) throw new Error('Not enough materials');
-  state.inventory.materials[materialKey]--;
   const statKey = MAT_TO_STAT[materialKey];
+  if (!statKey) throw new Error('Unknown training material');
+  if ((state.inventory.materials[materialKey] || 0) < 1) throw new Error('Not enough materials');
+
+  // Training belongs to this campaign card instance only. DEFAULT_PLAYERS is never
+  // changed, so player ratings everywhere outside Campaign remain untouched.
+  const previousOverall = cardOverall(card);
+  const previousStat = cardStats(card)[statKey];
+  if (previousStat >= 11) throw new Error(`${statKey.toUpperCase()} is already at the campaign maximum`);
+
+  state.inventory.materials[materialKey]--;
   card.statBoosts = card.statBoosts || {};
   card.statBoosts[statKey] = +((card.statBoosts[statKey] || 0) + 0.2).toFixed(2);
+  const newStat = cardStats(card)[statKey];
+  const newOverall = cardOverall(card);
   saveCampaign(state);
-  return { statKey, newBoost: card.statBoosts[statKey] };
+  return {
+    statKey,
+    previousStat,
+    newStat,
+    newBoost: card.statBoosts[statKey],
+    previousOverall,
+    newOverall,
+    overallGain: +(newOverall - previousOverall).toFixed(2),
+  };
 }
 
 // ──────────── ROSTER ────────────
