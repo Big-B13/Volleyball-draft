@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campaign Match — The Gomi Cup</title>
+<link rel="stylesheet" href="./css/style.css">
+<style>
+  body { background: radial-gradient(circle at 50% 0,#172554,#060a14 55%); min-height: 100vh; }
+  .sprint-shell { max-width: 1120px; margin: auto; padding: 14px; }
+  .sprint-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .back-campaign { color: #cbd5e1; text-decoration: none; padding: 8px 13px; border: 1px solid #334155; border-radius: 7px; background: #0f172acc; }
+  .sprint-rule { color: #fbbf24; font: 900 .78rem monospace; letter-spacing: 1.5px; }
+  .match-banner { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; padding: 15px; border: 1px solid #334155; border-radius: 14px; background: rgba(15,23,42,.88); }
+  .team-name { color: #fff; font-size: clamp(.9rem,2.5vw,1.25rem); font-weight: 900; }
+  .team-name.away { text-align: right; }
+  .team-sub { color: #94a3b8; font-size: .72rem; margin-top: 3px; }
+  .team-name.away .team-sub { text-align: right; }
+  .score-center { text-align: center; }
+  .score { color: #fbbf24; font: 950 clamp(2.4rem,8vw,4.5rem)/1 monospace; letter-spacing: 5px; }
+  .score-label { color: #94a3b8; font-size: .68rem; letter-spacing: 1.5px; }
+  .chapter-line { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 12px 0; color: #cbd5e1; font-size: .82rem; }
+  .chapter-line b { color: #fff; }
+  .rival-strip { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin: 12px 0; }
+  .rival-chip { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid #334155; border-radius: 9px; background: rgba(15,23,42,.75); opacity: .55; }
+  .rival-chip.active { opacity: 1; border-color: #f97316; background: rgba(249,115,22,.12); }
+  .rival-chip img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #1e293b; }
+  .rival-chip b { display: block; color: #fff; font-size: .78rem; }
+  .rival-chip small { color: #94a3b8; font-size: .65rem; }
+  .court-panel { display: grid; grid-template-columns: minmax(0,1fr) 260px; gap: 14px; }
+  .campaign-court { position: relative; width: 100%; aspect-ratio: 2/1; min-height: 330px; overflow: hidden; border: 4px solid #f8fafc; border-radius: 12px; background: linear-gradient(90deg,rgba(14,116,144,.88) 0 49.5%,rgba(234,88,12,.82) 50.5% 100%), repeating-linear-gradient(0deg,transparent 0 48px,rgba(255,255,255,.05) 49px 50px); box-shadow: 0 20px 55px rgba(0,0,0,.55); }
+  .campaign-court::before { content: ''; position: absolute; inset: 9px; border: 2px solid rgba(255,255,255,.88); pointer-events: none; }
+  .campaign-court::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 5px; transform: translateX(-50%); background: repeating-linear-gradient(0deg,#fff 0 7px,#ef4444 7px 13px); box-shadow: 0 0 10px #fff; z-index: 2; }
+  .attack-line { position: absolute; top: 10px; bottom: 10px; width: 2px; background: rgba(255,255,255,.72); }
+  .attack-line.home { left: 33%; }
+  .attack-line.away { left: 67%; }
+  .court-side { position: absolute; top: 16px; color: #ffffffaa; font-size: .65rem; font-weight: 900; letter-spacing: 2px; }
+  .court-side.home { left: 18px; }
+  .court-side.away { right: 18px; }
+  .court-player { position: absolute; width: clamp(42px,7vw,70px); aspect-ratio: 1; border-radius: 50%; transform: translate(-50%,-50%); border: 3px solid #fff; background: #1e293b center 22%/cover no-repeat; box-shadow: 0 5px 14px #000a; transition: left .45s, top .45s, transform .2s, filter .2s; z-index: 4; }
+  .court-player.away { border-color: #fed7aa; }
+  .court-player.active { transform: translate(-50%,-50%) scale(1.18); filter: brightness(1.35); box-shadow: 0 0 0 4px #fbbf24, 0 8px 22px #000; z-index: 7; }
+  .court-player .initials { display: grid; place-items: center; width: 100%; height: 100%; color: #fff; font-weight: 900; }
+  .court-player .player-label { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 4px; padding: 2px 5px; border-radius: 4px; background: #020617e8; color: #fff; font-size: clamp(.48rem,1.2vw,.65rem); white-space: nowrap; }
+  .campaign-ball { position: absolute; width: 20px; height: 20px; border-radius: 50%; left: 50%; top: 50%; transform: translate(-50%,-50%); background: radial-gradient(circle at 35% 30%,#fff 0 20%,#fbbf24 24% 55%,#2563eb 58% 72%,#fff 75%); box-shadow: 0 0 12px #fff; z-index: 10; opacity: 0; transition: left .45s linear, top .45s linear; }
+  .campaign-ball.live { opacity: 1; }
+  .court-log { height: 100%; max-height: 430px; overflow: auto; padding: 12px; border: 1px solid #334155; border-radius: 12px; background: rgba(2,6,23,.88); }
+  .court-log h3 { margin: 0 0 8px; color: #fbbf24; }
+  .log-line { padding: 6px 3px; border-bottom: 1px solid #1e293b; color: #cbd5e1; font-size: .75rem; line-height: 1.35; }
+  .log-line.point { color: #fbbf24; font-weight: 800; }
+  .log-line.win { color: #4ade80; font-weight: 900; }
+  .match-controls { display: flex; justify-content: center; gap: 9px; flex-wrap: wrap; margin: 16px 0; }
+  .match-controls button, .match-controls select { padding: 11px 17px; border: 0; border-radius: 8px; font-weight: 850; }
+  .match-controls button { background: #f97316; color: #fff; cursor: pointer; }
+  .match-controls button.secondary { background: #334155; }
+  .match-controls button:disabled { opacity: .45; cursor: not-allowed; }
+  .match-note { text-align: center; color: #94a3b8; font-size: .78rem; }
+  .result-backdrop { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center; padding: 18px; background: #020617e8; }
+  .result-backdrop.active { display: flex; }
+  .result-card { width: min(520px,100%); padding: 30px; border: 3px solid #fbbf24; border-radius: 16px; text-align: center; background: linear-gradient(160deg,#1e293b,#0f172a); }
+  .result-card h2 { font-size: 2rem; margin: 0 0 8px; }
+  .reward-box { margin: 18px 0; padding: 13px; border: 1px solid #334155; border-radius: 9px; color: #cbd5e1; line-height: 1.7; }
+  .result-actions { display: flex; justify-content: center; gap: 9px; flex-wrap: wrap; }
+  .result-actions a, .result-actions button { padding: 11px 17px; border: 0; border-radius: 8px; background: #f97316; color: #fff; text-decoration: none; font-weight: 850; cursor: pointer; }
+  .result-actions .secondary { background: #334155; }
+  .gate { padding: 50px 20px; text-align: center; border: 1px solid #475569; border-radius: 14px; background: #0f172acc; }
+  .gate h2 { color: #fbbf24; }
+  @media (max-width: 780px) {
+    .court-panel { grid-template-columns: 1fr; }
+    .court-log { max-height: 190px; }
+    .rival-strip { grid-template-columns: repeat(2,1fr); }
+    .campaign-court { min-height: 260px; }
+    .match-banner { grid-template-columns: 1fr auto 1fr; padding: 10px; }
+    .team-sub { display: none; }
+  }
+  @media (max-width: 460px) {
+    .campaign-court { min-height: 230px; }
+    .rival-chip img { width: 32px; height: 32px; }
+    .rival-chip small { display: none; }
+    .score { font-size: 2.2rem; }
+    .court-player { width: 42px; }
+  }
+</style>
+</head>
+<body>
+<main class="sprint-shell">
+  <div class="sprint-top">
+    <a class="back-campaign" id="back-link" href="./campaign.html?tab=chapters">← Campaign chapters</a>
+    <span class="sprint-rule">ONE SET · FIRST TO 5 · NO WIN-BY-TWO</span>
+  </div>
+  <div id="match-app"><div class="gate">Loading campaign court…</div></div>
+</main>
+<div class="result-backdrop" id="result-backdrop">
+  <section class="result-card" id="result-card"></section>
+</div>
+<script type="module">
+import { createMatch, simulateRally, playerAtSpot, ROTATION_SPOTS_HOME, ROTATION_SPOTS_AWAY } from './js/match-engine-v3.js';
+import { augmentEvents, resetV3State } from './js/mechanics-v3.js';
+import {
+  loadCampaign, campaignMatchInfo, isCampaignMatchUnlocked, completeCampaignMatch,
+  cardStats, cardOverall, getBasePlayer, PACK_LABELS,
+} from './js/campaign-store.js';
+
+const params = new URLSearchParams(location.search);
+const chapter = Math.max(1, Math.min(9, +(params.get('chapter') || 1)));
+const matchNumber = Math.max(1, Math.min(10, +(params.get('match') || 1)));
+const difficulty = ['easy','medium','hard'].includes(params.get('difficulty')) ? params.get('difficulty') : 'easy';
+const backUrl = `./campaign.html?tab=chapters&chapter=${chapter}&difficulty=${difficulty}`;
+document.getElementById('back-link').href = backUrl;
+
+let state = loadCampaign();
+let info = state ? campaignMatchInfo(chapter, matchNumber, difficulty) : null;
+let match = null;
+let busy = false;
+let autoPlaying = false;
+let resultSaved = false;
+let speed = 1;
+
+const app = document.getElementById('match-app');
+const homeSpots = ROTATION_SPOTS_HOME;
+const awaySpots = ROTATION_SPOTS_AWAY;
+
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const initials = n => String(n || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+const toScreen = spot => spot ? ({ x: 1 - spot.y, y: spot.x }) : ({ x: .5, y: .5 });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function campaignHomeTeam() {
+  return state.roster.starters.map((cardId, i) => {
+    const card = state.ownedCards[cardId];
+    const base = card && getBasePlayer(card.pid);
+    if (!card || !base) return null;
+    return {
+      ...base, ...cardStats(card),
+      id: `campaign-${cardId}`,
+      baseId: base.id,
+      cardId,
+      jerseyNum: i + 1,
+      campaignOverall: cardOverall(card),
+    };
+  }).filter(Boolean);
+}
+
+function teamAverage(team) {
+  if (!team.length) return 0;
+  return team.reduce((s, p) => s + (p.attack + p.serve + p.defense + p.setting + p.athletic) / 5, 0) / team.length;
+}
+function playerImage(player) {
+  return player.baseId ? `./assets/players/${player.baseId}.png` : '';
+}
+function renderGate(title, message, action = '') {
+  app.innerHTML = `<section class="gate"><div style="font-size:3rem">🏐</div><h2>${esc(title)}</h2><p style="color:#cbd5e1;line-height:1.6">${message}</p>${action}</section>`;
+}
+
+function validateAndRender() {
+  if (!state) {
+    renderGate('No campaign found', 'Start your campaign before entering the court.', `<a class="back-campaign" href="./campaign.html">Open Campaign</a>`);
+    return;
+  }
+  if (!info) { renderGate('Match not found', 'This chapter match does not exist.'); return; }
+  if (!isCampaignMatchUnlocked(state, chapter, matchNumber, difficulty)) {
+    renderGate('Match locked', 'Win the previous match in this chapter first.', `<a class="back-campaign" href="${backUrl}">Back to chapter</a>`);
+    return;
+  }
+  const home = campaignHomeTeam();
+  if (home.length !== 6) {
+    renderGate('Starting Six required', `You have ${home.length}/6 starters. Fill every starting slot before playing a court match.`, `<a class="back-campaign" href="./campaign.html?tab=roster">Fix roster</a>`);
+    return;
+  }
+  renderMatchShell(home);
+}
+
+function renderMatchShell(home) {
+  const featuredIds = new Set(info.featuredPlayers.map(p => p.id));
+  app.innerHTML = `
+    <section class="match-banner">
+      <div class="team-name">YOUR CAMPAIGN SIX<div class="team-sub">Campaign OVR ${teamAverage(home).toFixed(2)}</div></div>
+      <div class="score-center"><div class="score"><span id="score-home">0</span>-<span id="score-away">0</span></div><div class="score-label">FIRST TO 5 WINS</div></div>
+      <div class="team-name away">${esc(info.opponentName)}<div class="team-sub">Rival OVR ${teamAverage(info.opponentTeam).toFixed(2)}</div></div>
+    </section>
+    <div class="chapter-line">
+      <span><b>${difficulty.toUpperCase()} · CHAPTER ${chapter} · MATCH ${matchNumber}</b> — ${esc(info.chapterData.name)}</span>
+      <span>${esc(info.plan.title)}</span>
+    </div>
+    <div class="rival-strip">${info.chapterPlayers.map(p => `
+      <div class="rival-chip ${featuredIds.has(p.id) ? 'active' : ''}">
+        <img src="./assets/players/${p.id}.png" alt="${esc(p.name)}" onerror="this.style.display='none'">
+        <div><b>${esc(p.name)}</b><small>"${esc(p.nickname || '')}" ${featuredIds.has(p.id) ? '· playing now' : '· chapter rival'}</small></div>
+      </div>`).join('')}</div>
+    <div class="court-panel">
+      <div class="campaign-court" id="court">
+        <div class="attack-line home"></div><div class="attack-line away"></div>
+        <span class="court-side home">YOUR SIX</span><span class="court-side away">RIVALS</span>
+        <div class="campaign-ball" id="ball"></div>
+      </div>
+      <aside class="court-log" id="court-log">
+        <h3>PLAY-BY-PLAY</h3>
+        <div class="log-line">Press Start Match when you are ready.</div>
+      </aside>
+    </div>
+    <div class="match-controls">
+      <button id="start-btn" onclick="startCampaignCourt()">▶ START MATCH</button>
+      <button id="rally-btn" class="secondary" onclick="playOneRally()" disabled>🏐 NEXT RALLY</button>
+      <button id="auto-btn" class="secondary" onclick="toggleAutoPlay()" disabled>⚡ AUTO: ON</button>
+      <select id="speed" onchange="setCampaignSpeed(this.value)">
+        <option value="0.6">0.6×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+    </div>
+    <p class="match-note">This uses the same volleyball simulation engine as the 2D Match Sim. Campaign card stats apply only to your team here.</p>`;
+}
+
+window.startCampaignCourt = () => {
+  if (match && !match.matchOver) return;
+  const home = campaignHomeTeam();
+  match = createMatch({
+    homeTeam: home,
+    awayTeam: info.opponentTeam,
+    homeName: 'Your Campaign Six',
+    awayName: info.opponentName,
+    homeColor: '#0ea5e9',
+    awayColor: '#f97316',
+    setsToWin: 1,
+    setTarget: 5,
+    finalSetTarget: 5,
+    winByTwo: false,
+  });
+  resetV3State(match);
+  resultSaved = false;
+  autoPlaying = true;
+  document.getElementById('start-btn').disabled = true;
+  document.getElementById('rally-btn').disabled = false;
+  document.getElementById('auto-btn').disabled = false;
+  document.getElementById('court-log').innerHTML = `<h3>PLAY-BY-PLAY</h3><div class="log-line point">🏐 One set. First team to 5 points wins.</div>`;
+  renderCourtPlayers();
+  renderScore();
+  runAutoLoop();
+};
+
+function renderCourtPlayers() {
+  const court = document.getElementById('court');
+  if (!court || !match) return;
+  court.querySelectorAll('.court-player').forEach(n => n.remove());
+  for (const side of ['home', 'away']) {
+    const spots = side === 'home' ? homeSpots : awaySpots;
+    for (let i = 0; i < 6; i++) {
+      const slot = playerAtSpot(match[side], i);
+      if (!slot?.player) continue;
+      const player = slot.player;
+      const screen = toScreen(spots[i]);
+      const node = document.createElement('div');
+      node.className = `court-player ${side}`;
+      node.dataset.pid = player.id;
+      node.style.left = `${screen.x * 100}%`;
+      node.style.top = `${screen.y * 100}%`;
+      const image = playerImage(player);
+      if (image) node.style.backgroundImage = `linear-gradient(#0000,#0006),url("${image}")`;
+      node.innerHTML = `${image ? '' : `<span class="initials">${initials(player.name)}</span>`}<span class="player-label">${esc(player.name)}</span>`;
+      court.appendChild(node);
+    }
+  }
+}
+
+function visualPositionForPlayer(pid) {
+  const node = [...document.querySelectorAll('.court-player')].find(el => el.dataset.pid === pid);
+  if (!node) return { x: .5, y: .5 };
+  return { x: parseFloat(node.style.left) / 100, y: parseFloat(node.style.top) / 100 };
+}
+
+function setBall(pos, immediate = false) {
+  const ball = document.getElementById('ball');
+  if (!ball) return;
+  ball.classList.add('live');
+  ball.style.transitionDuration = immediate ? '0s' : `${Math.max(.1, .42 / speed)}s`;
+  ball.style.left = `${pos.x * 100}%`;
+  ball.style.top = `${pos.y * 100}%`;
+}
+
+function formatEvent(event) {
+  const name = event.actor?.player?.name || 'Player';
+  switch (event.type) {
+    case 'serve':        return `🎾 ${name} serves`;
+    case 'ace':          return `⚡ ACE by ${name}!`;
+    case 'serve-error':  return `❌ ${name} misses the serve`;
+    case 'pass':         return `👐 ${name} receives`;
+    case 'pass-error':   return `😬 ${name} cannot control the pass`;
+    case 'set':          return `🎯 ${name} sets${event.tactic && event.tactic !== 'normal' ? ` a ${event.tactic}` : ''}`;
+    case 'attack':       return `💥 ${name} swings`;
+    case 'kill':         return `🔥 KILL by ${name}`;
+    case 'block':        return `🧱 BLOCK by ${name}`;
+    case 'dig':          return `🛡 ${name} digs it`;
+    case 'tip':          return `🪶 ${name} tips`;
+    case 'setter-dump':  return `🎭 ${name} dumps on two`;
+    case 'attack-net':   return `❌ ${name} hits the net`;
+    case 'attack-out':   return `❌ ${name} hits out`;
+    case 'rotation':     return `↺ ${event.team === 'home' ? match.home.name : match.away.name} rotates`;
+    case 'point':        return `▶ POINT ${event.team === 'home' ? match.home.name : match.away.name} · ${event.home}-${event.away}`;
+    case 'set-won':      return `🏁 SET WON ${event.finalHome}-${event.finalAway}`;
+    case 'match-won':    return `🏆 ${event.team === 'home' ? match.home.name : match.away.name} WINS`;
+    default: return event.type;
+  }
+}
+
+function addLog(text, cls = '') {
+  const log = document.getElementById('court-log');
+  const line = document.createElement('div');
+  line.className = `log-line ${cls}`;
+  line.textContent = text;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function animateEvents(events) {
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    const actorId = event.actor?.player?.id;
+    const actor = actorId ? [...document.querySelectorAll('.court-player')].find(el => el.dataset.pid === actorId) : null;
+    document.querySelectorAll('.court-player.active').forEach(n => n.classList.remove('active'));
+    if (actor) actor.classList.add('active');
+    if (actorId) setBall(visualPositionForPlayer(actorId), i === 0);
+    await sleep(Math.max(45, 180 / speed));
+    const nextActorId = events[i + 1]?.actor?.player?.id;
+    const dest = nextActorId ? visualPositionForPlayer(nextActorId)
+      : event.toSpot ? toScreen(event.toSpot)
+      : actorId ? visualPositionForPlayer(actorId) : { x: .5, y: .5 };
+    setBall(dest);
+    addLog(formatEvent(event), event.type === 'point' ? 'point' : event.type === 'match-won' ? 'win' : '');
+    if (event.type === 'point') renderScore(event.home, event.away);
+    if (event.type === 'rotation') renderCourtPlayers();
+    await sleep(Math.max(65, 360 / speed));
+  }
+  document.querySelectorAll('.court-player.active').forEach(n => n.classList.remove('active'));
+}
+
+function renderScore(home = match?.pointsHome || 0, away = match?.pointsAway || 0) {
+  document.getElementById('score-home').textContent = home;
+  document.getElementById('score-away').textContent = away;
+}
+
+async function playRally() {
+  if (!match || match.matchOver || busy) return;
+  busy = true;
+  document.getElementById('rally-btn').disabled = true;
+  const events = augmentEvents(simulateRally(match), match);
+  await animateEvents(events);
+  busy = false;
+  if (match.matchOver) {
+    autoPlaying = false;
+    finishCampaignCourt();
+  } else {
+    document.getElementById('rally-btn').disabled = false;
+  }
+}
+window.playOneRally = playRally;
+
+async function runAutoLoop() {
+  while (autoPlaying && match && !match.matchOver) {
+    await playRally();
+    await sleep(Math.max(80, 300 / speed));
+  }
+}
+
+window.toggleAutoPlay = () => {
+  autoPlaying = !autoPlaying;
+  document.getElementById('auto-btn').textContent = `⚡ AUTO: ${autoPlaying ? 'ON' : 'OFF'}`;
+  if (autoPlaying) runAutoLoop();
+};
+window.setCampaignSpeed = v => { speed = +v || 1; };
+
+function rewardText(result) {
+  const r = result.rewards;
+  const lines = [`💰 +${r.coins} coins`];
+  if (r.xp) lines.push(`⭐ +${r.xp} XP for every starter`);
+  for (const [p, c] of Object.entries(r.packs))     lines.push(`📦 ${c}× ${PACK_LABELS[p]}`);
+  for (const [m, c] of Object.entries(r.materials)) lines.push(`🎯 +${c} ${m.toUpperCase()}`);
+  if (result.won && !result.firstClear) lines.push('↻ Replay reward (full milestone rewards were already claimed)');
+  return lines.join('<br>');
+}
+
+function finishCampaignCourt() {
+  if (resultSaved) return;
+  resultSaved = true;
+  const won = match.winner === 'home';
+  const result = completeCampaignMatch(state, chapter, matchNumber, difficulty, won, { home: match.pointsHome, away: match.pointsAway });
+  const nextUrl = matchNumber < 10
+    ? `./campaign-match.html?chapter=${chapter}&match=${matchNumber + 1}&difficulty=${difficulty}`
+    : chapter < 9 ? `./campaign.html?tab=chapters&chapter=${chapter + 1}&difficulty=${difficulty}` : backUrl;
+  document.getElementById('result-card').innerHTML = `
+    <h2 style="color:${won ? '#4ade80' : '#f87171'}">${won ? '🏆 VICTORY' : '💀 DEFEAT'}</h2>
+    <div style="color:#fff;font-size:1.35rem;font-weight:900">${match.pointsHome} - ${match.pointsAway}</div>
+    <p style="color:#cbd5e1">${won ? `You defeated ${esc(info.opponentName)}.` : `${esc(info.opponentName)} took the sprint. Upgrade or adjust your Starting Six and try again.`}</p>
+    <div class="reward-box">${rewardText(result)}</div>
+    <div class="result-actions">
+      ${won ? `<a href="${nextUrl}">${matchNumber < 10 ? `Next match ${matchNumber + 1} →` : 'Back to chapters →'}</a>` : '<button onclick="retryCampaignCourt()">↻ Retry match</button>'}
+      <a class="secondary" href="${backUrl}">Chapter ladder</a>
+    </div>`;
+  document.getElementById('result-backdrop').classList.add('active');
+}
+
+window.retryCampaignCourt = () => {
+  document.getElementById('result-backdrop').classList.remove('active');
+  match = null;
+  busy = false;
+  resultSaved = false;
+  const home = campaignHomeTeam();
+  renderMatchShell(home);
+};
+
+validateAndRender();
+</script>
+</body>
+</html>

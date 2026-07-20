@@ -8,7 +8,7 @@ const LEGENDARY_ART_AVAILABLE = new Set([
   'nikita-brown','bouschra','islom','nikita-blond','linus','gabsche','zakhar',
 ]);
 
-/** Returns the image URL for a given player+rarity, or null to signal "use default". */
+/** Returns the image URL for a given player+rarity. */
 export function cardArt(pid, rarity) {
   if ((rarity === 'legendary' || rarity === 'epic') && LEGENDARY_ART_AVAILABLE.has(pid)) {
     return `./assets/campaign/cards/${pid}/legendary.png`;
@@ -16,16 +16,10 @@ export function cardArt(pid, rarity) {
   return `./assets/players/${pid}.png`;
 }
 
-/** Border/frame color per rarity */
 export const RARITY_FRAME = {
-  common:    '#94a3b8',
-  uncommon:  '#22c55e',
-  rare:      '#3b82f6',
-  epic:      '#a855f7',
-  legendary: '#f97316',
+  common: '#94a3b8', uncommon: '#22c55e', rare: '#3b82f6', epic: '#a855f7', legendary: '#f97316',
 };
 
-/** Rarity glow (box-shadow) */
 export const RARITY_GLOW = {
   common:    '0 0 0 rgba(0,0,0,0)',
   uncommon:  '0 0 12px rgba(34,197,94,0.6)',
