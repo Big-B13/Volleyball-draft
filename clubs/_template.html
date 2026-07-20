@@ -78,6 +78,10 @@
     text-align: center;
   }
   .jersey-block h2 { color: #fbbf24; margin-bottom: 20px; }
+  .house-members { padding:28px; background:rgba(15,23,42,.72); border-radius:12px; margin-bottom:22px; border-top:4px solid; }
+  .house-members h2 { margin-bottom:5px; }.house-members .intro{color:#94a3b8;font-size:.88rem;margin-bottom:16px}
+  .house-member-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:10px}.house-member{display:block;text-decoration:none;color:#e2e8f0;padding:12px;background:rgba(30,41,59,.72);border:1px solid #334155;border-radius:9px}.house-member:hover{border-color:var(--club);transform:translateY(-2px)}.house-member .member-name{font-weight:800}.house-member .member-meta{font-size:.75rem;color:#94a3b8;margin-top:4px}.house-member .member-status{font-size:.68rem;letter-spacing:1px;font-weight:800;margin-top:8px;color:#fbbf24}.house-members .empty{color:#64748b;text-align:center;padding:15px}
+
   .jersey-block img {
     max-width: 100%;
     max-height: 480px;
@@ -125,6 +129,7 @@
 
 <script type="module">
   import { CLUBS } from "../js/lore.js";
+  import { db, ref, get } from "../js/firebase-init.js";
 
   // Read club id from filename OR from ?club=xxx
   const params = new URLSearchParams(location.search);
@@ -174,6 +179,12 @@
         <img src="../${c.jerseyUrl.replace('./','')}" alt="${c.name} jersey">
       </div>
 
+      <section class="house-members" id="house-members" style="border-top-color:${c.colorPrimary}; --club:${c.colorPrimary};">
+        <h2 style="color:${c.colorPrimary};">${c.name} House Members</h2>
+        <p class="intro">These people chose ${c.name} as their house. This is separate from any team they are drafted to in a season.</p>
+        <div class="empty">Loading house members…</div>
+      </section>
+
       <h3 style="text-align:center; color:#94a3b8; margin-top:32px; font-size:0.85rem; letter-spacing:3px; text-transform:uppercase;">The Other Houses</h3>
       <div class="other-clubs">
         ${others.map(o => `
@@ -187,6 +198,18 @@
         `).join('')}
       </div>
     `;
+    const memberBox = document.getElementById('house-members');
+    try {
+      const users = (await get(ref(db, 'users'))).val() || {};
+      const members = Object.values(users).filter(u => u.favoriteClub === c.id);
+      const clean = v => String(v || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+      memberBox.querySelector('.empty')?.remove();
+      memberBox.insertAdjacentHTML('beforeend', members.length ? `<div class="house-member-grid">${members.map(m => {
+        const name=clean(m.displayName || m.username || 'New member'); const linked=m.linkedPlayerId ? ` · Player: ${clean(m.linkedPlayerId)}` : '';
+        const pending=m.status === 'pending';
+        return `<a class="house-member" href="${m.linkedPlayerId ? '../player.html?id='+encodeURIComponent(m.linkedPlayerId) : '#'}"><div class="member-name">${name}</div><div class="member-meta">${linked || 'House supporter'}</div><div class="member-status">${pending ? 'NEW RECRUIT' : 'HOUSE MEMBER'}</div></a>`;
+      }).join('')}</div>` : '<div class="empty">No one has chosen this house yet. Be the first.</div>');
+    } catch (e) { memberBox.innerHTML += '<div class="empty">House members are unavailable right now.</div>'; }
   }
 </script>
 </body>
