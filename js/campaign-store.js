@@ -249,6 +249,14 @@ export function loadCampaign() {
     state.storyFlags = state.storyFlags || {};
     state.unlocks = state.unlocks || { ocSignatureMove: false };
     if (typeof state.unlocks.ocSignatureMove !== 'boolean') state.unlocks.ocSignatureMove = false;
+    // Roster/ownedCards: older saves can predate the roster schema entirely.
+    // Guarantee shapes so no downstream render can crash on a missing field.
+    state.ownedCards = state.ownedCards || {};
+    state.roster = state.roster || {};
+    if (!Array.isArray(state.roster.starters)) state.roster.starters = [];
+    if (!Array.isArray(state.roster.bench)) state.roster.bench = [];
+    state.inventory.coins = +state.inventory.coins || 0;
+    state.inventory.materials = state.inventory.materials || { atk:0,def:0,srv:0,set:0,ath:0 };
     state.version = CURRENT_CAMPAIGN_VERSION;
     return state;
   } catch (e) { return null; }
@@ -349,10 +357,13 @@ export function cardOverall(card) {
   return +((s.attack + s.serve + s.defense + s.setting + s.athletic) / 5).toFixed(2);
 }
 export function teamPower(state) {
-  const cards = state.roster.starters.map(id => state.ownedCards[id]).filter(Boolean);    
+  // Defensive: never let a malformed save field crash a page render.
+  const starters = Array.isArray(state?.roster?.starters) ? state.roster.starters : [];
+  const benchIds = Array.isArray(state?.roster?.bench) ? state.roster.bench : [];
+  const cards = starters.map(id => state?.ownedCards?.[id]).filter(Boolean);
   if (!cards.length) return 0;
   const total = cards.reduce((sum, c) => sum + cardOverall(c) * 10, 0);
-  const bench = state.roster.bench.map(id => state.ownedCards[id]).filter(Boolean);
+  const bench = benchIds.map(id => state?.ownedCards?.[id]).filter(Boolean);
   const benchBonus = bench.reduce((s, c) => s + cardOverall(c) * 2, 0);
   return Math.round(total + benchBonus);
 }

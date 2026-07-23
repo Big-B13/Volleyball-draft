@@ -1324,7 +1324,17 @@ window.addEventListener('storage', event => {
   if (state) showCampaignToast('🔄 Campaign inventory updated from another tab');
 });
 
-init();
+init().catch(err => {
+  console.error('[campaign init] fatal:', err);
+  const view = document.getElementById('campaign-view');
+  const intro = document.getElementById('intro-view');
+  if (intro) intro.style.display = 'none';
+  if (view) {
+    view.style.display = 'block';
+    view.insertAdjacentHTML('afterbegin',
+      `<div style="margin:12px;padding:12px;border:1px solid #ef4444;border-radius:10px;color:#fca5a5;background:rgba(239,68,68,.08)">⚠️ Campaign hit an error while starting: <b>${String(err?.message || err)}</b><br>Hard-refresh first. If it persists, use <b>Reset</b> to start a clean campaign — and report this exact message.</div>`);
+  }
+});
 </script>
 </body>
 </html>
