@@ -121,9 +121,12 @@
 
   /* ── SHOP ── */
   .shop-list { display: grid; gap: 10px; }
-  #tab-shop { background:linear-gradient(rgba(8,5,8,.55),rgba(8,5,8,.82)),url('./assets/store/otter-box.jpeg') center/cover fixed; border:1px solid #6b422b; border-radius:16px; padding:20px; }
-  #tab-shop .shop-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:16px; }
-  #tab-shop .shop-item { box-shadow:0 12px 30px rgba(0,0,0,.5); background:rgba(20,13,16,.9); border:1px solid #9a633c; }
+  #tab-shop { background-color:#05080f; background-size:cover; background-position:center; background-attachment:fixed; border:1px solid var(--store-accent,#334155); border-radius:16px; padding:20px; }
+  #tab-shop .shop-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; }
+  #tab-shop .shop-item { display:grid; grid-template-columns:1fr; gap:10px; align-items:start; box-shadow:0 12px 30px rgba(0,0,0,.5); background:rgba(8,12,20,.92); border:1px solid var(--store-accent,#334155); border-radius:12px; padding:16px; }
+  #tab-shop .shop-item .shop-cost { justify-self:start; }
+  #tab-shop .shop-item button { width:100%; padding:10px 16px; }
+  #tab-shop .shop-item .shop-odds { margin-top:2px; }
   .shop-item { display: grid; grid-template-columns: minmax(160px,1fr) auto auto; gap: 14px; align-items: center; padding: 14px; border: 1px solid #334155; border-radius: 10px; background: rgba(30,41,59,.65); }
   .shop-item .shop-info { min-width: 0; }
   .shop-item .shop-label { color: #fff; font-weight: 700; }
@@ -339,7 +342,10 @@ import { openPackCinematic } from './js/pack-opening-system.js';
 import { getStoreHeaderData, getStorekeeperForPackOpening, getStorekeeperReaction } from './js/store-system.js';
 import { renderOCCreator } from './js/oc-system.js';
 import { confirmDialog } from './js/ui-helpers.js';
-import { showLoadingSequence, shouldShowFullSequence, markFullSequenceShown } from './js/campaign-loading.js';
+import { showLoadingSequence, shouldShowFullSequence, markFullSequenceShown, PLAYER_PORTRAITS, CLUB_THEME } from './js/campaign-loading.js';
+import { getClubGuide } from './js/relationships.js';
+import { playCutscene } from './js/cutscene-player.js';
+import { CHAPTER_INTROS } from './js/story/index.js';
 
 const params = new URLSearchParams(location.search);
 const requestedTab = params.get('tab');
@@ -361,6 +367,78 @@ function playerClub() {
   return state?.club || localStorage.getItem('gomiSelectedClub') || 'strigidae';
 }
 
+const CLUB_IDS = ['strigidae', 'otters', 'shizuka'];
+
+function knownClub() {
+  const c = state?.club || localStorage.getItem('gomiSelectedClub');
+  return CLUB_IDS.includes(c) ? c : null;
+}
+
+/* Older saves never stored the club anywhere (the onboarding only wrote it to the
+ * Firebase profile), so every club lookup silently fell back to Strigidae/Bader.
+ * If the club is truly unknown, ask the player once and persist it. */
+async function ensureClubKnown() {
+  let club = knownClub();
+  if (!club) club = await pickClubOverlay();
+  if (state && !state.club) { state.club = club; saveCampaign(state); }
+  try { localStorage.setItem('gomiSelectedClub', club); } catch (e) {}
+  return club;
+}
+
+function pickClubOverlay() {
+  return new Promise((resolve) => {
+    const clubs = [
+      { id: 'strigidae', name: 'STRIGIDAE', logo: './assets/strigidae.png', motto: 'The night never blinks.' },
+      { id: 'otters', name: 'KÒRSOU OTTERS', logo: './assets/otters.png', motto: 'Quick hands. Big energy.' },
+      { id: 'shizuka', name: 'SHIZUKA', logo: './assets/shizuka.png', motto: 'Calm above the noise.' },
+    ];
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:999998;background:rgba(2,6,23,.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:24px;color:#fff;font-family:system-ui,sans-serif;';
+    overlay.innerHTML = `
+      <h2 style="margin:0;letter-spacing:.14em;font-size:clamp(1.2rem,4vw,1.9rem);">WHICH CLUB DO YOU FIGHT FOR?</h2>
+      <p style="margin:0;color:#94a3b8;font-size:.85rem;">Your save never recorded a club — pick once and everything (store, lore, rivals) will follow it.</p>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;">
+        ${clubs.map(c => `
+          <button data-club="${c.id}" style="width:180px;padding:18px 14px;border-radius:16px;border:2px solid #334155;background:#0f172a;color:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;">
+            <img src="${c.logo}" alt="${c.name}" style="width:88px;height:88px;object-fit:contain;">
+            <b style="letter-spacing:.08em;">${c.name}</b>
+            <span style="color:#94a3b8;font-size:.75rem;">“${c.motto}”</span>
+          </button>`).join('')}
+      </div>`;
+    overlay.querySelectorAll('button[data-club]').forEach(btn => {
+      btn.onclick = () => { const c = btn.dataset.club; overlay.remove(); resolve(c); };
+    });
+    document.body.appendChild(overlay);
+  });
+}
+
+/* First campaign entry: the club guide's intro cutscene (lore from
+ * RELATIONSHIPS.clubGuides). It existed in data but was never wired anywhere. */
+function showGuideIntroCutscene(club) {
+  return new Promise((resolve) => {
+    const guideData = getClubGuide(club);
+    if (!guideData) return resolve();
+    const accent = CLUB_THEME[club]?.accent || '#fbbf24';
+    const portrait = PLAYER_PORTRAITS[guideData.guide] || './assets/volleyball.png';
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:999997;background:rgba(2,6,23,.94);display:flex;align-items:center;justify-content:center;padding:20px;color:#fff;font-family:system-ui,sans-serif;';
+    overlay.innerHTML = `
+      <div style="max-width:620px;width:100%;max-height:88vh;overflow-y:auto;background:linear-gradient(160deg,#0f172a,#020617);border:1px solid ${accent};border-radius:18px;padding:24px;box-shadow:0 30px 90px rgba(0,0,0,.7);">
+        <div style="display:flex;gap:16px;align-items:center;margin-bottom:14px;">
+          <img src="${portrait}" alt="${guideData.guide}" onerror="this.onerror=null;this.src='./assets/volleyball.png'" style="width:84px;height:84px;border-radius:50%;object-fit:cover;border:2px solid ${accent};flex-shrink:0;">
+          <div>
+            <div style="font-size:.68rem;letter-spacing:.26em;color:${accent};text-transform:uppercase;font-weight:950;">Club Guide</div>
+            <h3 style="margin:4px 0 0;font-size:1.25rem;">${guideData.title}</h3>
+          </div>
+        </div>
+        <div style="white-space:pre-line;color:#e2e8f0;line-height:1.7;font-size:.95rem;">${guideData.intro}</div>
+        <button id="guide-intro-begin" style="margin-top:18px;width:100%;padding:13px;border:0;border-radius:12px;background:${accent};color:#0f172a;font-weight:950;letter-spacing:.1em;cursor:pointer;">BEGIN →</button>
+      </div>`;
+    overlay.querySelector('#guide-intro-begin').onclick = () => { overlay.remove(); resolve(); };
+    document.body.appendChild(overlay);
+  });
+}
+
 function baseForCard(card) {
   if (card?.pid === 'oc') return { id:'oc', name: card.oc?.name || 'Your Player', nickname: card.oc?.nickname || 'Rookie', position: card.oc?.position || 'OH', attack: card.oc?.stats?.attack || 5, serve: card.oc?.stats?.serve || 5, defense: card.oc?.stats?.defense || 5, setting: card.oc?.stats?.setting || 5, athletic: card.oc?.stats?.athletic || 5 };
   return getBasePlayer(card?.pid);
@@ -377,12 +455,13 @@ async function init() {
     return;
   }
   
-  // Show loading sequence before displaying campaign
-  const club = state.club || playerClub();
+  // Resolve club identity first (heals old saves that never stored it),
+  // then show the club-specific loading sequence.
+  const club = await ensureClubKnown();
   const showFull = shouldShowFullSequence();
   await showLoadingSequence(club, { firstTime: showFull });
   if (showFull) markFullSequenceShown();
-  
+
   document.getElementById('intro-view').style.display = 'none';
   document.getElementById('campaign-view').style.display = 'block';
   if (!state.club) { state.club = playerClub(); saveCampaign(state); }
@@ -393,6 +472,14 @@ async function init() {
   wireTabs();
   document.querySelectorAll('.difficulty-tabs button').forEach(b => b.classList.toggle('active', b.dataset.diff === currentDifficulty));
   activateTab(currentTab);
+
+  // First entry: play the club guide's intro cutscene before the tutorial.
+  if (!state.guideIntroSeen) {
+    state.guideIntroSeen = true;
+    saveCampaign(state);
+    await showGuideIntroCutscene(club);
+  }
+
   if (!state.tutorialComplete && !guideScheduled) {
     guideScheduled = true;
     setTimeout(() => startCampaignGuide(false), 120);
@@ -776,7 +863,10 @@ function renderChapterMatches(chapter) {
         <h2 style="margin:4px 0;color:#fff">${escapeHtml(chapterData.name)}</h2>
         <p style="margin:0;color:#94a3b8">${escapeHtml(chapterData.theme)} · Win matches in order · ${won}/10 complete</p>
       </div>
-      <div style="color:#fbbf24;font-weight:800">Every match: 1 set · first to 5 wins</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+        <div style="color:#fbbf24;font-weight:800">Every match: 1 set · first to 5 wins</div>
+        ${chapterUnlocked && CHAPTER_INTROS[chapter] ? `<button class="ch-btn" style="font-size:.72rem;padding:6px 12px;" onclick="replayChapterIntro()">📖 REPLAY INTRO</button>` : ''}
+      </div>
     </div>
     <div class="featured-rivals">${rivals.map(p => `<div class="featured-rival">${rivalAvatar(p, '')}<div><b>${escapeHtml(p.name)}</b><small>"${escapeHtml(p.nickname || '')}" · owns a rival team</small></div></div>`).join('')}</div>
     ${chapterUnlocked ? `<div class="match-ladder">${matches}</div>` : '<div class="empty-state">🔒 Clear the previous chapter\'s 10 matches to unlock this one.</div>'}`;
@@ -786,7 +876,31 @@ window.selectCampaignChapter = chapter => {
   currentChapterView = chapter;
   renderChapters();
   document.getElementById('chapter-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  maybePlayChapterIntro(chapter);
 };
+
+// ─── STORY (Phase 1: chapter intro cutscenes) ───
+function campaignPlayerName() {
+  const ocCard = Object.values(state?.ownedCards || {}).find(c => c?.pid === 'oc');
+  return ocCard?.oc?.name || 'rookie';
+}
+
+async function maybePlayChapterIntro(chapter, force = false) {
+  const script = CHAPTER_INTROS[chapter];
+  if (!script || !state) return;
+  if (!isChapterUnlocked(state, chapter, currentDifficulty)) return;
+  state.story = state.story || { seen: [], flags: {}, affinity: {} };
+  if (!force && state.story.seen.includes(script.id)) return;
+  if (!state.story.seen.includes(script.id)) { state.story.seen.push(script.id); saveCampaign(state); }
+  const chapterData = CHAPTERS[chapter - 1];
+  await playCutscene(script, {
+    club: playerClub(),
+    playerName: campaignPlayerName(),
+    opponent: chapterData?.opponent || '',
+  });
+}
+
+window.replayChapterIntro = () => { maybePlayChapterIntro(currentChapterView, true); };
 
 window.challengeCampaignMatch = (chapter, matchNumber, difficulty) => {
   if (!isCampaignMatchUnlocked(state, chapter, matchNumber, difficulty)) return alert('Win the previous campaign match first.');
@@ -835,9 +949,19 @@ window.doOpenPack = async type => {
     const result = openPack(state, type);
     render();
     await revealPackResult(type, result);
-    showPackReveal(result);
+    // No legacy modal here — the cinematic IS the reveal (dup info rides inside it).
   } catch (e) { alert(e.message); }
 };
+
+function dupInfoHtml(result) {
+  return result.isDuplicate
+    ? `<div class="reveal-detail">
+         💫 <b>DUPLICATE</b>! ${result.starsGained ? `+1 star (now ★${result.card.stars})` : 'Max stars reached.'}
+         ${result.starsGained ? `<br>Campaign OVR <b style="color:#22c55e">${result.previousOverall.toFixed(2)} → ${result.newOverall.toFixed(2)}</b>` : ''}
+         <br>+${result.coinsGained} coins
+       </div>`
+    : '<div class="reveal-detail">🎉 NEW CARD added to your collection!</div>';
+}
 
 async function revealPackResult(type, result) {
   const p = getBasePlayer(result.pid);
@@ -849,6 +973,7 @@ async function revealPackResult(type, result) {
   await openPackCinematic([{ pid: result.pid, name: p?.name || result.playerName, nickname: p?.nickname || '', position: p?.position || '', rarity: result.rarity, rating: cardOverall(revealCard), stats: revealStats, artwork: art }], {
     packType: type,
     storekeeper,
+    metaHtml: dupInfoHtml(result),
   });
 }
 
@@ -857,13 +982,7 @@ function showPackReveal(result, fromGuide = false) {
   const frame = RARITY_FRAME[result.rarity];
   const glow = RARITY_GLOW[result.rarity];
   const art = cardArt(result.pid, result.rarity);
-  const dupHtml = result.isDuplicate
-    ? `<div class="reveal-detail">
-         💫 <b>DUPLICATE</b>! ${result.starsGained ? `+1 star (now ★${result.card.stars})` : 'Max stars reached.'}
-         ${result.starsGained ? `<br>Campaign OVR <b style="color:#22c55e">${result.previousOverall.toFixed(2)} → ${result.newOverall.toFixed(2)}</b>` : ''}
-         <br>+${result.coinsGained} coins
-       </div>`
-    : '<div class="reveal-detail">🎉 NEW CARD added to your collection!</div>';
+  const dupHtml = dupInfoHtml(result);
   const body = document.getElementById('modal-body');
   body.style.setProperty('--frame', frame);
   body.style.setProperty('--glow', glow);
@@ -879,15 +998,26 @@ function showPackReveal(result, fromGuide = false) {
 
 // ─── SHOP ───
 function renderShop() {
+  const club = playerClub();
+  const store = getStoreHeaderData(club);
   const header = document.getElementById('store-header');
   if (header) {
-    const store = getStoreHeaderData(playerClub());
     header.innerHTML = `<div class="store-header" style="--store-accent:${store.accent}">
       <img src="${store.portrait || ''}" alt="${escapeHtml(store.storekeeper)}">
       <div><h3>${escapeHtml(store.name)}</h3><div class="keeper">${escapeHtml(store.storekeeper)}</div><p>${escapeHtml(store.intro)}</p></div>
     </div>`;
   }
+  // Theme the whole shop tab to the player's club (accent + club store backdrop).
+  const tabShop = document.getElementById('tab-shop');
+  if (tabShop) {
+    tabShop.style.setProperty('--store-accent', store.accent);
+    const bg = CLUB_THEME[store.club]?.storeBg;
+    if (bg) {
+      tabShop.style.backgroundImage = `linear-gradient(rgba(8,5,8,.55),rgba(8,5,8,.82)),url('${bg}')`;
+    }
+  }
   const list = document.getElementById('shop-list');
+  list.style.setProperty('--store-accent', store.accent);
   list.innerHTML = SHOP_ITEMS.map(item => {
     const canAfford = state.inventory.coins >= item.cost;
     const owned = state.inventory.packs[item.pack] || 0;
