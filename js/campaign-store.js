@@ -4,7 +4,21 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { DEFAULT_PLAYERS } from './data.js';
-import { db, ref, set, get, auth } from './firebase-init.js';
+// Firebase is OPTIONAL — loaded lazily so campaign works offline
+let _fb = null;
+let _fbLoaded = false;
+async function getFirebase() {
+  if (_fbLoaded) return _fb;
+  try {
+    _fb = await import('./firebase-init.js');
+    _fbLoaded = true;
+    return _fb;
+  } catch (e) {
+    console.warn('Firebase unavailable — campaign running offline', e);
+    _fbLoaded = true;
+    return null;
+  }
+}
 
 export const CAMPAIGN_SAVE_KEY = 'gomi-campaign-v1';
 const SAVE_KEY = CAMPAIGN_SAVE_KEY;
@@ -239,30 +253,46 @@ export function loadCampaign() {
     return state;
   } catch (e) { return null; }
 }
-export function saveCampaign(state) {
+export async function saveCampaign(state) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
   // Offline-first cloud backup. Fire-and-forget so campaign still works without Firebase/login.
   try {
-    const uid = auth?.currentUser?.uid;
-    if (uid) set(ref(db, `campaignProgress/${uid}`), state).catch(() => {});
+    const fb = await getFirebase();
+    if (!fb) return;
+    const uid = fb.auth?.currentUser?.uid;
+    if (uid) fb.set(fb.ref(fb.db, `campaignProgress/${uid}`), state).catch(() => {});
   } catch (e) {}
 }
 
 export async function loadCloudCampaign() {
-  const uid = auth?.currentUser?.uid;
-  if (!uid) return null;
-  const snap = await get(ref(db, `campaignProgress/${uid}`));
-  const cloud = snap.val();
-  if (!cloud) return null;
-  localStorage.setItem(SAVE_KEY, JSON.stringify(cloud));
-  return loadCampaign();
+  try {
+    const fb = await getFirebase();
+    if (!fb) return null;
+    const uid = fb.auth?.currentUser?.uid;
+    if (!uid) return null;
+    const snap = await fb.get(fb.ref(fb.db, `campaignProgress/${uid}`));
+    const cloud = snap.val();
+    if (!cloud) return null;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(cloud));
+    return loadCampaign();
+  } catch (e) {
+    console.warn('Cloud load failed, using local save', e);
+    return null;
+  }
 }
 
 export async function syncLocalCampaignToCloud(state) {
-  const uid = auth?.currentUser?.uid;
-  if (!uid || !state) return false;
-  await set(ref(db, `campaignProgress/${uid}`), state);
-  return true;
+  try {
+    const fb = await getFirebase();
+    if (!fb) return false;
+    const uid = fb.auth?.currentUser?.uid;
+    if (!uid || !state) return false;
+    await fb.set(fb.ref(fb.db, `campaignProgress/${uid}`), state);
+    return true;
+  } catch (e) {
+    console.warn('Cloud sync failed', e);
+    return false;
+  }
 }
 export function clearCampaign() {
   try { localStorage.removeItem(SAVE_KEY); } catch (e) {}

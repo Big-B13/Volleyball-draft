@@ -3,8 +3,21 @@
 // Create, store, and render custom player characters
 // ═══════════════════════════════════════════════════════════════════════
 
-import { db, ref, set, get } from './firebase-init.js';
-import { auth } from './firebase-init.js';
+// Firebase is OPTIONAL — loaded lazily so OC system works offline
+let _fb = null;
+let _fbLoaded = false;
+async function getFirebase() {
+  if (_fbLoaded) return _fb;
+  try {
+    _fb = await import('./firebase-init.js');
+    _fbLoaded = true;
+    return _fb;
+  } catch (e) {
+    console.warn('Firebase unavailable — OC running offline', e);
+    _fbLoaded = true;
+    return null;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // NICKNAME POOL — All new, unique nicknames not in DEFAULT_PLAYERS
@@ -115,18 +128,19 @@ const OC_LOCAL_KEY = 'gomi-oc-v1';
 
 export async function loadOC() {
   // Try Firebase first
-  const user = auth?.currentUser;
-  if (user) {
-    try {
-      const snap = await get(ref(db, `oc/${user.uid}`));
+  try {
+    const firebase = await getFirebase();
+    const user = firebase?.auth?.currentUser;
+    if (user && firebase) {
+      const snap = await firebase.get(firebase.ref(firebase.db, `oc/${user.uid}`));
       const fb = snap.val();
       if (fb) {
         localStorage.setItem(OC_LOCAL_KEY, JSON.stringify(fb));
         return fb;
       }
-    } catch (e) {
-      console.warn('OC Firebase load failed', e);
     }
+  } catch (e) {
+    console.warn('OC Firebase load failed', e);
   }
   // Fall back to localStorage
   const local = localStorage.getItem(OC_LOCAL_KEY);
@@ -137,22 +151,28 @@ export async function loadOC() {
 export async function saveOC(oc) {
   const data = { ...oc, createdAt: oc.createdAt || Date.now() };
   localStorage.setItem(OC_LOCAL_KEY, JSON.stringify(data));
-  const user = auth?.currentUser;
-  if (user) {
-    try {
-      await set(ref(db, `oc/${user.uid}`), data);
-    } catch (e) {
-      console.warn('OC Firebase save failed', e);
+  try {
+    const firebase = await getFirebase();
+    const user = firebase?.auth?.currentUser;
+    if (user && firebase) {
+      await firebase.set(firebase.ref(firebase.db, `oc/${user.uid}`), data);
     }
+  } catch (e) {
+    console.warn('OC Firebase save failed', e);
   }
   return data;
 }
 
-export function deleteOC() {
+export async function deleteOC() {
   localStorage.removeItem(OC_LOCAL_KEY);
-  const user = auth?.currentUser;
-  if (user) {
-    set(ref(db, `oc/${user.uid}`), null).catch(() => {});
+  try {
+    const firebase = await getFirebase();
+    const user = firebase?.auth?.currentUser;
+    if (user && firebase) {
+      firebase.set(firebase.ref(firebase.db, `oc/${user.uid}`), null).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('OC Firebase delete failed', e);
   }
 }
 
