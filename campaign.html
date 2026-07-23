@@ -844,7 +844,9 @@ async function revealPackResult(type, result) {
   const club = playerClub();
   const storekeeper = getStorekeeperForPackOpening(club, result.rarity);
   const art = result.pid === 'oc' ? (result.card?.oc?.avatar || '') : cardArt(result.pid, result.rarity);
-  await openPackCinematic([{ pid: result.pid, name: p?.name || result.playerName, nickname: p?.nickname || '', position: p?.position || '', rarity: result.rarity, artwork: art }], {
+  const revealCard = result.card || {};
+  const revealStats = cardStats(revealCard);
+  await openPackCinematic([{ pid: result.pid, name: p?.name || result.playerName, nickname: p?.nickname || '', position: p?.position || '', rarity: result.rarity, rating: cardOverall(revealCard), stats: revealStats, artwork: art }], {
     packType: type,
     storekeeper,
   });
