@@ -54,7 +54,7 @@ export const CHAPTERS = [
   { n: 3, name: 'No Easy Points',   opponent: 'Court Crushers',   theme: 'stamina war' },
   { n: 4, name: 'Rivalry Week',     opponent: 'The Outsiders',    theme: 'chemistry showdown' },
   { n: 5, name: 'The Second Hand',  opponent: 'Second-in-Command', theme: 'storekeeper test' },
-  { n: 6, name: 'Break Point',      opponent: 'Nathan\'s Test', theme: 'trust your bench' },
+  { n: 6, name: 'Break Point', opponent: "Nathan's Test", theme: 'trust your bench' },
   { n: 7, name: 'The Elite Six',    opponent: 'Six Kings',        theme: 'specialists everywhere' },
   { n: 8, name: 'Road to the Cup',  opponent: 'Rival Champions',  theme: 'test of everything' },
   { n: 9, name: 'Gomi Cup Final',   opponent: 'The Undefeated',   theme: 'title match' },
@@ -348,7 +348,7 @@ export function cardOverall(card) {
   return +((s.attack + s.serve + s.defense + s.setting + s.athletic) / 5).toFixed(2);
 }
 export function teamPower(state) {
-  const cards = state.roster.starters.map(id => state.ownedCards[id]).filter(Boolean);
+  const cards = state.roster.starters.map(id => state.ownedCards[id]).filter(Boolean);    
   if (!cards.length) return 0;
   const total = cards.reduce((sum, c) => sum + cardOverall(c) * 10, 0);
   const bench = state.roster.bench.map(id => state.ownedCards[id]).filter(Boolean);
