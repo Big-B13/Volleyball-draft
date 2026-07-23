@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Campaign Mode — The Gomi Cup</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="./css/style.css">
 <style>
   body { background: radial-gradient(circle at 50% 0, #172554, #050914 55%); min-height: 100vh; }
@@ -344,8 +345,24 @@ import { renderOCCreator } from './js/oc-system.js';
 import { confirmDialog } from './js/ui-helpers.js';
 import { showLoadingSequence, shouldShowFullSequence, markFullSequenceShown, PLAYER_PORTRAITS, CLUB_THEME } from './js/campaign-loading.js';
 import { getClubGuide } from './js/relationships.js';
-import { playCutscene } from './js/cutscene-player.js';
-import { CHAPTER_INTROS } from './js/story/index.js';
+// ── Story system (Phase 1): lazy-loaded add-on. ──
+// Static ES imports are all-or-nothing: ONE 404 in the graph kills the whole
+// module (blank page). Story must never be able to do that, so it loads
+// dynamically and the campaign works with or without it.
+let playCutscene = null;
+let CHAPTER_INTROS = {};
+(async () => {
+  try {
+    const [player, registry] = await Promise.all([
+      import('./js/cutscene-player.js'),
+      import('./js/story/index.js'),
+    ]);
+    playCutscene = player.playCutscene;
+    CHAPTER_INTROS = registry.CHAPTER_INTROS || {};
+  } catch (e) {
+    console.warn('[story] Story modules missing/broken — campaign continues without cutscenes.', e);
+  }
+})();
 
 const params = new URLSearchParams(location.search);
 const requestedTab = params.get('tab');
@@ -886,18 +903,22 @@ function campaignPlayerName() {
 }
 
 async function maybePlayChapterIntro(chapter, force = false) {
+  if (!state) return;
+  if (typeof playCutscene !== 'function') return; // story module absent/failed — skip silently
   const script = CHAPTER_INTROS[chapter];
-  if (!script || !state) return;
+  if (!script) return;
   if (!isChapterUnlocked(state, chapter, currentDifficulty)) return;
   state.story = state.story || { seen: [], flags: {}, affinity: {} };
   if (!force && state.story.seen.includes(script.id)) return;
-  if (!state.story.seen.includes(script.id)) { state.story.seen.push(script.id); saveCampaign(state); }
   const chapterData = CHAPTERS[chapter - 1];
   await playCutscene(script, {
     club: playerClub(),
     playerName: campaignPlayerName(),
     opponent: chapterData?.opponent || '',
   });
+  // Mark as seen only AFTER it actually played, so a failed deploy can't
+  // permanently burn a player's first viewing.
+  if (!state.story.seen.includes(script.id)) { state.story.seen.push(script.id); saveCampaign(state); }
 }
 
 window.replayChapterIntro = () => { maybePlayChapterIntro(currentChapterView, true); };

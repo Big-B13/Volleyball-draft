@@ -2,6 +2,7 @@
 // GOMI CUP — CAMPAIGN LOADING SEQUENCE
 // Cinematic loading screen with mentor → storekeeper → captain
 // Randomized order, club-specific content
+// Spec: LOADING_SEQUENCE_README.md
 // ═══════════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────
@@ -175,33 +176,163 @@ export const LOADING_SEQUENCES = {
 };
 
 // ─────────────────────────────────────────────────────────────────────
+// CLUB THEMING
+// ─────────────────────────────────────────────────────────────────────
+export const CLUB_THEME = {
+  strigidae: { accent: '#ef4444', storeBg: './assets/store/night-counter.jpeg' },
+  otters:    { accent: '#22c55e', storeBg: './assets/store/otter-box.jpeg' },
+  shizuka:   { accent: '#60a5fa', storeBg: './assets/store/cafe.jpeg' },
+};
+const GENERIC_BACKGROUNDS = ['./assets/loading/court.jpeg', './assets/loading/city.jpeg'];
+
+const FULL_SCREEN_MS = 3300;   // ~10s total for the full cinematic
+const QUICK_SCREEN_MS = 830;   // ~2.5s total for the quick version
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // LOADING SEQUENCE ENGINE
 // ─────────────────────────────────────────────────────────────────────
 
 /**
  * Show the cinematic loading sequence for a club.
- * Randomizes the order of mentor/storekeeper/captain.
+ * Mentor / Second-in-Command / Captain screens in randomized order,
+ * each with portrait, role, name, a random quote and a loading subtext.
  * @param {string} club - 'strigidae' | 'otters' | 'shizuka'
  * @param {object} options
- * @param {number} options.minDuration - Minimum display time in ms (default 2500)
- * @param {number} options.fullDuration - Full cinematic duration in ms (default 10000)
- * @param {boolean} options.firstTime - Whether to show full sequence (default false)
+ * @param {boolean} options.firstTime - Full ~10s cinematic when true, quick ~2.5s otherwise
  * @returns {Promise<void>}
  */
 export async function showLoadingSequence(club = 'strigidae', options = {}) {
-  const fullDuration = 10000;
-  const screens = [
-    { image: './assets/loading/court.jpeg', title: 'THE GOMI CUP', sub: 'Every point starts somewhere.' },
-    { image: './assets/loading/city.jpeg', title: 'BUILD YOUR LEGACY', sub: 'Your campaign is waiting.' },
-    { image: './assets/store/night-counter.jpeg', title: 'THE NIGHTS COUNTER', sub: 'Open packs. Build your team.' },
-  ];
-  const overlay = document.createElement('div'); overlay.id = 'campaign-loading-overlay';
-  overlay.innerHTML = `<div class="gomi-load-image"></div><div class="gomi-load-shade"></div><div class="gomi-load-copy"><b></b><span></span><i></i></div>`;
+  const clubKey = LOADING_SEQUENCES[club] ? club : 'strigidae';
+  const data = LOADING_SEQUENCES[clubKey];
+  const theme = CLUB_THEME[clubKey];
+  const full = !!options.firstTime;
+  const screenMs = full ? FULL_SCREEN_MS : QUICK_SCREEN_MS;
+  const totalMs = screenMs * 3;
+
+  // Mentor / storekeeper / captain in randomized order (per spec).
+  const screens = shuffle(['mentor', 'storekeeper', 'captain']).map((key) => {
+    const c = data[key];
+    return {
+      ...c,
+      quote: pickRandom(c.quotes),
+      background: key === 'storekeeper' ? theme.storeBg : pickRandom(GENERIC_BACKGROUNDS),
+    };
+  });
+
+  injectLoadingStyles();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'campaign-loading-overlay';
+  overlay.style.setProperty('--accent', theme.accent);
+  overlay.innerHTML = `
+    <div class="gomi-load-bg"></div>
+    <div class="gomi-load-shade"></div>
+    <div class="gomi-load-content">
+      <div class="gomi-load-portrait"><img alt=""><span class="gomi-load-fallback">🏐</span></div>
+      <div class="gomi-load-role"></div>
+      <div class="gomi-load-name"></div>
+      <div class="gomi-load-quote"></div>
+      <div class="gomi-load-sub"></div>
+    </div>
+    <div class="gomi-load-progress"><i></i></div>
+    <div class="gomi-load-skip">tap to skip</div>
+  `;
   document.body.appendChild(overlay);
-  if (!document.getElementById('gomi-loading-v2')) { const style=document.createElement('style'); style.id='gomi-loading-v2'; style.textContent=`#campaign-loading-overlay{position:fixed;inset:0;z-index:999999;background:#050914;overflow:hidden;color:white;font-family:system-ui;opacity:1;transition:opacity .6s}.gomi-load-image{position:absolute;inset:0;background-size:cover;background-position:center;opacity:0;transition:opacity .7s}.gomi-load-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.72),transparent 65%),linear-gradient(0deg,rgba(0,0,0,.7),transparent 55%)}.gomi-load-copy{position:absolute;left:8vw;bottom:10vh;display:flex;flex-direction:column;gap:8px;text-shadow:0 3px 15px #000}.gomi-load-copy b{font-size:clamp(2rem,5vw,5rem);letter-spacing:.08em}.gomi-load-copy span{font-size:1rem;color:#fbbf24}.gomi-load-copy i{width:180px;height:3px;background:#fbbf24;animation:gomi-progress 10s linear}@keyframes gomi-progress{from{width:0}to{width:180px}}`; document.head.appendChild(style); }
-  const image=overlay.querySelector('.gomi-load-image'), title=overlay.querySelector('.gomi-load-copy b'), sub=overlay.querySelector('.gomi-load-copy span');
-  for (let i=0;i<screens.length;i++){ const x=screens[i]; image.style.backgroundImage=`url("${x.image}")`; image.style.opacity='1'; title.textContent=x.title; sub.textContent=x.sub; await new Promise(r=>setTimeout(r,i<2?4000:2000)); image.style.opacity='0'; await new Promise(r=>setTimeout(r,650)); }
-  overlay.style.opacity='0'; await new Promise(r=>setTimeout(r,650)); overlay.remove();
+
+  const bgEl = overlay.querySelector('.gomi-load-bg');
+  const portraitWrap = overlay.querySelector('.gomi-load-portrait');
+  const img = overlay.querySelector('.gomi-load-portrait img');
+  const roleEl = overlay.querySelector('.gomi-load-role');
+  const nameEl = overlay.querySelector('.gomi-load-name');
+  const quoteEl = overlay.querySelector('.gomi-load-quote');
+  const subEl = overlay.querySelector('.gomi-load-sub');
+  const bar = overlay.querySelector('.gomi-load-progress i');
+  const content = overlay.querySelector('.gomi-load-content');
+
+  // Overall progress bar over the whole sequence.
+  requestAnimationFrame(() => {
+    bar.style.transition = `width ${totalMs}ms linear`;
+    bar.style.width = '100%';
+  });
+
+  // Click / tap anywhere skips the rest of the sequence.
+  let skipped = false;
+  overlay.addEventListener('click', () => { skipped = true; });
+
+  const wait = (ms) => new Promise((resolve) => {
+    const step = 50;
+    let elapsed = 0;
+    const tick = () => {
+      elapsed += step;
+      if (skipped || elapsed >= ms) resolve();
+      else setTimeout(tick, step);
+    };
+    setTimeout(tick, step);
+  });
+
+  for (const screen of screens) {
+    if (skipped) break;
+    bgEl.style.backgroundImage = `url("${screen.background}")`;
+    img.style.display = '';
+    portraitWrap.classList.remove('no-image');
+    img.onerror = () => { img.style.display = 'none'; portraitWrap.classList.add('no-image'); };
+    img.src = screen.portrait || '';
+    roleEl.textContent = screen.role;
+    nameEl.textContent = screen.name;
+    quoteEl.textContent = `“${screen.quote}”`;
+    subEl.textContent = screen.subtext;
+
+    bgEl.classList.add('shown');
+    content.classList.add('shown');
+    await wait(screenMs);
+    content.classList.remove('shown');
+    bgEl.classList.remove('shown');
+    if (!skipped) await wait(280);
+  }
+
+  overlay.classList.add('done');
+  await wait(500);
+  overlay.remove();
+}
+
+function injectLoadingStyles() {
+  if (document.getElementById('gomi-loading-v3')) return;
+  const style = document.createElement('style');
+  style.id = 'gomi-loading-v3';
+  style.textContent = `
+    #campaign-loading-overlay{position:fixed;inset:0;z-index:999999;background:#050914;overflow:hidden;color:#fff;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;opacity:1;transition:opacity .5s;cursor:pointer;}
+    #campaign-loading-overlay.done{opacity:0;}
+    .gomi-load-bg{position:absolute;inset:0;background-size:cover;background-position:center;opacity:0;transition:opacity .5s;filter:saturate(.9);}
+    .gomi-load-bg.shown{opacity:.55;}
+    .gomi-load-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(2,6,23,.9),rgba(2,6,23,.25) 60%),linear-gradient(0deg,rgba(2,6,23,.92),transparent 60%);}
+    .gomi-load-content{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;width:min(560px,88vw);opacity:0;transition:opacity .35s;}
+    .gomi-load-content.shown{opacity:1;}
+    .gomi-load-portrait{width:150px;height:150px;border-radius:50%;border:3px solid var(--accent,#fbbf24);box-shadow:0 0 46px var(--accent,#fbbf24),0 22px 60px rgba(0,0,0,.65);overflow:hidden;background:#0f172a;display:flex;align-items:center;justify-content:center;}
+    .gomi-load-portrait img{width:100%;height:100%;object-fit:cover;}
+    .gomi-load-portrait .gomi-load-fallback{display:none;font-size:3.6rem;}
+    .gomi-load-portrait.no-image .gomi-load-fallback{display:block;}
+    .gomi-load-role{font-size:.74rem;font-weight:950;letter-spacing:.3em;text-transform:uppercase;color:var(--accent,#fbbf24);}
+    .gomi-load-name{font-size:clamp(1.9rem,6vw,3.6rem);font-weight:1000;letter-spacing:.06em;text-shadow:0 4px 22px rgba(0,0,0,.8);}
+    .gomi-load-quote{font-size:clamp(.94rem,2.4vw,1.15rem);color:#e2e8f0;line-height:1.55;font-style:italic;max-width:46ch;text-shadow:0 2px 10px rgba(0,0,0,.8);}
+    .gomi-load-sub{margin-top:6px;font-size:.78rem;color:#fbbf24;letter-spacing:.12em;text-transform:uppercase;}
+    .gomi-load-progress{position:absolute;left:0;right:0;bottom:0;height:5px;background:rgba(255,255,255,.08);}
+    .gomi-load-progress i{display:block;height:100%;width:0;background:var(--accent,#fbbf24);box-shadow:0 0 14px var(--accent,#fbbf24);}
+    .gomi-load-skip{position:absolute;right:18px;bottom:16px;font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;color:rgba(226,232,240,.5);}
+  `;
+  document.head.appendChild(style);
 }
 
 export function shouldShowFullSequence() {

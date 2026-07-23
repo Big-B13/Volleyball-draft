@@ -33,7 +33,13 @@ export async function signUpWithInvite(username, password, inviteCode) {
 export function logout() { return signOut(auth); }
 export async function getUserProfile(uid) { return (await get(ref(db, `users/${uid}`))).val(); }
 export function watchAuth(cb) { return onAuthStateChanged(auth, async user => cb(user ? { user, profile: await getUserProfile(user.uid) } : null)); }
-export async function completeOnboarding(uid, favoriteClub) { await update(ref(db, `users/${uid}`), { favoriteClub, onboardingComplete: true, onboardingCompletedAt: Date.now() }); }
+export async function completeOnboarding(uid, favoriteClub) {
+  await update(ref(db, `users/${uid}`), { favoriteClub, onboardingComplete: true, onboardingCompletedAt: Date.now() });
+  // Also persist locally: campaign.html / campaign-store.js resolve the player's
+  // club from localStorage('gomiSelectedClub'). Without this, everything
+  // (storekeeper, loading lore, guide) silently falls back to Strigidae/Bader.
+  try { localStorage.setItem('gomiSelectedClub', favoriteClub); } catch (e) {}
+}
 export async function createInviteCode({ code, role, captainId, displayName }) { const key=String(code).trim().toUpperCase(); await set(ref(db,`inviteCodes/${key}`),{role:role||'viewer',captainId:captainId||null,displayName:displayName||'',consumed:false,createdAt:Date.now()}); return key; }
 export async function listInviteCodes() { const v=(await get(ref(db,'inviteCodes'))).val()||{}; return Object.entries(v).map(([code, data])=>({code,...data})); }
 export async function listUsers() { const v=(await get(ref(db,'users'))).val()||{}; return Object.entries(v).map(([uid,data])=>({uid,...data})); }

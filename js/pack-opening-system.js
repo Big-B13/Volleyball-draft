@@ -105,7 +105,7 @@ export function openPackCinematic(cards = [], options = {}) {
         <button class="gomi-pack-box ${rarity.shake ? 'will-shake' : ''}" type="button" aria-label="Open pack">
           <div class="gomi-pack-lid"></div>
           <div class="gomi-pack-emblem">${pack.icon}</div>
-          <div class="gomi-pack-label">HOLD TO OPEN</div>
+          <div class="gomi-pack-label">TAP TO OPEN</div>
         </button>
 
         <div class="gomi-pack-rarity hidden">
@@ -120,6 +120,8 @@ export function openPackCinematic(cards = [], options = {}) {
           ${cards.map(renderRevealCard).join('')}
         </div>
 
+        ${options.metaHtml ? `<div class="gomi-pack-meta hidden">${options.metaHtml}</div>` : ''}
+
         <button class="gomi-pack-close hidden" type="button">Continue</button>
       </div>
     `;
@@ -129,6 +131,7 @@ export function openPackCinematic(cards = [], options = {}) {
     const box = overlay.querySelector('.gomi-pack-box');
     const rarityEl = overlay.querySelector('.gomi-pack-rarity');
     const cardsEl = overlay.querySelector('.gomi-pack-cards');
+    const metaEl = overlay.querySelector('.gomi-pack-meta');
     const closeBtn = overlay.querySelector('.gomi-pack-close');
     const walkoutEl = overlay.querySelector('.gomi-pack-walkout');
 
@@ -153,6 +156,7 @@ export function openPackCinematic(cards = [], options = {}) {
         box.classList.add('hidden');
         walkoutEl.classList.add('hidden');
         cardsEl.classList.remove('hidden');
+        metaEl?.classList.remove('hidden');
         closeBtn.classList.remove('hidden');
         cardsEl.querySelectorAll('.gomi-reveal-card').forEach((card, i) => {
           setTimeout(() => card.classList.add('shown'), i * 140);
@@ -211,7 +215,7 @@ function injectPackStyles() {
   style.textContent = `
     .gomi-pack-overlay{position:fixed;inset:0;z-index:999999;background:radial-gradient(circle at center,#111827 0%,#020617 58%,#000 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;}
     .gomi-pack-overlay.closing{animation:gomiFadeOut .18s ease forwards;}
-    .gomi-pack-stage{position:relative;width:min(980px,96vw);min-height:min(680px,94vh);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;isolation:isolate;}
+    .gomi-pack-stage{position:relative;width:min(980px,96vw);min-height:min(680px,94vh);max-height:100vh;overflow-y:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;isolation:isolate;}
     .gomi-pack-topline{position:absolute;top:26px;letter-spacing:.18em;text-transform:uppercase;font-weight:900;color:#e2e8f0;text-shadow:0 0 18px var(--pack);}
     .gomi-storekeeper{position:absolute;left:22px;top:22px;max-width:330px;display:flex;gap:12px;align-items:center;background:rgba(15,23,42,.78);border:1px solid rgba(148,163,184,.25);border-radius:16px;padding:10px 12px;backdrop-filter:blur(8px);box-shadow:0 16px 45px rgba(0,0,0,.45);}
     .gomi-storekeeper img{width:64px;height:64px;object-fit:cover;border-radius:14px;border:1px solid rgba(255,255,255,.18);}
@@ -232,8 +236,8 @@ function injectPackStyles() {
     .gomi-pack-walkout{position:absolute;bottom:110px;text-align:center;animation:gomiWalkout .8s ease both;}
     .gomi-walkout-shadow{width:160px;height:210px;background:linear-gradient(to bottom,var(--rarity),transparent);clip-path:polygon(40% 0,60% 0,72% 28%,68% 100%,32% 100%,28% 28%);filter:blur(2px);opacity:.75;margin:auto;}
     .gomi-walkout-text{font-weight:1000;font-size:1.2rem;letter-spacing:.28em;color:#fff;text-shadow:0 0 20px var(--rarity);}
-    .gomi-pack-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px;width:min(860px,92vw);z-index:2;}
-    .gomi-reveal-card{opacity:0;transform:translateY(34px) rotateY(70deg) scale(.86);background:linear-gradient(155deg,#0f172a,#020617);border:2px solid var(--card);border-radius:20px;padding:12px;width:min(300px,80vw);min-height:430px;box-shadow:0 18px 60px rgba(0,0,0,.55),0 0 40px var(--cardglow);transition:opacity .45s,transform .6s cubic-bezier(.2,1.2,.2,1);position:relative;overflow:hidden;}
+    .gomi-pack-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,290px));justify-content:center;justify-items:center;gap:18px;width:min(880px,92vw);z-index:2;}
+    .gomi-reveal-card{opacity:0;transform:translateY(34px) rotateY(70deg) scale(.86);background:linear-gradient(155deg,#0f172a,#020617);border:2px solid var(--card);border-radius:20px;padding:12px;width:100%;max-width:290px;min-height:430px;box-shadow:0 18px 60px rgba(0,0,0,.55),0 0 40px var(--cardglow);transition:opacity .45s,transform .6s cubic-bezier(.2,1.2,.2,1);position:relative;overflow:hidden;}
     .gomi-reveal-card:before{content:"";position:absolute;inset:-40%;background:linear-gradient(115deg,transparent 36%,rgba(255,255,255,.22),transparent 62%);transform:translateX(-60%);animation:gomiShine 2.6s ease infinite;}
     .gomi-reveal-card.shown{opacity:1;transform:translateY(0) rotateY(0) scale(1);}
     .gomi-card-rarity{font-size:.66rem;font-weight:950;letter-spacing:.14em;color:var(--card);text-align:center;margin-bottom:8px;}
@@ -245,6 +249,8 @@ function injectPackStyles() {
     .gomi-reveal-card small{display:block;text-align:center;margin-top:5px;color:var(--card);font-weight:900;}
     .gomi-card-rating{text-align:center;color:var(--card);font-size:2rem;font-weight:950;line-height:1}.gomi-card-rating span{font-size:.55rem;letter-spacing:.12em}.gomi-card-stats{display:flex;justify-content:space-around;gap:4px;margin-top:12px;border-top:1px solid rgba(255,255,255,.12);padding-top:9px}.gomi-card-stats span{display:flex;flex-direction:column;text-align:center;color:#f8fafc;font-size:.72rem}.gomi-card-stats b{font-size:.56rem;color:#94a3b8}
     .gomi-pack-close{margin-top:26px;border:0;border-radius:12px;background:#fbbf24;color:#0f172a;font-weight:950;padding:12px 28px;cursor:pointer;box-shadow:0 12px 40px rgba(251,191,36,.25);}
+    .gomi-pack-meta{margin-top:18px;z-index:2;color:#e2e8f0;font-size:.9rem;line-height:1.55;text-align:center;}
+    .gomi-pack-meta .reveal-detail{background:rgba(15,23,42,.82);border:1px solid rgba(148,163,184,.25);border-radius:12px;padding:10px 18px;}
     .hidden{display:none!important;}
     @keyframes gomiFadeOut{to{opacity:0;}}
     @keyframes gomiBeam{to{transform:rotate(calc(360deg / var(--total) * var(--i) + 360deg)) translateY(-6%);}}

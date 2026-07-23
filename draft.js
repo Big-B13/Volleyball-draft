@@ -29,7 +29,7 @@ if (__isSpectate) {
   });
 } else {
   // Non-spectator (captain trying to pick, or commissioner watching): login required
-  const { profile } = await guardPage({ requireRole: 'viewer', requireApproved: true });
+  const { profile } = await guardPage({ requireRole: 'viewer' });
   __authProfile = profile;
   setTimeout(() => {
     const container = document.querySelector('.container');

@@ -86,8 +86,7 @@ export class GomiCupRenderer3D {
     rim.position.set(-8, 10, -8);
     this.scene.add(rim);
 
-    // Court, net, and a lightweight stadium audience
-    this._buildArenaCrowd();
+    // Court + net + floor
     this._buildCourt();
     this._buildNet();
 
@@ -106,62 +105,6 @@ export class GomiCupRenderer3D {
     this._clock = new THREE.Clock();
     this._running = true;
     this._loop();
-  }
-
-  _buildArenaCrowd() {
-    // Lightweight arena: seating + instanced low-poly spectators.  This deliberately
-    // avoids importing hundreds of GLBs, so the 3D sim remains phone-friendly.
-    this.crowd = new THREE.Group();
-    this.crowd.position.set(0, 0, 0);
-    this.scene.add(this.crowd);
-    const seatMat = new THREE.MeshStandardMaterial({ color: 0x10233d, roughness: 0.9 });
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x0d2548, emissiveIntensity: .45 });
-    // Far grandstand is behind the court, safely visible from the default camera.
-    for (let tier = 0; tier < 5; tier++) {
-      const depth = 1.25;
-      const stand = new THREE.Mesh(new THREE.BoxGeometry(COURT_WIDTH + 10, .48, depth), seatMat);
-      stand.position.set(0, .24 + tier * .48, -COURT_DEPTH / 2 - 1.1 - tier * .72);
-      stand.receiveShadow = true;
-      this.crowd.add(stand);
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(COURT_WIDTH + 10, .045, .06), railMat);
-      rail.position.set(0, .52 + tier * .48, -COURT_DEPTH / 2 - .52 - tier * .72);
-      this.crowd.add(rail);
-    }
-    const spectators = [];
-    for (let tier = 0; tier < 5; tier++) {
-      const count = 20 - tier * 2;
-      for (let i = 0; i < count; i++) spectators.push({
-        x: -((count - 1) * .48) / 2 + i * .48,
-        y: .64 + tier * .48,
-        z: -COURT_DEPTH / 2 - 1.08 - tier * .72,
-        color: [0x2563eb, 0xdc2626, 0x16a34a, 0xfbbf24, 0x64748b][(i + tier * 3) % 5]
-      });
-    }
-    const bodyGeo = new THREE.ConeGeometry(.13, .42, 5);
-    const headGeo = new THREE.SphereGeometry(.11, 7, 5);
-    const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .8 });
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xd9a77c, roughness: .85 });
-    const bodies = new THREE.InstancedMesh(bodyGeo, bodyMat, spectators.length);
-    const heads = new THREE.InstancedMesh(headGeo, headMat, spectators.length);
-    const matrix = new THREE.Matrix4(); const color = new THREE.Color();
-    spectators.forEach((sp, i) => {
-      matrix.makeTranslation(sp.x, sp.y + .21, sp.z); bodies.setMatrixAt(i, matrix);
-      color.setHex(sp.color); bodies.setColorAt(i, color);
-      matrix.makeTranslation(sp.x, sp.y + .52, sp.z); heads.setMatrixAt(i, matrix);
-    });
-    bodies.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true;
-    bodies.castShadow = false; heads.castShadow = false;
-    this.crowd.add(bodies, heads);
-    // Club banners make the venue feel like the Gomi Cup rather than a generic court.
-    const bannerMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide });
-    [-1, 1].forEach(x => { const b = new THREE.Mesh(new THREE.PlaneGeometry(3.2, .65), bannerMat); b.position.set(x * 7, 3.2, -COURT_DEPTH / 2 - 3.8); this.crowd.add(b); });
-    this._crowdEnergy = 0;
-  }
-
-  _reactCrowd(eventType) {
-    // A tiny bounce is cheap but sells aces, kills, blocks, and match point.
-    const big = ['ace', 'kill', 'block', 'match-won', 'set-won'].includes(eventType);
-    this._crowdEnergy = Math.max(this._crowdEnergy, big ? 1 : .35);
   }
 
   _buildCourt() {
@@ -282,10 +225,6 @@ export class GomiCupRenderer3D {
 
     // Update all rigs
     for (const rig of this.rigs.values()) rig.update(dt);
-    if (this.crowd) {
-      this._crowdEnergy = Math.max(0, this._crowdEnergy - dt * .8);
-      this.crowd.position.y = Math.sin(this._clock.elapsedTime * 12) * .07 * this._crowdEnergy;
-    }
 
     // Ball spin
     this.ball.rotation.x += dt * 6;
@@ -347,7 +286,6 @@ export class GomiCupRenderer3D {
   /** Play a single event from the engine stream. Returns a promise that resolves
    *  when this event's visual choreography finishes. */
   async playEvent(ev, prevEv, nextEv, speed = 1) {
-    this._reactCrowd(ev.type);
     if (!ev.actor || !ev.actor.player) {
       await this._sleep(120 / speed);
       return;
