@@ -3,10 +3,10 @@
 ## What Was Added
 
 ### 1. Cinematic Loading Sequence (`js/campaign-loading.js`)
-- **Randomized 3-screen loading sequence** before campaign dashboard appears
+- **Randomized loading sequence** before campaign dashboard appears (full: establishing club slide + 3 characters = 4 slides × 4s = 16s)
 - Each screen shows: Mentor → Storekeeper → Captain (in random order)
 - Club-specific content for Strigidae, Otters, and Shizuka
-- Full 10-second sequence on first visit, then 2.5-second quick version
+- Full 16-second sequence (4 slides × 4s) on first visit, then 2.5-second quick version
 - Automatic portrait loading with fallback handling
 
 ### 2. Portrait Mapping
@@ -60,9 +60,9 @@ If you want to replace the existing portraits with the comic-style "Legendary" v
 1. User opens `campaign.html`
 2. System checks if full sequence should show (first visit or after 24 hours)
 3. **If full sequence:**
-   - Shows 3 screens (Mentor, Storekeeper, Captain) in random order
-   - Each screen displays for ~3.3 seconds
-   - Total duration: 10 seconds
+   - Shows an establishing club slide + 3 screens (Mentor, Storekeeper, Captain) in random order
+   - Each screen displays for 4 seconds
+   - Total duration: 16 seconds (batch art from assets/loading plugs in per slide)
 4. **If quick sequence:**
    - Shows 3 screens in random order
    - Each screen displays for ~0.8 seconds
@@ -120,7 +120,7 @@ After deploying, test:
 2. Check all 3 clubs show correct characters
 3. Verify portraits load correctly
 4. Refresh page — should see quick version (2.5s)
-5. Clear localStorage — should see full version again (10s)
+5. Clear localStorage — should see full version again (16s)
 
 ## Future Enhancements
 

@@ -107,6 +107,17 @@ export function playCutscene(script, ctx = {}) {
     `;
     document.body.appendChild(overlay);
 
+    // Lock page scroll while the cutscene plays (fixed overlay, but the
+    // document's own scrollbars would paint over it otherwise).
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    const unlockScroll = () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+    };
+
     const bgEl = overlay.querySelector('.gomi-cs-bg');
     const kickerEl = overlay.querySelector('.gomi-cs-kicker');
     const portraitWrap = overlay.querySelector('.gomi-cs-portrait');
@@ -128,7 +139,7 @@ export function playCutscene(script, ctx = {}) {
       done = true;
       document.removeEventListener('keydown', onKey);
       overlay.classList.remove('shown');
-      setTimeout(() => overlay.remove(), 420);
+      setTimeout(() => { overlay.remove(); unlockScroll(); }, 420);
       resolve();
     };
     overlay.querySelector('.gomi-cs-skip').addEventListener('click', (e) => { e.stopPropagation(); finish(); });

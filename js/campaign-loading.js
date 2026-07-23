@@ -5,6 +5,8 @@
 // Spec: LOADING_SEQUENCE_README.md
 // ═══════════════════════════════════════════════════════════════════════
 
+import { DEFAULT_PLAYERS } from './data.js';
+
 // ─────────────────────────────────────────────────────────────────────
 // PLAYER PORTRAIT MAP — Maps player IDs to their image files
 // ─────────────────────────────────────────────────────────────────────
@@ -179,13 +181,63 @@ export const LOADING_SEQUENCES = {
 // CLUB THEMING
 // ─────────────────────────────────────────────────────────────────────
 export const CLUB_THEME = {
-  strigidae: { accent: '#ef4444', storeBg: './assets/store/night-counter.jpeg' },
-  otters:    { accent: '#22c55e', storeBg: './assets/store/otter-box.jpeg' },
-  shizuka:   { accent: '#60a5fa', storeBg: './assets/store/cafe.jpeg' },
+  strigidae: { name: 'STRIGIDAE', tagline: 'The night never blinks.', accent: '#ef4444', storeBg: './assets/store/night-counter.jpeg' },
+  otters:    { name: 'KÒRSOU OTTERS', tagline: 'Quick hands. Big energy.', accent: '#22c55e', storeBg: './assets/store/otter-box.jpeg' },
+  shizuka:   { name: 'SHIZUKA', tagline: 'Calm above the noise.', accent: '#60a5fa', storeBg: './assets/store/cafe.jpeg' },
 };
 const GENERIC_BACKGROUNDS = ['./assets/loading/court.jpeg', './assets/loading/city.jpeg'];
 
-const FULL_SCREEN_MS = 3300;   // ~10s total for the full cinematic
+// ─────────────────────────────────────────────────────────────────────
+// GALLERY — character loading-screen art (batches from the art director)
+// File numbering matches the artist's series; gaps = batches not yet sent.
+// id → player id in data.js (anazkha is the file's spelling, data uses anezka;
+// brian has no player entry — league host cameo slide).
+// ─────────────────────────────────────────────────────────────────────
+const GALLERY_FILES = {
+  'zakhar':  'loading_01_zakhar_coach_widescreen',
+  'mandie':  'loading_02_mandie_coach_widescreen',
+  'bouschra':'loading_03_bouschra_coach_widescreen',
+  'skuppa':  'loading_04_skuppa_dj_widescreen',
+  'ihor':    'loading_05_ihor_volleyball_widescreen',
+  'ayaz':    'loading_06_ayaz_campus_widescreen',
+  'daan':    'loading_07_daan_volleyball_widescreen',
+  'floor':   'loading_08_floor_student_widescreen',
+  'luna':    'loading_10_luna_campus_widescreen',
+  'ibrahim': 'loading_11_ibrahim_widescreen',
+  'aizaz':   'loading_12_aizaz_widescreen',
+  'max':     'loading_13_max_widescreen',
+  'rashid':  'loading_14_rashid_widescreen',
+  'rei':     'loading_15_rei_widescreen',
+  'robin':   'loading_16_robin_widescreen',
+  'moon':    'loading_17_moon_widescreen',
+  'renars':  'loading_18_renars_widescreen',
+  'merel':   'loading_19_merel_widescreen',
+  'pavel':   'loading_20_pavel_widescreen',
+  'dawood':  'loading_21_dawood_widescreen',
+  'tabeeb':  'loading_22_tabeeb_widescreen',
+  'ani':     'loading_23_ani_widescreen',
+  'mizu':    'loading_24_mizu_widescreen',
+  'narcis':  'loading_25_narcis_widescreen',
+  'anezka':  'loading_26_anazkha_widescreen',
+  'pato':    'loading_27_pato_widescreen',
+  'tamara':  'loading_28_tamara_widescreen',
+  'brian':   'loading_29_brian_widescreen',
+  'gabshi':  'loading_30_gabshi_widescreen',
+  'linus':   'loading_31_linus_widescreen',
+  'islom':   'loading_33_islom_widescreen',
+};
+
+// Art filenames use lore spelling; data.js uses rival-file spelling for some ids.
+const GALLERY_ID_ALIAS = { gabshi: 'gabsche' };
+const PLAYER_BY_ID = Object.fromEntries(DEFAULT_PLAYERS.map(p => [p.id, p]));
+const GALLERY = Object.entries(GALLERY_FILES).map(([id, file]) => ({
+  id,
+  img: `./assets/loading/${file}.jpg`,
+  name: PLAYER_BY_ID[GALLERY_ID_ALIAS[id] || id]?.name || (id === 'brian' ? 'Brian' : id),
+  nickname: PLAYER_BY_ID[GALLERY_ID_ALIAS[id] || id]?.nickname || '',
+}));
+
+const FULL_SCREEN_MS = 4000;   // 4 slides × 4s = 16s full cinematic (per design 2026-07-23)
 const QUICK_SCREEN_MS = 830;   // ~2.5s total for the quick version
 
 function pickRandom(arr) {
@@ -220,10 +272,9 @@ export async function showLoadingSequence(club = 'strigidae', options = {}) {
   const theme = CLUB_THEME[clubKey];
   const full = !!options.firstTime;
   const screenMs = full ? FULL_SCREEN_MS : QUICK_SCREEN_MS;
-  const totalMs = screenMs * 3;
 
   // Mentor / storekeeper / captain in randomized order (per spec).
-  const screens = shuffle(['mentor', 'storekeeper', 'captain']).map((key) => {
+  const charScreens = shuffle(['mentor', 'storekeeper', 'captain']).map((key) => {
     const c = data[key];
     return {
       ...c,
@@ -231,6 +282,24 @@ export async function showLoadingSequence(club = 'strigidae', options = {}) {
       background: key === 'storekeeper' ? theme.storeBg : pickRandom(GENERIC_BACKGROUNDS),
     };
   });
+  // Gallery slides: league character art (batch 1 installed 2026-07-23),
+  // captioned with each player's name + nickname from data.js.
+  const galleryScreens = shuffle(GALLERY).slice(0, full ? 2 : 3).map(g => ({
+    role: g.nickname || 'The League',
+    name: g.name,
+    quote: '',
+    subtext: 'Loading the league...',
+    portrait: null,
+    background: g.img,
+  }));
+
+  // Full cinematic (16s): establishing club slide + 1 club character + 2 gallery.
+  // Quick (~2.5s): 3 slides drawn from the combined character+gallery pool.
+  const clubSlide = { role: 'Your Club', name: theme.name, quote: theme.tagline, subtext: 'Entering the campaign...', portrait: null, background: pickRandom(GENERIC_BACKGROUNDS) };
+  const screens = full
+    ? [clubSlide, charScreens[0], ...galleryScreens]
+    : shuffle([...charScreens, ...galleryScreens]).slice(0, 3);
+  const totalMs = screenMs * screens.length;
 
   injectLoadingStyles();
 
@@ -251,6 +320,17 @@ export async function showLoadingSequence(club = 'strigidae', options = {}) {
     <div class="gomi-load-skip">tap to skip</div>
   `;
   document.body.appendChild(overlay);
+
+  // Lock page scroll during the loading sequence (fixed overlay, but the
+  // document's own scrollbars would paint over it otherwise).
+  const prevHtmlOverflow = document.documentElement.style.overflow;
+  const prevBodyOverflow = document.body.style.overflow;
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+  const unlockScroll = () => {
+    document.documentElement.style.overflow = prevHtmlOverflow;
+    document.body.style.overflow = prevBodyOverflow;
+  };
 
   const bgEl = overlay.querySelector('.gomi-load-bg');
   const portraitWrap = overlay.querySelector('.gomi-load-portrait');
@@ -286,13 +366,14 @@ export async function showLoadingSequence(club = 'strigidae', options = {}) {
   for (const screen of screens) {
     if (skipped) break;
     bgEl.style.backgroundImage = `url("${screen.background}")`;
+    portraitWrap.style.visibility = screen.portrait ? '' : 'hidden'; // club slide has no portrait
     img.style.display = '';
     portraitWrap.classList.remove('no-image');
     img.onerror = () => { img.style.display = 'none'; portraitWrap.classList.add('no-image'); };
-    img.src = screen.portrait || '';
+    if (screen.portrait) img.src = screen.portrait;
     roleEl.textContent = screen.role;
     nameEl.textContent = screen.name;
-    quoteEl.textContent = `“${screen.quote}”`;
+    quoteEl.textContent = screen.quote ? `“${screen.quote}”` : '';
     subEl.textContent = screen.subtext;
 
     bgEl.classList.add('shown');
@@ -306,6 +387,7 @@ export async function showLoadingSequence(club = 'strigidae', options = {}) {
   overlay.classList.add('done');
   await wait(500);
   overlay.remove();
+  unlockScroll();
 }
 
 function injectLoadingStyles() {

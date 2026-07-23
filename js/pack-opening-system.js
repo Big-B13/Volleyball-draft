@@ -128,6 +128,17 @@ export function openPackCinematic(cards = [], options = {}) {
 
     document.body.appendChild(overlay);
 
+    // Lock page scroll while the cinematic is up. The overlay is fixed, but the
+    // document's own scrollbars would otherwise stay visible on top of it.
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    const unlockScroll = () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+    };
+
     const box = overlay.querySelector('.gomi-pack-box');
     const rarityEl = overlay.querySelector('.gomi-pack-rarity');
     const cardsEl = overlay.querySelector('.gomi-pack-cards');
@@ -171,7 +182,7 @@ export function openPackCinematic(cards = [], options = {}) {
 
     closeBtn.addEventListener('click', () => {
       overlay.classList.add('closing');
-      setTimeout(() => overlay.remove(), 180);
+      setTimeout(() => { overlay.remove(); unlockScroll(); }, 180);
       resolve(cards);
     });
   });
