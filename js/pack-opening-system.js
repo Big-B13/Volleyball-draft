@@ -195,9 +195,10 @@ function renderRevealCard(card) {
       <div class="gomi-card-art">
         ${art ? `<img src="${art}" alt="${card.name || card.pid || 'Player'}">` : `<div class="gomi-card-placeholder">🏐</div>`}
       </div>
-      <h3>${card.nickname || card.name || card.pid || 'Unknown'}</h3>
-      <p>${card.name || card.pid || ''}</p>
-      <small>${card.position || ''}</small>
+      <div class="gomi-card-rating">${card.rating != null ? Number(card.rating).toFixed(2) : '--'} <span>OVR</span></div>
+      <h3>${card.name || card.pid || 'Unknown'}</h3>
+      <p>“${card.nickname || 'Player'}” · ${card.position || '—'}</p>
+      <div class="gomi-card-stats">${['attack','serve','defense','setting','athletic'].map(k => `<span><b>${k.slice(0,3).toUpperCase()}</b>${card.stats?.[k] != null ? Number(card.stats[k]).toFixed(1) : '--'}</span>`).join('')}</div>
     </article>
   `;
 }
@@ -232,16 +233,17 @@ function injectPackStyles() {
     .gomi-walkout-shadow{width:160px;height:210px;background:linear-gradient(to bottom,var(--rarity),transparent);clip-path:polygon(40% 0,60% 0,72% 28%,68% 100%,32% 100%,28% 28%);filter:blur(2px);opacity:.75;margin:auto;}
     .gomi-walkout-text{font-weight:1000;font-size:1.2rem;letter-spacing:.28em;color:#fff;text-shadow:0 0 20px var(--rarity);}
     .gomi-pack-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px;width:min(860px,92vw);z-index:2;}
-    .gomi-reveal-card{opacity:0;transform:translateY(34px) rotateY(70deg) scale(.86);background:linear-gradient(155deg,#0f172a,#020617);border:2px solid var(--card);border-radius:20px;padding:12px;min-height:245px;box-shadow:0 18px 60px rgba(0,0,0,.55),0 0 40px var(--cardglow);transition:opacity .45s,transform .6s cubic-bezier(.2,1.2,.2,1);position:relative;overflow:hidden;}
+    .gomi-reveal-card{opacity:0;transform:translateY(34px) rotateY(70deg) scale(.86);background:linear-gradient(155deg,#0f172a,#020617);border:2px solid var(--card);border-radius:20px;padding:12px;width:min(300px,80vw);min-height:430px;box-shadow:0 18px 60px rgba(0,0,0,.55),0 0 40px var(--cardglow);transition:opacity .45s,transform .6s cubic-bezier(.2,1.2,.2,1);position:relative;overflow:hidden;}
     .gomi-reveal-card:before{content:"";position:absolute;inset:-40%;background:linear-gradient(115deg,transparent 36%,rgba(255,255,255,.22),transparent 62%);transform:translateX(-60%);animation:gomiShine 2.6s ease infinite;}
     .gomi-reveal-card.shown{opacity:1;transform:translateY(0) rotateY(0) scale(1);}
     .gomi-card-rarity{font-size:.66rem;font-weight:950;letter-spacing:.14em;color:var(--card);text-align:center;margin-bottom:8px;}
-    .gomi-card-art{height:138px;border-radius:14px;overflow:hidden;background:#111827;display:flex;align-items:center;justify-content:center;margin-bottom:10px;border:1px solid rgba(255,255,255,.08);}
-    .gomi-card-art img{width:100%;height:100%;object-fit:cover;}
+    .gomi-card-art{height:260px;border-radius:14px;overflow:hidden;background:#111827;display:flex;align-items:center;justify-content:center;margin-bottom:10px;border:1px solid rgba(255,255,255,.08);}
+    .gomi-card-art img{width:100%;height:100%;object-fit:contain;background:#111827;}
     .gomi-card-placeholder{font-size:3rem;}
     .gomi-reveal-card h3{margin:0;text-align:center;font-size:1rem;color:#f8fafc;}
     .gomi-reveal-card p{margin:3px 0 0;text-align:center;font-size:.82rem;color:#cbd5e1;}
     .gomi-reveal-card small{display:block;text-align:center;margin-top:5px;color:var(--card);font-weight:900;}
+    .gomi-card-rating{text-align:center;color:var(--card);font-size:2rem;font-weight:950;line-height:1}.gomi-card-rating span{font-size:.55rem;letter-spacing:.12em}.gomi-card-stats{display:flex;justify-content:space-around;gap:4px;margin-top:12px;border-top:1px solid rgba(255,255,255,.12);padding-top:9px}.gomi-card-stats span{display:flex;flex-direction:column;text-align:center;color:#f8fafc;font-size:.72rem}.gomi-card-stats b{font-size:.56rem;color:#94a3b8}
     .gomi-pack-close{margin-top:26px;border:0;border-radius:12px;background:#fbbf24;color:#0f172a;font-weight:950;padding:12px 28px;cursor:pointer;box-shadow:0 12px 40px rgba(251,191,36,.25);}
     .hidden{display:none!important;}
     @keyframes gomiFadeOut{to{opacity:0;}}

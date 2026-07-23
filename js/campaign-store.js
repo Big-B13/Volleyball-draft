@@ -691,6 +691,9 @@ export const SECRET_CODES = {
   'SHOWALLART':       { action: 'grantAltArt',   label: '🎨 Every player granted at Epic and Legendary for art preview' },
   // Money & materials top-up.
   'GOMIRICH':         { action: 'grantCoins',    label: '💰 +100 000 coins, +50 of every training material, +5 of every pack' },
+  'PACKTEST':        { action: 'grantPacks', label: '📦 +10 of every pack added for testing' },
+  'STARTERPACKS':    { action: 'grantStarterPacks', label: '🎁 +25 Starter Packs added for testing' },
+  'ALLPACKS':        { action: 'grantManyPacks', label: '🚚 +100 of every pack added for testing' },
   // Instantly clear every match on Easy + Medium + Hard (progression only, no rewards).
   'SKIPCAMPAIGN':     { action: 'clearAllMatches', label: '🏁 All 270 matches marked cleared (no rewards granted)' },
   // Wipe all cards except your starters (helps test empty collection flow).
@@ -705,6 +708,9 @@ export function applySecretCode(state, rawCode) {
     case 'grantAll':        grantAllCards(state, RARITIES); break;
     case 'grantAltArt':     grantAllCards(state, ['epic', 'legendary']); break;
     case 'grantCoins':      grantResources(state); break;
+    case 'grantPacks':      grantPacks(state, 10); break;
+    case 'grantStarterPacks': state.inventory.packs.starter = (state.inventory.packs.starter || 0) + 25; break;
+    case 'grantManyPacks': grantPacks(state, 100); break;
     case 'clearAllMatches': clearAllMatches(state); break;
     case 'clearCollection': clearCollection(state); break;
   }
@@ -725,6 +731,14 @@ function grantAllCards(state, rarities) {
     }
   }
   state.log = [...(state.log || []), `👑 Secret code granted ${added} new cards.`].slice(-30);
+}
+
+function grantPacks(state, amount) {
+  state.inventory.packs = state.inventory.packs || {};
+  for (const pack of Object.keys(PACK_ODDS)) {
+    state.inventory.packs[pack] = (state.inventory.packs[pack] || 0) + amount;
+  }
+  state.log = [...(state.log || []), `📦 Secret test code added ${amount} of every pack.`].slice(-30);
 }
 
 function grantResources(state) {

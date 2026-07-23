@@ -193,7 +193,7 @@ export async function showLoadingSequence(club = 'strigidae', options = {}) {
   const screens = [
     { image: './assets/loading/court.jpeg', title: 'THE GOMI CUP', sub: 'Every point starts somewhere.' },
     { image: './assets/loading/city.jpeg', title: 'BUILD YOUR LEGACY', sub: 'Your campaign is waiting.' },
-    { image: './assets/store/night-counter.jpeg', title: 'THE NIGHTS COUNTER', sub: 'Open packs. Build your team.' },
+    { image: './assets/store/night-counter.jpeg', title: 'THE NIGHT'S COUNTER', sub: 'Open packs. Build your team.' },
   ];
   const overlay = document.createElement('div'); overlay.id = 'campaign-loading-overlay';
   overlay.innerHTML = `<div class="gomi-load-image"></div><div class="gomi-load-shade"></div><div class="gomi-load-copy"><b></b><span></span><i></i></div>`;
