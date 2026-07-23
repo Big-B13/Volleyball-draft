@@ -107,6 +107,17 @@
   .odds-row .odds-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 8px currentColor; }
   .odds-row strong { color: #fff; white-space: nowrap; }
   .pity-line { padding: 10px; border: 1px dashed #64748b; border-radius: 8px; text-align: center; color: #cbd5e1; margin-bottom: 12px; }
+  .store-header { display:flex; gap:14px; align-items:center; margin-bottom:14px; padding:16px; border:1px solid rgba(251,191,36,.28); border-radius:14px; background:linear-gradient(135deg,rgba(15,23,42,.94),rgba(30,41,59,.72)); }
+  .store-header img { width:86px; height:86px; border-radius:16px; object-fit:cover; border:2px solid var(--store-accent,#fbbf24); background:#0f172a; }
+  .store-header h3 { margin:0; color:#fbbf24; font-size:1.05rem; }
+  .store-header .keeper { color:#fff; font-weight:900; margin-top:2px; }
+  .store-header p { margin:6px 0 0; color:#cbd5e1; font-size:.84rem; line-height:1.45; white-space:pre-line; }
+  .oc-panel { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border-radius:12px; border:1px solid #334155; background:rgba(30,41,59,.65); color:#cbd5e1; }
+  .oc-panel button { border:0; border-radius:8px; background:#38bdf8; color:#082f49; padding:9px 14px; font-weight:900; cursor:pointer; }
+  .evo-ready { margin-top:12px; padding:10px; border:1px solid rgba(168,85,247,.45); background:rgba(168,85,247,.10); border-radius:10px; color:#e9d5ff; font-size:.84rem; text-align:left; }
+  .sacrifice-list { display:grid; gap:8px; max-height:330px; overflow:auto; text-align:left; margin:14px 0; }
+  .sacrifice-row { display:flex; align-items:center; gap:10px; padding:10px; border:1px solid #334155; border-radius:8px; background:rgba(30,41,59,.75); color:#cbd5e1; }
+
 
   /* ── SHOP ── */
   .shop-list { display: grid; gap: 10px; }
@@ -279,6 +290,7 @@
 
     <!-- SHOP -->
     <div id="tab-shop" class="tab-panel">
+      <div id="store-header"></div>
       <div class="shop-list" id="shop-list"></div>
 
       <!-- Secret code box (not documented in-app; ignore unless you have a code). -->
@@ -313,8 +325,14 @@ import {
   openPack, PACK_ODDS, PACK_LABELS, RARITIES, RARITY_COLORS, RARITY_LABELS,
   teamPower, cardStats, cardOverall, moveToStarters, moveToBench, removeFromRoster, sellCard,
   trainCard, SHOP_ITEMS, buyPack, getBasePlayer, applySecretCode,
+  canEvolveCard, getEligibleEvolutionSacrifices, evolveCard, EVOLUTION_COSTS,
+  createOrUpdateOC, hasOC, loadCloudCampaign, syncLocalCampaignToCloud,
 } from './js/campaign-store.js';
 import { cardArt, RARITY_FRAME, RARITY_GLOW } from './js/campaign-art.js';
+import { openPackCinematic } from './js/pack-opening-system.js';
+import { getStoreHeaderData, getStorekeeperForPackOpening, getStorekeeperReaction } from './js/store-system.js';
+import { renderOCCreator } from './js/oc-system.js';
+import { confirmDialog } from './js/ui-helpers.js';
 
 const params = new URLSearchParams(location.search);
 const requestedTab = params.get('tab');
@@ -332,6 +350,19 @@ let guideScheduled = false;
 let guideRevealActive = false;
 const GUIDE_TOTAL = 7;
 
+function playerClub() {
+  return state?.club || localStorage.getItem('gomiSelectedClub') || 'strigidae';
+}
+
+function baseForCard(card) {
+  if (card?.pid === 'oc') return { id:'oc', name: card.oc?.name || 'Your Player', nickname: card.oc?.nickname || 'Rookie', position: card.oc?.position || 'OH', attack: card.oc?.stats?.attack || 5, serve: card.oc?.stats?.serve || 5, defense: card.oc?.stats?.defense || 5, setting: card.oc?.stats?.setting || 5, athletic: card.oc?.stats?.athletic || 5 };
+  return getBasePlayer(card?.pid);
+}
+function artForCard(card) {
+  if (card?.pid === 'oc') return card.oc?.avatar || '';
+  return cardArt(card.pid, card.rarity);
+}
+
 function init() {
   if (!state) {
     document.getElementById('intro-view').style.display = 'block';
@@ -340,6 +371,11 @@ function init() {
   }
   document.getElementById('intro-view').style.display = 'none';
   document.getElementById('campaign-view').style.display = 'block';
+  if (!state.club) { state.club = playerClub(); saveCampaign(state); }
+  if (!init.cloudChecked) {
+    init.cloudChecked = true;
+    loadCloudCampaign().then(cloud => { if (cloud) { state = cloud; render(); showCampaignToast('☁️ Cloud campaign save loaded'); } }).catch(() => {});
+  }
   wireTabs();
   document.querySelectorAll('.difficulty-tabs button').forEach(b => b.classList.toggle('active', b.dataset.diff === currentDifficulty));
   activateTab(currentTab);
@@ -351,6 +387,8 @@ function init() {
 
 window.startNewCampaign = () => {
   state = newCampaign();
+  state.club = playerClub();
+  saveCampaign(state);
   guideScheduled = false;
   init();
 };
@@ -523,12 +561,13 @@ function showGuideStep() {
 
 window.campaignGuideStep = step => { guideStep = step; showGuideStep(); };
 
-window.openTutorialPack = type => {
+window.openTutorialPack = async type => {
   try {
     guidePackResult = openPack(state, type);
     guideRevealActive = true;
     document.getElementById('guide-backdrop').classList.remove('active');
     render();
+    await revealPackResult(type, guidePackResult);
     showPackReveal(guidePackResult, true);
   } catch (e) { alert(e.message); }
 };
@@ -605,6 +644,12 @@ function renderDashboard() {
   else if (campaignProgressCount(state, 'medium') > 0 || campaignProgressCount(state, 'easy') >= 90) diffLabel = 'MEDIUM CAMPAIGN';
   document.getElementById('dash-difficulty').textContent = diffLabel;
   document.getElementById('dash-power').textContent = `⚡ POWER ${teamPower(state)}`;
+  const hero = document.querySelector('.dash-hero');
+  let ocPanel = document.getElementById('oc-panel');
+  if (!ocPanel) { ocPanel = document.createElement('div'); ocPanel.id = 'oc-panel'; ocPanel.className = 'oc-panel'; hero.appendChild(ocPanel); }
+  ocPanel.innerHTML = hasOC(state)
+    ? `<span>🧍 Your campaign player: <b style="color:#fff">${escapeHtml(state.oc.name)}</b> “${escapeHtml(state.oc.nickname)}” · ${escapeHtml(state.oc.position)}</span><button onclick="openOCCreator()">EDIT PLAYER</button>`
+    : `<span>🧍 Optional: create your own campaign-only player card. Starts Common, can evolve, and can unlock a signature move.</span><button onclick="openOCCreator()">CREATE PLAYER</button>`;
   const clearedTotal = campaignProgressCount(state);
   document.getElementById('dash-summary').textContent = clearedTotal === 270
     ? '🏆 Legendary run! You have won every campaign match.'
@@ -771,13 +816,25 @@ function renderPacks() {
   document.getElementById('pity-counter').textContent = state.pity.packsSinceEpic;
 }
 
-window.doOpenPack = type => {
+window.doOpenPack = async type => {
   try {
     const result = openPack(state, type);
     render();
+    await revealPackResult(type, result);
     showPackReveal(result);
   } catch (e) { alert(e.message); }
 };
+
+async function revealPackResult(type, result) {
+  const p = getBasePlayer(result.pid);
+  const club = playerClub();
+  const storekeeper = getStorekeeperForPackOpening(club, result.rarity);
+  const art = result.pid === 'oc' ? (result.card?.oc?.avatar || '') : cardArt(result.pid, result.rarity);
+  await openPackCinematic([{ pid: result.pid, name: p?.name || result.playerName, nickname: p?.nickname || '', position: p?.position || '', rarity: result.rarity, artwork: art }], {
+    packType: type,
+    storekeeper,
+  });
+}
 
 function showPackReveal(result, fromGuide = false) {
   const p = getBasePlayer(result.pid);
@@ -791,6 +848,14 @@ function showPackReveal(result, fromGuide = false) {
          <br>+${result.coinsGained} coins
        </div>`
     : '<div class="reveal-detail">🎉 NEW CARD added to your collection!</div>';
+  const evo = EVOLUTION_COSTS[card.rarity];
+  const eligibleSacrifices = getEligibleEvolutionSacrifices(state, cardId);
+  const evoHtml = evo ? `<div class="evo-ready">
+      <b>EVOLUTION</b><br>
+      ${canEvolveCard(state, cardId) ? `Ready for ${RARITY_LABELS[evo.to]} — needs ${evo.sacrifices} level 10 ${RARITY_LABELS[card.rarity]} sacrifice cards and ${evo.coins} coins.` : `Reach level 10 to evolve into ${RARITY_LABELS[evo.to]}.`}
+      <br><span style="color:#cbd5e1">Eligible sacrifices: ${eligibleSacrifices.length}/${evo.sacrifices} · Coins: ${state.inventory.coins}/${evo.coins}</span>
+      <div class="card-detail-actions"><button onclick="openEvolutionPicker('${cardId}')" ${canEvolveCard(state, cardId) && eligibleSacrifices.length >= evo.sacrifices && state.inventory.coins >= evo.coins ? '' : 'disabled'}>✨ Evolve Card</button></div>
+    </div>` : `<div class="evo-ready"><b>MAX RARITY</b><br>This card is already Legendary.</div>`;
   const body = document.getElementById('modal-body');
   body.style.setProperty('--frame', frame);
   body.style.setProperty('--glow', glow);
@@ -806,6 +871,14 @@ function showPackReveal(result, fromGuide = false) {
 
 // ─── SHOP ───
 function renderShop() {
+  const header = document.getElementById('store-header');
+  if (header) {
+    const store = getStoreHeaderData(playerClub());
+    header.innerHTML = `<div class="store-header" style="--store-accent:${store.accent}">
+      <img src="${store.portrait || ''}" alt="${escapeHtml(store.storekeeper)}">
+      <div><h3>${escapeHtml(store.name)}</h3><div class="keeper">${escapeHtml(store.storekeeper)}</div><p>${escapeHtml(store.intro)}</p></div>
+    </div>`;
+  }
   const list = document.getElementById('shop-list');
   list.innerHTML = SHOP_ITEMS.map(item => {
     const canAfford = state.inventory.coins >= item.cost;
@@ -857,15 +930,15 @@ document.addEventListener('keydown', e => {
 // ─── CARDS ───
 function cardHtml(cardId, card) {
   if (!card) return '';
-  const p = getBasePlayer(card.pid);
+  const p = baseForCard(card);
   const frame = RARITY_FRAME[card.rarity];
   const glow = RARITY_GLOW[card.rarity];
-  const art = cardArt(card.pid, card.rarity);
+  const art = artForCard(card);
   const stars = '★'.repeat(card.stars) + '☆'.repeat(5 - card.stars);
   return `
     <div class="player-card" data-card-id="${cardId}" style="--frame:${frame};--glow:${glow}">
       <div class="art-wrap">
-        <img src="${art}" alt="${escapeHtml(p?.name || '')}" onerror="this.onerror=null;this.src='./assets/players/${card.pid}.png'">
+        <img src="${art}" alt="${escapeHtml(p?.name || '')}" onerror="this.onerror=null;this.src='./assets/volleyball.png'">
         <span class="rarity-badge">${RARITY_LABELS[card.rarity][0]}</span>
       </div>
       <div class="name">${escapeHtml(p?.name || '?')}</div>
@@ -885,10 +958,10 @@ function wireCardClicks(container) {
 function openCardDetail(cardId) {
   const card = state.ownedCards[cardId];
   if (!card) return;
-  const p = getBasePlayer(card.pid);
+  const p = baseForCard(card);
   const frame = RARITY_FRAME[card.rarity];
   const glow = RARITY_GLOW[card.rarity];
-  const art = cardArt(card.pid, card.rarity);
+  const art = artForCard(card);
   const stats = cardStats(card);
   const campaignOverall = cardOverall(card);
   const baseOverall = p ? +((p.attack + p.serve + p.defense + p.setting + p.athletic) / 5).toFixed(2) : campaignOverall;
@@ -919,7 +992,7 @@ function openCardDetail(cardId) {
   body.style.setProperty('--frame', frame);
   body.style.setProperty('--glow', glow);
   body.innerHTML = `
-    <div class="reveal-art"><img src="${art}" alt="${escapeHtml(p?.name || '')}" onerror="this.onerror=null;this.src='./assets/players/${card.pid}.png'"></div>
+    <div class="reveal-art"><img src="${art}" alt="${escapeHtml(p?.name || '')}" onerror="this.onerror=null;this.src='./assets/volleyball.png'"></div>
     <div class="reveal-rarity" style="background:${frame}">${RARITY_LABELS[card.rarity]}</div>
     <div class="reveal-name">${escapeHtml(p?.name || '?')}</div>
     <div class="reveal-nickname">"${escapeHtml(p?.nickname || '')}" · ${'★'.repeat(card.stars)} · Lv ${card.level}</div>
@@ -930,6 +1003,7 @@ function openCardDetail(cardId) {
     </div>
     <div style="margin-top:16px;text-align:left;color:#fbbf24;font-size:.8rem;letter-spacing:1px">TRAIN (+0.2 stat per material)</div>
     <div class="card-detail-actions">${trainButtons}</div>
+    ${evoHtml}
     <div style="margin-top:16px;text-align:left;color:#fbbf24;font-size:.8rem;letter-spacing:1px">ROSTER · <span style="color:${rosterColor}">${rosterLocation}</span></div>
     <div class="card-detail-actions">
       <button onclick="doMoveStarter('${cardId}')" ${inStarters || startersFull ? 'disabled' : ''}>→ Starters</button>
@@ -963,11 +1037,48 @@ window.doTrain = (cardId, mat) => {
 window.doMoveStarter  = cardId => { try { moveToStarters(state, cardId); showRosterMoveImmediately(); } catch (e) { alert(e.message); } };
 window.doMoveBench    = cardId => { try { moveToBench(state, cardId);    showRosterMoveImmediately(); } catch (e) { alert(e.message); } };
 window.doRemoveRoster = cardId => { removeFromRoster(state, cardId); showRosterMoveImmediately(); };
-window.doSellCard = cardId => {
-  if (!confirm('Sell this card for coins? Cannot be undone.')) return;
+window.doSellCard = async cardId => {
+  const ok = await confirmDialog('Sell this card for coins? This cannot be undone.', { title:'Sell card?', confirmLabel:'Sell', cancelLabel:'Keep', confirmStyle:'danger' });
+  if (!ok) return;
   const v = sellCard(state, cardId);
   showRosterMoveImmediately();
   if (v) showCampaignToast(`💰 Sold for ${v} coins.`);
+};
+
+window.openEvolutionPicker = cardId => {
+  const card = state.ownedCards[cardId];
+  const evo = EVOLUTION_COSTS[card?.rarity];
+  if (!card || !evo) return;
+  const eligible = getEligibleEvolutionSacrifices(state, cardId);
+  const body = document.getElementById('modal-body');
+  body.innerHTML = `<h2 style="color:#fbbf24;margin-top:0">✨ Evolve Card</h2>
+    <p style="color:#cbd5e1">Choose exactly ${evo.sacrifices} level 10 ${RARITY_LABELS[card.rarity]} cards to sacrifice. They do not need to be the same player.</p>
+    <div class="sacrifice-list">${eligible.map(x => {
+      const p = baseForCard(x.card);
+      return `<label class="sacrifice-row"><input type="checkbox" class="sacrifice-check" value="${x.id}"> <span><b>${escapeHtml(p?.name || x.card.pid)}</b> · ${RARITY_LABELS[x.card.rarity]} · Lv ${x.card.level} · OVR ${x.overall.toFixed(2)}</span></label>`;
+    }).join('')}</div>
+    <div class="card-detail-actions">
+      <button onclick="confirmEvolution('${cardId}')">Confirm Evolution (${evo.coins} coins)</button>
+      <button onclick="openCardDetail('${cardId}')">Cancel</button>
+    </div>`;
+  openModal();
+};
+
+window.confirmEvolution = cardId => {
+  try {
+    const ids = [...document.querySelectorAll('.sacrifice-check:checked')].map(x => x.value);
+    const result = evolveCard(state, cardId, ids);
+    showCampaignToast(`✨ Evolved to ${RARITY_LABELS[result.newRarity]}!`);
+    refreshCardAndPage(cardId);
+  } catch (e) { alert(e.message); }
+};
+
+window.openOCCreator = () => {
+  renderOCCreator(state.oc || {}, oc => {
+    createOrUpdateOC(state, oc);
+    render();
+    showCampaignToast('🧍 Campaign player saved. OC starts as a Common campaign-only card.');
+  }, () => {});
 };
 
 function showCampaignToast(msg) {

@@ -4,9 +4,11 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { DEFAULT_PLAYERS } from './data.js';
+import { db, ref, set, get, auth } from './firebase-init.js';
 
 export const CAMPAIGN_SAVE_KEY = 'gomi-campaign-v1';
 const SAVE_KEY = CAMPAIGN_SAVE_KEY;
+export const CURRENT_CAMPAIGN_VERSION = 4;
 
 // ──────────── RARITIES ────────────
 export const RARITIES = ['common','uncommon','rare','epic','legendary'];
@@ -18,14 +20,27 @@ export const RARITY_LABELS = {
 };
 const RARITY_MULT = { common: 1.00, uncommon: 1.08, rare: 1.18, epic: 1.30, legendary: 1.45 };
 
+export const EVOLUTION_COSTS = {
+  common:    { to: 'uncommon',  coins: 100,  sacrifices: 4 },
+  uncommon:  { to: 'rare',      coins: 300,  sacrifices: 4 },
+  rare:      { to: 'epic',      coins: 750,  sacrifices: 4 },
+  epic:      { to: 'legendary', coins: 1250, sacrifices: 4 },
+};
+
+export const DIFFICULTY_CARD_DROPS = {
+  easy:   { chance: 0.05,  rarities: ['common','uncommon'] },
+  medium: { chance: 0.025, rarities: ['rare'] },
+  hard:   { chance: 0.01,  rarities: ['epic','legendary'] },
+};
+
 // ──────────── CHAPTERS ────────────
 export const CHAPTERS = [
   { n: 1, name: 'First Serve',      opponent: 'The Beginners',    theme: 'learn the ropes' },
   { n: 2, name: 'The Wall',         opponent: 'Iron Guardians',   theme: 'break through blocks' },
   { n: 3, name: 'No Easy Points',   opponent: 'Court Crushers',   theme: 'stamina war' },
   { n: 4, name: 'Rivalry Week',     opponent: 'The Outsiders',    theme: 'chemistry showdown' },
-  { n: 5, name: 'The Storm',        opponent: 'Lightning Bolts',  theme: 'fast tempo' },
-  { n: 6, name: 'Break Point',      opponent: 'Silent Assassins', theme: 'clutch under pressure' },
+  { n: 5, name: 'The Second Hand',  opponent: 'Second-in-Command', theme: 'storekeeper test' },
+  { n: 6, name: 'Break Point',      opponent: 'Nathan's Test', theme: 'trust your bench' },
   { n: 7, name: 'The Elite Six',    opponent: 'Six Kings',        theme: 'specialists everywhere' },
   { n: 8, name: 'Road to the Cup',  opponent: 'Rival Champions',  theme: 'test of everything' },
   { n: 9, name: 'Gomi Cup Final',   opponent: 'The Undefeated',   theme: 'title match' },
@@ -77,11 +92,16 @@ function tuneRival(player, targetOverall, idPrefix) {
   return tuned;
 }
 
+const SUPPORT_FIRST_NAMES = ['Ace','Bolt','Drift','Echo','Flare','Ghost','Haze','Jolt','Nova','Pulse','Rush','Storm','Volt','Zeph'];
+const SUPPORT_LAST_NAMES = ['Ashford','Cross','Edge','Hawk','Iron','Jade','Knox','Lund','Nox','Pike','Rook','Steel','Tide','Voss'];
+
 function supportPlayer(role, index, targetOverall, idPrefix, teamStem) {
+  const first = SUPPORT_FIRST_NAMES[index % SUPPORT_FIRST_NAMES.length];
+  const last = SUPPORT_LAST_NAMES[(index * 3 + String(teamStem || '').length) % SUPPORT_LAST_NAMES.length];
   return {
     id: `${idPrefix}-support-${index}`,
     baseId: null,
-    name: `${teamStem} ${role.name}`,
+    name: `${first} ${last}`,
     nickname: role.name,
     position: role.position,
     attack: clampStat(targetOverall + role.attack),
@@ -159,10 +179,14 @@ function freshState() {
     starterIds.push(id);
   });
   return {
-    version: 2,
+    version: CURRENT_CAMPAIGN_VERSION,
     createdAt: Date.now(),
     ownedCards,
     roster: { starters: starterIds, bench: [] },
+    club: localStorage.getItem('gomiSelectedClub') || null,
+    oc: null,
+    storyFlags: {},
+    unlocks: { ocSignatureMove: false },
     inventory: {
       coins: 100,
       packs: { starter: 1, common: 0, rare: 0, epic: 0, champion: 0 },
@@ -206,11 +230,39 @@ export function loadCampaign() {
     state.pity = state.pity || { packsSinceEpic: 0 };
     state.history = state.history || [];
     state.log = state.log || [];
+    state.club = state.club || localStorage.getItem('gomiSelectedClub') || null;
+    state.oc = state.oc || null;
+    state.storyFlags = state.storyFlags || {};
+    state.unlocks = state.unlocks || { ocSignatureMove: false };
+    if (typeof state.unlocks.ocSignatureMove !== 'boolean') state.unlocks.ocSignatureMove = false;
+    state.version = CURRENT_CAMPAIGN_VERSION;
     return state;
   } catch (e) { return null; }
 }
 export function saveCampaign(state) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
+  // Offline-first cloud backup. Fire-and-forget so campaign still works without Firebase/login.
+  try {
+    const uid = auth?.currentUser?.uid;
+    if (uid) set(ref(db, `campaignProgress/${uid}`), state).catch(() => {});
+  } catch (e) {}
+}
+
+export async function loadCloudCampaign() {
+  const uid = auth?.currentUser?.uid;
+  if (!uid) return null;
+  const snap = await get(ref(db, `campaignProgress/${uid}`));
+  const cloud = snap.val();
+  if (!cloud) return null;
+  localStorage.setItem(SAVE_KEY, JSON.stringify(cloud));
+  return loadCampaign();
+}
+
+export async function syncLocalCampaignToCloud(state) {
+  const uid = auth?.currentUser?.uid;
+  if (!uid || !state) return false;
+  await set(ref(db, `campaignProgress/${uid}`), state);
+  return true;
 }
 export function clearCampaign() {
   try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
@@ -222,12 +274,34 @@ export function newCampaign() {
 }
 
 // ──────────── DERIVED HELPERS ────────────
-export function getBasePlayer(pid) {
+export function getBasePlayer(pid, state = null) {
+  if (pid === 'oc' || pid === 'player-oc') {
+    const oc = state?.oc;
+    return oc ? ocToBasePlayer(oc) : { id:'oc', name:'Your Player', nickname:'Rookie', position:'OH', role:'Custom Player', attack:5, serve:5, defense:5, setting:5, athletic:5, isOC:true };
+  }
   return DEFAULT_PLAYERS.find(p => p.id === pid);
 }
 
+export function ocToBasePlayer(oc) {
+  return {
+    id: 'oc',
+    name: oc?.name || 'Your Player',
+    nickname: oc?.nickname || 'Rookie',
+    position: oc?.position || 'OH',
+    role: 'Custom Player',
+    attack: +(oc?.stats?.attack ?? 5),
+    serve: +(oc?.stats?.serve ?? 5),
+    defense: +(oc?.stats?.defense ?? 5),
+    setting: +(oc?.stats?.setting ?? 5),
+    athletic: +(oc?.stats?.athletic ?? 5),
+    isOC: true,
+    avatar: oc?.avatar || null,
+    signatureName: oc?.signatureName || null,
+  };
+}
+
 export function cardStats(card) {
-  const base = getBasePlayer(card.pid);
+  const base = card.pid === 'oc' ? ocToBasePlayer(card.oc || {}) : getBasePlayer(card.pid);
   if (!base) return { attack:5, serve:5, defense:5, setting:5, athletic:5 };
   const mult = RARITY_MULT[card.rarity] || 1;
   const levelBonus = (card.level - 1) * 0.05;
@@ -287,7 +361,7 @@ export function completeCampaignMatch(state, chapter, matchNumber, difficulty, w
   if (won && !isCampaignMatchUnlocked(state, chapter, matchNumber, difficulty)) throw new Error('Campaign match is locked');
   const firstClear = won && !isCampaignMatchCleared(state, chapter, matchNumber, difficulty);
   const diffMult = { easy: 1, medium: 2, hard: 3 }[difficulty] || 1;
-  const rewards = { coins: 0, xp: 0, packs: {}, materials: {} };
+  const rewards = { coins: 0, xp: 0, packs: {}, materials: {}, cardDrop: null, unlocks: [] };
   if (won && firstClear) {
     const matches = state.progression.matches[difficulty];
     matches[chapter] = matches[chapter] || [];
@@ -314,6 +388,18 @@ export function completeCampaignMatch(state, chapter, matchNumber, difficulty, w
       rewards.materials[first]  = (rewards.materials[first]  || 0) + diffMult;
       rewards.materials[second] = (rewards.materials[second] || 0) + diffMult;
     }
+    // Difficulty-based rival card drop chance.
+    const drop = rollDifficultyCardDrop(info, difficulty);
+    if (drop) {
+      const id = addCampaignCard(state, drop.pid, drop.rarity, { source: 'match-drop', chapter, matchNumber, difficulty });
+      rewards.cardDrop = { ...drop, id };
+    }
+    // OC milestone evolution/signature hooks.
+    if (state.oc && chapter === 7 && matchNumber === 10 && !state.unlocks.ocSignatureMove) {
+      state.unlocks.ocSignatureMove = true;
+      state.oc.signatureName = state.oc.signatureName || `${state.oc.nickname || 'Rookie'} Moment`;
+      rewards.unlocks.push('OC_SIGNATURE_MOVE');
+    }
     if (isChapterCleared(state, chapter, difficulty)) {
       const oldKey = `${difficulty}Cleared`;
       if (!state.progression[oldKey].includes(chapter)) state.progression[oldKey].push(chapter);
@@ -336,6 +422,24 @@ export function completeCampaignMatch(state, chapter, matchNumber, difficulty, w
   state.history.push({ chapter, match: matchNumber, difficulty, won, score: { home: homeScore, away: awayScore }, opponent: info.opponentName, ts: Date.now() });
   saveCampaign(state);
   return { won, firstClear, rewards, info };
+}
+
+export function addCampaignCard(state, pid, rarity = 'common', extra = {}) {
+  const id = `card-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const newCard = { pid, rarity, stars: 1, level: 1, xp: 0, statBoosts: {}, obtainedAt: Date.now(), ...extra };
+  if (pid === 'oc' && state.oc) newCard.oc = { ...state.oc };
+  state.ownedCards[id] = newCard;
+  return id;
+}
+
+function rollDifficultyCardDrop(info, difficulty) {
+  const cfg = DIFFICULTY_CARD_DROPS[difficulty];
+  if (!cfg || Math.random() >= cfg.chance) return null;
+  const featured = info?.featuredPlayers || [];
+  if (!featured.length) return null;
+  const player = featured[Math.floor(Math.random() * featured.length)];
+  const rarity = cfg.rarities[Math.floor(Math.random() * cfg.rarities.length)];
+  return { pid: player.id, playerName: player.name, rarity, chance: cfg.chance };
 }
 
 // ──────────── LEVELING ────────────
@@ -397,9 +501,8 @@ export function openPack(state, packType) {
     };
   }
 
-  const id = `card-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const newCard = { pid: picked.id, rarity, stars: 1, level: 1, xp: 0, statBoosts: {}, obtainedAt: Date.now() };
-  state.ownedCards[id] = newCard;
+  const id = addCampaignCard(state, picked.id, rarity, { source: 'pack' });
+  const newCard = state.ownedCards[id];
   saveCampaign(state);
   return { card: newCard, id, pid: picked.id, rarity, isDuplicate: false, playerName: picked.name };
 }
@@ -466,12 +569,78 @@ export function sellCard(state, cardId) {
   return total;
 }
 
+
+// ──────────── CARD EVOLUTION ────────────
+export function canEvolveCard(state, cardId) {
+  const card = state.ownedCards[cardId];
+  if (!card || !EVOLUTION_COSTS[card.rarity]) return false;
+  return (card.level || 1) >= 10;
+}
+
+export function getEligibleEvolutionSacrifices(state, cardId) {
+  const card = state.ownedCards[cardId];
+  if (!card) return [];
+  return Object.entries(state.ownedCards)
+    .filter(([id, c]) => id !== cardId && c.rarity === card.rarity && (c.level || 1) >= 10)
+    .map(([id, c]) => ({ id, card: c, overall: cardOverall(c) }))
+    .sort((a,b) => a.overall - b.overall);
+}
+
+export function evolveCard(state, cardId, sacrificeIds = []) {
+  const card = state.ownedCards[cardId];
+  if (!card) throw new Error('Card not found');
+  const evo = EVOLUTION_COSTS[card.rarity];
+  if (!evo) throw new Error('This card is already Legendary');
+  if ((card.level || 1) < 10) throw new Error('Card must be level 10 to evolve');
+  if (state.inventory.coins < evo.coins) throw new Error(`Need ${evo.coins} coins`);
+  const valid = [...new Set(sacrificeIds)].filter(id => {
+    const c = state.ownedCards[id];
+    return id !== cardId && c && c.rarity === card.rarity && (c.level || 1) >= 10;
+  });
+  if (valid.length < evo.sacrifices) throw new Error(`Choose ${evo.sacrifices} level 10 ${card.rarity} sacrifice cards`);
+  state.inventory.coins -= evo.coins;
+  for (const id of valid.slice(0, evo.sacrifices)) {
+    state.roster.starters = state.roster.starters.filter(x => x !== id);
+    state.roster.bench = state.roster.bench.filter(x => x !== id);
+    delete state.ownedCards[id];
+  }
+  const oldRarity = card.rarity;
+  card.rarity = evo.to;
+  card.level = 1;
+  card.stars = 1;
+  card.xp = 0;
+  card.evolvedFrom = [...(card.evolvedFrom || []), oldRarity];
+  state.log = [...(state.log || []), `✨ ${card.pid} evolved ${oldRarity.toUpperCase()} → ${evo.to.toUpperCase()}`].slice(-30);
+  saveCampaign(state);
+  return { oldRarity, newRarity: evo.to, coins: evo.coins, sacrificed: valid.slice(0, evo.sacrifices) };
+}
+
+// ──────────── OC / CUSTOM PLAYER ────────────
+export function createOrUpdateOC(state, oc) {
+  state.oc = { ...oc, created: true, createdAt: oc.createdAt || Date.now() };
+  let entry = Object.entries(state.ownedCards).find(([, c]) => c.pid === 'oc');
+  if (!entry) {
+    const id = addCampaignCard(state, 'oc', 'common', { oc: { ...state.oc }, source: 'oc-created' });
+    // Put OC on bench if there is room; campaign-only, not draft/sim pool.
+    if ((state.roster.bench || []).length < 4) state.roster.bench.push(id);
+  } else {
+    entry[1].oc = { ...state.oc };
+  }
+  saveCampaign(state);
+  return state.oc;
+}
+
+export function hasOC(state) {
+  return !!state?.oc?.created;
+}
+
 // ──────────── SHOP ────────────
 export const SHOP_ITEMS = [
   { id: 'starter', pack: 'starter', cost: 100,  label: '🎁 Starter Pack' },
   { id: 'common',  pack: 'common',  cost: 200,  label: '📦 Common Pack' },
   { id: 'rare',    pack: 'rare',    cost: 600,  label: '💎 Rare Pack' },
   { id: 'epic',    pack: 'epic',    cost: 1500, label: '⭐ Epic Pack' },
+  { id: 'champion', pack: 'champion', cost: 3000, label: '🏆 Champion Pack' },
 ];
 export function buyPack(state, itemId) {
   const item = SHOP_ITEMS.find(i => i.id === itemId);

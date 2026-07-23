@@ -28,7 +28,7 @@ export const PLAYER_DATA_VERSION = 11;
 export const DEFAULT_PLAYERS = [
   // Captains — added to the shared pool. When a league picks them as captain,
   // they're auto-excluded from that league's draft pool.
-  { id: 'big-b', position:'MB',        name:'Big-B',         nickname:'The Night Predator', role:'Middle Blocker', isCaptain:true,
+  { id: 'big-b', position:'MB',        name:'Big-B',         nickname:'Blackout', role:'Middle Blocker', isCaptain:true,
     attack:6.5, serve:6.5, defense:8,   setting:6.5, athletic:8 },
   { id: 'burla', position:'S',        name:'Burla',         nickname:'The Trickster',      role:'Setter',         isCaptain:true,
     attack:6.5, serve:7,   defense:6.5, setting:6.5, athletic:6.5 },

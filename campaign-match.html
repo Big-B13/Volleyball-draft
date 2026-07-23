@@ -128,7 +128,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 function campaignHomeTeam() {
   return state.roster.starters.map((cardId, i) => {
     const card = state.ownedCards[cardId];
-    const base = card && getBasePlayer(card.pid);
+    const base = card?.pid === 'oc'
+      ? { id:'oc', name: card.oc?.name || 'Your Player', nickname: card.oc?.nickname || 'Rookie', position: card.oc?.position || 'OH', avatar: card.oc?.avatar || null }
+      : (card && getBasePlayer(card.pid));
     if (!card || !base) return null;
     return {
       ...base, ...cardStats(card),
@@ -146,6 +148,7 @@ function teamAverage(team) {
   return team.reduce((s, p) => s + (p.attack + p.serve + p.defense + p.setting + p.athletic) / 5, 0) / team.length;
 }
 function playerImage(player) {
+  if (player.avatar) return player.avatar;
   return player.baseId ? `./assets/players/${player.baseId}.png` : '';
 }
 function renderGate(title, message, action = '') {
@@ -375,6 +378,8 @@ function rewardText(result) {
   if (r.xp) lines.push(`⭐ +${r.xp} XP for every starter`);
   for (const [p, c] of Object.entries(r.packs))     lines.push(`📦 ${c}× ${PACK_LABELS[p]}`);
   for (const [m, c] of Object.entries(r.materials)) lines.push(`🎯 +${c} ${m.toUpperCase()}`);
+  if (r.cardDrop) lines.push(`🃏 DROP! ${r.cardDrop.rarity.toUpperCase()} ${r.cardDrop.playerName || r.cardDrop.pid}`);
+  if ((r.unlocks || []).includes('OC_SIGNATURE_MOVE')) lines.push('✨ Your OC unlocked a signature move!');
   if (result.won && !result.firstClear) lines.push('↻ Replay reward (full milestone rewards were already claimed)');
   return lines.join('<br>');
 }
