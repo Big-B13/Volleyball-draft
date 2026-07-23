@@ -121,6 +121,9 @@
 
   /* ── SHOP ── */
   .shop-list { display: grid; gap: 10px; }
+  #tab-shop { background:linear-gradient(rgba(8,5,8,.55),rgba(8,5,8,.82)),url('./assets/store/otter-box.jpeg') center/cover fixed; border:1px solid #6b422b; border-radius:16px; padding:20px; }
+  #tab-shop .shop-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:16px; }
+  #tab-shop .shop-item { box-shadow:0 12px 30px rgba(0,0,0,.5); background:rgba(20,13,16,.9); border:1px solid #9a633c; }
   .shop-item { display: grid; grid-template-columns: minmax(160px,1fr) auto auto; gap: 14px; align-items: center; padding: 14px; border: 1px solid #334155; border-radius: 10px; background: rgba(30,41,59,.65); }
   .shop-item .shop-info { min-width: 0; }
   .shop-item .shop-label { color: #fff; font-weight: 700; }
@@ -191,7 +194,10 @@
     .featured-rivals { grid-template-columns: repeat(2,1fr); }
     .match-ladder { grid-template-columns: 1fr; }
     .campaign-match-card { min-height: 0; }
-    .shop-item { grid-template-columns: 1fr auto; }
+    #tab-shop { background:linear-gradient(rgba(8,5,8,.55),rgba(8,5,8,.82)),url('./assets/store/otter-box.jpeg') center/cover fixed; border:1px solid #6b422b; border-radius:16px; padding:20px; }
+  #tab-shop .shop-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:16px; }
+  #tab-shop .shop-item { box-shadow:0 12px 30px rgba(0,0,0,.5); background:rgba(20,13,16,.9); border:1px solid #9a633c; }
+  .shop-item { grid-template-columns: 1fr auto; }
     .shop-item button { grid-column: 1 / -1; width: 100%; padding: 10px; }
     .rarity-guide-row { grid-template-columns: 1fr auto; font-size: .78rem; }
     .rarity-guide-row span:last-child { grid-column: 1 / -1; }
