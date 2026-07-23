@@ -235,6 +235,7 @@
         <span class="stat">📦 Packs: <b id="stat-packs">0</b></span>
         <span class="stat">⚡ Power: <b id="stat-power">0</b></span>
         <span class="stat">🎯 Matches: <b id="stat-cleared">0/270</b></span>
+        <span class="stat" id="club-chip" style="cursor:pointer" title="Your club — click to change"></span>
       </div>
     </header>
 
@@ -387,8 +388,12 @@ function playerClub() {
 const CLUB_IDS = ['strigidae', 'otters', 'shizuka'];
 
 function knownClub() {
-  const c = state?.club || localStorage.getItem('gomiSelectedClub');
-  return CLUB_IDS.includes(c) ? c : null;
+  // The player's EXPLICIT choice (onboarding / picker) outranks the campaign
+  // save: pre-fix code poisoned old saves with club:'strigidae' as a silent
+  // default, so a save alone can't be trusted.
+  const ls = localStorage.getItem('gomiSelectedClub');
+  if (CLUB_IDS.includes(ls)) return ls;
+  return CLUB_IDS.includes(state?.club) ? state.club : null;
 }
 
 /* Older saves never stored the club anywhere (the onboarding only wrote it to the
@@ -397,7 +402,9 @@ function knownClub() {
 async function ensureClubKnown() {
   let club = knownClub();
   if (!club) club = await pickClubOverlay();
-  if (state && !state.club) { state.club = club; saveCampaign(state); }
+  // Correct the save too if it disagrees with the explicit choice (heals
+  // saves poisoned with the Strigidae default).
+  if (state && state.club !== club) { state.club = club; saveCampaign(state); }
   try { localStorage.setItem('gomiSelectedClub', club); } catch (e) {}
   return club;
 }
@@ -484,18 +491,34 @@ async function init() {
   if (!state.club) { state.club = playerClub(); saveCampaign(state); }
   if (!init.cloudChecked) {
     init.cloudChecked = true;
-    loadCloudCampaign().then(cloud => { if (cloud) { state = cloud; render(); showCampaignToast('☁️ Cloud campaign save loaded'); } }).catch(() => {});
+    loadCloudCampaign().then(cloud => {
+      if (!cloud || !state) return;
+      // Never silently stomp: the FRESHER save wins (saves are stamped with
+      // updatedAt on every write), and the explicit club choice always
+      // outranks whatever a (possibly poisoned) save holds.
+      const localFresh = +state.updatedAt || 0;
+      const cloudFresh = +cloud.updatedAt || 0;
+      if (localFresh >= cloudFresh) {
+        // Local is fresher (or same age) — heal the cloud from local instead.
+        syncLocalCampaignToCloud(state);
+        ensureClubKnown().then(() => render());
+        return;
+      }
+      const explicitClub = knownClub();
+      state = cloud;
+      if (explicitClub && state.club !== explicitClub) state.club = explicitClub;
+      saveCampaign(state);
+      render();
+      showCampaignToast('☁️ Cloud campaign save loaded');
+    }).catch(() => {});
   }
   wireTabs();
   document.querySelectorAll('.difficulty-tabs button').forEach(b => b.classList.toggle('active', b.dataset.diff === currentDifficulty));
   activateTab(currentTab);
 
-  // First entry: play the club guide's intro cutscene before the tutorial.
-  if (!state.guideIntroSeen) {
-    state.guideIntroSeen = true;
-    saveCampaign(state);
-    await showGuideIntroCutscene(club);
-  }
+  // Order matters: tutorial first, THEN the club guide's welcome cutscene.
+  // (Veterans who already finished the tutorial get the cutscene on entry.)
+  if (state.tutorialComplete) await maybeShowGuideIntro();
 
   if (!state.tutorialComplete && !guideScheduled) {
     guideScheduled = true;
@@ -717,6 +740,7 @@ function closeCampaignGuide() { document.getElementById('guide-backdrop').classL
 window.skipCampaignGuide = () => {
   if (state && !guideIsReplay) { state.tutorialComplete = true; saveCampaign(state); }
   closeCampaignGuide();
+  setTimeout(() => maybeShowGuideIntro(), 500);
 };
 
 window.finishCampaignGuide = () => {
@@ -728,6 +752,7 @@ window.finishCampaignGuide = () => {
   }
   closeCampaignGuide();
   activateTab('chapters');
+  setTimeout(() => maybeShowGuideIntro(), 500);
 };
 
 window.replayCampaignGuide = () => startCampaignGuide(true);
@@ -744,6 +769,22 @@ function render() {
   document.getElementById('stat-power').textContent = teamPower(state);
   const totalCleared = campaignProgressCount(state);
   document.getElementById('stat-cleared').textContent = `${totalCleared}/${CHAPTERS.length * CAMPAIGN_MATCH_COUNT * 3}`;
+
+  // Club chip: shows the resolved club and lets the player re-pick anytime —
+  // a deterministic escape hatch for old saves poisoned with the wrong club.
+  const chip = document.getElementById('club-chip');
+  if (chip) {
+    const chipNames = { strigidae: 'STRIGIDAE', otters: 'OTTERS', shizuka: 'SHIZUKA' };
+    const resolved = playerClub();
+    chip.innerHTML = `<img src="./assets/${CLUB_IDS.includes(resolved) ? resolved : 'volleyball'}.png" alt="" style="width:18px;height:18px;object-fit:contain;vertical-align:-4px;margin-right:4px" onerror="this.style.display='none'"> <b>${chipNames[resolved] || 'CLUB?'}</b> ✎`;
+    chip.onclick = async () => {
+      const picked = await pickClubOverlay();
+      if (state) { state.club = picked; saveCampaign(state); }
+      try { localStorage.setItem('gomiSelectedClub', picked); } catch (e) {}
+      render();
+      showCampaignToast(`🛡 Club set to ${chipNames[picked]} — store, lore and rivals now follow it`);
+    };
+  }
 
   // Always keep pack & shop lists refreshed so counters stay consistent across tabs.
   renderPacks();
@@ -902,6 +943,13 @@ function campaignPlayerName() {
   return ocCard?.oc?.name || 'rookie';
 }
 
+async function maybeShowGuideIntro() {
+  if (!state || state.guideIntroSeen) return;
+  state.guideIntroSeen = true;
+  saveCampaign(state);
+  await showGuideIntroCutscene(playerClub());
+}
+
 async function maybePlayChapterIntro(chapter, force = false) {
   if (!state) return;
   if (typeof playCutscene !== 'function') return; // story module absent/failed — skip silently
@@ -971,7 +1019,7 @@ window.doOpenPack = async type => {
     render();
     await revealPackResult(type, result);
     // No legacy modal here — the cinematic IS the reveal (dup info rides inside it).
-  } catch (e) { alert(e.message); }
+  } catch (e) { render(); showCampaignToast(`⚠️ ${e.message}`); }
 };
 
 function dupInfoHtml(result) {

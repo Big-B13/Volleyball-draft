@@ -254,6 +254,7 @@ export function loadCampaign() {
   } catch (e) { return null; }
 }
 export async function saveCampaign(state) {
+  try { state.updatedAt = Date.now(); } catch (e) {}
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
   // Offline-first cloud backup. Fire-and-forget so campaign still works without Firebase/login.
   try {
