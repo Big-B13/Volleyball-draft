@@ -100,11 +100,11 @@ export const DEFAULT_OC = {
   position: null,        // 'OH' | 'OP' | 'MB' | 'S' | 'L'
   club: null,            // 'strigidae' | 'otters' | 'shizuka'
   stats: {
-    attack: 5,
-    serve: 5,
-    defense: 5,
-    setting: 5,
-    athletic: 5,
+    attack: 0,
+    serve: 0,
+    defense: 0,
+    setting: 0,
+    athletic: 0,
   },
   story: null,           // free text: "Why do you play volleyball?"
   avatar: null,          // base64 data URL or Firebase Storage URL
@@ -115,7 +115,7 @@ export const DEFAULT_OC = {
 // Stat limits
 export const OC_STAT_CONFIG = {
   pointsTotal: 30,
-  pointsMin: 2.5,
+  pointsMin: 0,
   pointsMax: 11,
   pointsPerStat: 1,
 };
@@ -511,7 +511,7 @@ export function renderOCCreator(oc = {}, onSave, onSkip) {
           <h3 style="color:#f8fafc; margin:0 0 4px;">Your Stats</h3>
           <p style="color:#64748b; margin:0 0 16px; font-size:0.82rem;">
             You have <strong id="oc-points-remaining" style="color:#fbbf24;">30</strong> points to distribute.
-            Each stat starts at 2.5 and maxes at 11.
+            Each stat starts at 0 and maxes at 11.
           </p>
           ${['attack','serve','defense','setting','athletic'].map(stat => `
             <div style="margin-bottom:14px;">
@@ -519,7 +519,7 @@ export function renderOCCreator(oc = {}, onSave, onSkip) {
                 <label style="color:#cbd5e1; font-size:0.85rem; font-weight:600; text-transform:capitalize;">
                   ${stat}
                 </label>
-                <span id="oc-stat-val-${stat}" style="color:#fbbf24; font-weight:700; font-size:0.9rem;">5.0</span>
+                <span id="oc-stat-val-${stat}" style="color:#fbbf24; font-weight:700; font-size:0.9rem;">0.0</span>
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <button class="oc-stat-btn oc-stat-minus" data-stat="${stat}" style="
@@ -553,6 +553,12 @@ export function renderOCCreator(oc = {}, onSave, onSkip) {
               display:flex; align-items:center; justify-content:center;
               font-size:2.5rem; color:#64748b;
             ">👤</div>
+            <div id="oc-crop-controls" style="display:none;width:100%;max-width:300px;color:#94a3b8;font-size:.75rem;">
+              <label>Zoom <input id="oc-crop-zoom" type="range" min="1" max="3" step=".05" value="1" style="width:100%"></label>
+              <label>Horizontal <input id="oc-crop-x" type="range" min="0" max="1" step=".01" value=".5" style="width:100%"></label>
+              <label>Vertical <input id="oc-crop-y" type="range" min="0" max="1" step=".01" value=".5" style="width:100%"></label>
+              <button id="oc-crop-apply" type="button" style="margin-top:8px;padding:8px 12px;border:0;border-radius:7px;background:#38bdf8;color:#082f49;font-weight:800;cursor:pointer">Use Crop</button>
+            </div>
             <label style="
               cursor:pointer; padding:10px 20px; border-radius:8px;
               border:1px solid #334155; background:#1e293b;
@@ -613,7 +619,7 @@ export function renderOCCreator(oc = {}, onSave, onSkip) {
     name: oc?.name || '',
     position: oc?.position || null,
     nickname: oc?.nickname || '',
-    stats: oc?.stats ? { ...oc.stats } : { attack: 5, serve: 5, defense: 5, setting: 5, athletic: 5 },
+    stats: oc?.stats ? { ...oc.stats } : { attack: 0, serve: 0, defense: 0, setting: 0, athletic: 0 },
     avatar: oc?.avatar || null,
     story: oc?.story || '',
   };
@@ -622,9 +628,8 @@ export function renderOCCreator(oc = {}, onSave, onSkip) {
   const min = OC_STAT_CONFIG.pointsMin;
 
   function updatePoints() {
-    const total = Object.values(formData.stats).reduce((a, b) => a + b, 0);
-    const used = Math.round((total - min * 5) * 10) / 10;
-    const remaining = Math.round((OC_STAT_CONFIG.pointsTotal - used) * 10) / 10;
+    const used = Object.values(formData.stats).reduce((a, b) => a + b, 0);
+    const remaining = Math.max(0, Math.round((OC_STAT_CONFIG.pointsTotal - used) * 10) / 10);
     document.getElementById('oc-points-remaining').textContent = remaining;
     return remaining;
   }
@@ -777,9 +782,12 @@ export function renderOCCreator(oc = {}, onSave, onSkip) {
       const stat = btn.dataset.stat;
       const delta = btn.classList.contains('oc-stat-plus') ? 0.5 : -0.5;
       const current = formData.stats[stat];
+      if (delta > 0 && updatePoints() <= 0) return;
+      if (delta < 0 && current <= min) return;
       const newVal = Math.round(Math.min(max, Math.max(min, current + delta)) * 10) / 10;
       formData.stats[stat] = newVal;
       updateStatUI();
+      updateStepValid();
     };
   });
 
@@ -793,9 +801,29 @@ export function renderOCCreator(oc = {}, onSave, onSkip) {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      const dataUrl = await processAvatarImage(file);
-      formData.avatar = dataUrl;
-      avatarPreview.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`;
+      const sourceUrl = URL.createObjectURL(file);
+      const sourceImg = new Image();
+      sourceImg.onload = () => {
+        const controls = document.getElementById('oc-crop-controls');
+        controls.style.display = 'block';
+        const renderCrop = () => {
+          const zoom = +document.getElementById('oc-crop-zoom').value;
+          const x = +document.getElementById('oc-crop-x').value;
+          const y = +document.getElementById('oc-crop-y').value;
+          const size = Math.min(sourceImg.width, sourceImg.height) / zoom;
+          const sx = Math.max(0, Math.min(sourceImg.width - size, sourceImg.width * x - size / 2));
+          const sy = Math.max(0, Math.min(sourceImg.height - size, sourceImg.height * y - size / 2));
+          const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+          canvas.getContext('2d').drawImage(sourceImg, sx, sy, size, size, 0, 0, 256, 256);
+          const previewUrl = canvas.toDataURL('image/jpeg', .88);
+          avatarPreview.innerHTML = `<img src="${previewUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`;
+          return previewUrl;
+        };
+        ['oc-crop-zoom','oc-crop-x','oc-crop-y'].forEach(id => document.getElementById(id).oninput = renderCrop);
+        document.getElementById('oc-crop-apply').onclick = () => { formData.avatar = renderCrop(); controls.style.display = 'none'; URL.revokeObjectURL(sourceUrl); };
+        renderCrop();
+      };
+      sourceImg.src = sourceUrl;
     } catch (err) {
       alert(err.message);
     }
