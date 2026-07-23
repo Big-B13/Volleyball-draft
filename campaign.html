@@ -333,6 +333,7 @@ import { openPackCinematic } from './js/pack-opening-system.js';
 import { getStoreHeaderData, getStorekeeperForPackOpening, getStorekeeperReaction } from './js/store-system.js';
 import { renderOCCreator } from './js/oc-system.js';
 import { confirmDialog } from './js/ui-helpers.js';
+import { showLoadingSequence, shouldShowFullSequence, markFullSequenceShown } from './js/campaign-loading.js';
 
 const params = new URLSearchParams(location.search);
 const requestedTab = params.get('tab');
@@ -363,12 +364,19 @@ function artForCard(card) {
   return cardArt(card.pid, card.rarity);
 }
 
-function init() {
+async function init() {
   if (!state) {
     document.getElementById('intro-view').style.display = 'block';
     document.getElementById('campaign-view').style.display = 'none';
     return;
   }
+  
+  // Show loading sequence before displaying campaign
+  const club = state.club || playerClub();
+  const showFull = shouldShowFullSequence();
+  await showLoadingSequence(club, { firstTime: showFull });
+  if (showFull) markFullSequenceShown();
+  
   document.getElementById('intro-view').style.display = 'none';
   document.getElementById('campaign-view').style.display = 'block';
   if (!state.club) { state.club = playerClub(); saveCampaign(state); }
