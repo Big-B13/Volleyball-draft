@@ -54,7 +54,7 @@ export const CHAPTERS = [
   { n: 3, name: 'No Easy Points',   opponent: 'Court Crushers',   theme: 'stamina war' },
   { n: 4, name: 'Rivalry Week',     opponent: 'The Outsiders',    theme: 'chemistry showdown' },
   { n: 5, name: 'The Second Hand',  opponent: 'Second-in-Command', theme: 'storekeeper test' },
-  { n: 6, name: 'Break Point',      opponent: 'Nathan's Test', theme: 'trust your bench' },
+  { n: 6, name: 'Break Point',      opponent: 'Nathan\'s Test', theme: 'trust your bench' },
   { n: 7, name: 'The Elite Six',    opponent: 'Six Kings',        theme: 'specialists everywhere' },
   { n: 8, name: 'Road to the Cup',  opponent: 'Rival Champions',  theme: 'test of everything' },
   { n: 9, name: 'Gomi Cup Final',   opponent: 'The Undefeated',   theme: 'title match' },
